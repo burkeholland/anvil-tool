@@ -49,6 +49,16 @@ final class ChangesModel: ObservableObject {
         refresh()
     }
 
+    func stop() {
+        fileWatcher?.stop()
+        fileWatcher = nil
+        rootDirectory = nil
+        // Advance generation so any in-flight refresh is discarded
+        refreshGeneration &+= 1
+        changedFiles = []
+        isLoading = false
+    }
+
     func refresh() {
         guard let rootURL = rootDirectory else { return }
         isLoading = true

@@ -58,6 +58,19 @@ final class ActivityFeedModel: ObservableObject {
         }
     }
 
+    func stop() {
+        fileWatcher?.stop()
+        fileWatcher = nil
+        gitPollTimer?.invalidate()
+        gitPollTimer = nil
+        rootURL = nil
+        knownFiles = [:]
+        lastHeadSHA = nil
+        events.removeAll()
+        groups.removeAll()
+        latestFileChange = nil
+    }
+
     func clear() {
         events.removeAll()
         groups.removeAll()

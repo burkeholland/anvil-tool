@@ -39,6 +39,10 @@ struct FindInProjectKey: FocusedValueKey {
     typealias Value = () -> Void
 }
 
+struct CloseProjectKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
 extension FocusedValues {
     var sidebarVisible: Binding<Bool>? {
         get { self[SidebarVisibleKey.self] }
@@ -83,6 +87,11 @@ extension FocusedValues {
     var findInProject: (() -> Void)? {
         get { self[FindInProjectKey.self] }
         set { self[FindInProjectKey.self] = newValue }
+    }
+
+    var closeProject: (() -> Void)? {
+        get { self[CloseProjectKey.self] }
+        set { self[CloseProjectKey.self] = newValue }
     }
 }
 
@@ -182,6 +191,7 @@ struct ViewCommands: Commands {
 
 struct FileCommands: Commands {
     @FocusedValue(\.openDirectory) var openDirectory
+    @FocusedValue(\.closeProject) var closeProject
 
     var body: some Commands {
         CommandGroup(after: .newItem) {
@@ -190,6 +200,12 @@ struct FileCommands: Commands {
             }
             .keyboardShortcut("o", modifiers: .command)
             .disabled(openDirectory == nil)
+
+            Button("Close Project") {
+                closeProject?()
+            }
+            .keyboardShortcut("w", modifiers: [.command, .shift])
+            .disabled(closeProject == nil)
         }
     }
 }

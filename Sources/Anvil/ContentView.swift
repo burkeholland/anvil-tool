@@ -46,28 +46,22 @@ struct ContentView: View {
         .frame(minWidth: 800, minHeight: 500)
         .background(Color(nsColor: .windowBackgroundColor))
         .navigationTitle(workingDirectory.projectName)
-        .focusedSceneValue(\.sidebarVisible, $showSidebar)
-        .focusedSceneValue(\.sidebarTab, $sidebarTab)
-        .focusedSceneValue(\.previewOpen, filePreview.selectedURL != nil)
-        .focusedSceneValue(\.closePreview, { [weak filePreview] in
-            if let url = filePreview?.selectedURL {
-                filePreview?.closeTab(url)
-            }
-        })
-        .focusedSceneValue(\.openDirectory, {
-            browseForDirectory()
-        })
-        .focusedSceneValue(\.refresh, { [weak changesModel, weak workingDirectory] in
-            if let url = workingDirectory?.directoryURL {
-                changesModel?.start(rootURL: url)
-            }
-        })
-        .focusedSceneValue(\.quickOpen, workingDirectory.directoryURL != nil ? { showQuickOpen = true } : nil)
-        .focusedSceneValue(\.autoFollow, $autoFollow)
-        .focusedSceneValue(\.findInProject, workingDirectory.directoryURL != nil ? {
-            showSidebar = true
-            sidebarTab = .search
-        } : nil)
+        .modifier(FocusedSceneModifier(
+            showSidebar: $showSidebar,
+            sidebarTab: $sidebarTab,
+            autoFollow: $autoFollow,
+            filePreview: filePreview,
+            changesModel: changesModel,
+            workingDirectory: workingDirectory,
+            hasProject: workingDirectory.directoryURL != nil,
+            onShowQuickOpen: { showQuickOpen = true },
+            onFindInProject: {
+                showSidebar = true
+                sidebarTab = .search
+            },
+            onBrowse: { browseForDirectory() },
+            onCloseProject: { closeCurrentProject() }
+        ))
         .onChange(of: workingDirectory.directoryURL) { _, newURL in
             filePreview.close()
             filePreview.rootDirectory = newURL
@@ -85,6 +79,7 @@ struct ContentView: View {
         .onAppear {
             filePreview.rootDirectory = workingDirectory.directoryURL
             if let url = workingDirectory.directoryURL {
+                recentProjects.recordOpen(url)
                 changesModel.start(rootURL: url)
                 activityModel.start(rootURL: url)
                 searchModel.setRoot(url)
@@ -206,6 +201,14 @@ struct ContentView: View {
     private func dismissQuickOpen() {
         showQuickOpen = false
         quickOpenModel.reset()
+    }
+
+    private func closeCurrentProject() {
+        filePreview.close()
+        changesModel.stop()
+        activityModel.stop()
+        searchModel.clear()
+        workingDirectory.closeProject()
     }
 
     private func handleDrop(_ urls: [URL]) -> Bool {
@@ -419,5 +422,42 @@ struct SidebarTabButton: View {
             )
         }
         .buttonStyle(.plain)
+    }
+}
+
+/// Extracts focusedSceneValue modifiers to reduce type-checker complexity in ContentView.body.
+private struct FocusedSceneModifier: ViewModifier {
+    @Binding var showSidebar: Bool
+    @Binding var sidebarTab: SidebarTab
+    @Binding var autoFollow: Bool
+    var filePreview: FilePreviewModel
+    var changesModel: ChangesModel
+    var workingDirectory: WorkingDirectoryModel
+    var hasProject: Bool
+    var onShowQuickOpen: () -> Void
+    var onFindInProject: () -> Void
+    var onBrowse: () -> Void
+    var onCloseProject: () -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .focusedSceneValue(\.sidebarVisible, $showSidebar)
+            .focusedSceneValue(\.sidebarTab, $sidebarTab)
+            .focusedSceneValue(\.previewOpen, filePreview.selectedURL != nil)
+            .focusedSceneValue(\.closePreview, { [weak filePreview] in
+                if let url = filePreview?.selectedURL {
+                    filePreview?.closeTab(url)
+                }
+            })
+            .focusedSceneValue(\.openDirectory, onBrowse)
+            .focusedSceneValue(\.refresh, { [weak changesModel, weak workingDirectory] in
+                if let url = workingDirectory?.directoryURL {
+                    changesModel?.start(rootURL: url)
+                }
+            })
+            .focusedSceneValue(\.quickOpen, hasProject ? onShowQuickOpen : nil)
+            .focusedSceneValue(\.autoFollow, $autoFollow)
+            .focusedSceneValue(\.findInProject, hasProject ? onFindInProject : nil)
+            .focusedSceneValue(\.closeProject, hasProject ? onCloseProject : nil)
     }
 }

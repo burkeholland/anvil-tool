@@ -7,6 +7,7 @@ final class WorkingDirectoryModel: ObservableObject {
 
     private var branchWatcher: FileWatcher?
     private var branchPollTimer: Timer?
+    private static let lastDirectoryKey = "dev.anvil.lastOpenedDirectory"
 
     deinit {
         branchWatcher?.stop()
@@ -32,12 +33,32 @@ final class WorkingDirectoryModel: ObservableObject {
     }
 
     init() {
+        // Restore last opened directory if it still exists
+        if let savedPath = UserDefaults.standard.string(forKey: Self.lastDirectoryKey) {
+            var isDir: ObjCBool = false
+            if FileManager.default.fileExists(atPath: savedPath, isDirectory: &isDir), isDir.boolValue {
+                let url = URL(fileURLWithPath: savedPath)
+                self.directoryURL = url
+                startBranchTracking(url)
+                return
+            }
+        }
         self.directoryURL = nil
     }
 
     func setDirectory(_ url: URL) {
         directoryURL = url
+        UserDefaults.standard.set(url.standardizedFileURL.path, forKey: Self.lastDirectoryKey)
         startBranchTracking(url)
+    }
+
+    func closeProject() {
+        branchWatcher?.stop()
+        branchPollTimer?.invalidate()
+        branchPollTimer = nil
+        gitBranch = nil
+        directoryURL = nil
+        UserDefaults.standard.removeObject(forKey: Self.lastDirectoryKey)
     }
 
     // MARK: - Git Branch Tracking
