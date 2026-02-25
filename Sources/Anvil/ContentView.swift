@@ -25,6 +25,7 @@ struct ContentView: View {
     @State private var sidebarTab: SidebarTab = .files
     @State private var showQuickOpen = false
     @State private var showCommandPalette = false
+    @State private var showBranchPicker = false
     @State private var isDroppingFolder = false
     @AppStorage("autoFollowChanges") private var autoFollow = true
     @AppStorage("terminalFontSize") private var terminalFontSize: Double = 14
@@ -157,8 +158,10 @@ struct ContentView: View {
                 VStack(spacing: 0) {
                     ToolbarView(
                         workingDirectory: workingDirectory,
+                        changesModel: changesModel,
                         showSidebar: $showSidebar,
                         autoFollow: $autoFollow,
+                        showBranchPicker: $showBranchPicker,
                         onOpenDirectory: { browseForDirectory() }
                     )
 
@@ -378,6 +381,13 @@ struct ContentView: View {
                     changesModel?.start(rootURL: url)
                 }
             },
+
+            // Git
+            PaletteCommand(id: "switch-branch", title: "Switch Branch…", icon: "arrow.triangle.branch", shortcut: nil, category: "Git") {
+                hasProject && workingDirectory.gitBranch != nil
+            } action: {
+                showBranchPicker = true
+            },
         ])
     }
 
@@ -414,8 +424,10 @@ struct ContentView: View {
 
 struct ToolbarView: View {
     @ObservedObject var workingDirectory: WorkingDirectoryModel
+    @ObservedObject var changesModel: ChangesModel
     @Binding var showSidebar: Bool
     @Binding var autoFollow: Bool
+    @Binding var showBranchPicker: Bool
     var onOpenDirectory: () -> Void
 
     var body: some View {
@@ -442,14 +454,35 @@ struct ToolbarView: View {
                 Divider()
                     .frame(height: 16)
 
-                HStack(spacing: 4) {
-                    Image(systemName: "arrow.triangle.branch")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                    Text(branch)
-                        .font(.system(.body, design: .monospaced))
-                        .lineLimit(1)
-                        .truncationMode(.middle)
+                Button {
+                    showBranchPicker.toggle()
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "arrow.triangle.branch")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                        Text(branch)
+                            .font(.system(.body, design: .monospaced))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 8, weight: .semibold))
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+                .buttonStyle(.plain)
+                .help("Switch Branch")
+                .popover(isPresented: $showBranchPicker, arrowEdge: .bottom) {
+                    if let rootURL = workingDirectory.directoryURL {
+                        BranchPickerView(
+                            rootURL: rootURL,
+                            currentBranch: workingDirectory.gitBranch,
+                            onDismiss: { showBranchPicker = false },
+                            onBranchChanged: {
+                                changesModel.refresh()
+                            }
+                        )
+                    }
                 }
             }
 
