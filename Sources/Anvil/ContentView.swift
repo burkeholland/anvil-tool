@@ -988,15 +988,66 @@ struct ContentView: View {
             } action: { [weak terminalProxy] in
                 terminalProxy?.send("/diff\n")
             },
-            PaletteCommand(id: "copilot-model", title: "Copilot: Switch Model", icon: "brain", shortcut: nil, category: "Copilot") {
+            PaletteCommand(id: "copilot-model", title: "Copilot: Switch Model", icon: "brain", shortcut: nil, category: "Copilot",
+                           argumentPrompt: "Model name (leave blank to list models)") {
                 hasProject
             } action: { [weak terminalProxy] in
                 terminalProxy?.send("/model\n")
+            } actionWithArgument: { [weak terminalProxy] arg in
+                let trimmed = arg.trimmingCharacters(in: .whitespaces)
+                if trimmed.isEmpty {
+                    terminalProxy?.send("/model\n")
+                } else {
+                    terminalProxy?.send("/model \(trimmed)\n")
+                }
             },
             PaletteCommand(id: "copilot-help", title: "Copilot: Help", icon: "questionmark.circle", shortcut: nil, category: "Copilot") {
                 hasProject
             } action: { [weak terminalProxy] in
                 terminalProxy?.send("/help\n")
+            },
+            PaletteCommand(id: "copilot-context", title: "Copilot: Show Context", icon: "scope", shortcut: nil, category: "Copilot") {
+                hasProject
+            } action: { [weak terminalProxy] in
+                terminalProxy?.send("/context\n")
+            },
+            PaletteCommand(id: "copilot-review", title: "Copilot: Review Changes", icon: "eye", shortcut: nil, category: "Copilot") {
+                hasProject
+            } action: { [weak terminalProxy] in
+                terminalProxy?.send("/review\n")
+            },
+            PaletteCommand(id: "copilot-tasks", title: "Copilot: Show Tasks", icon: "checklist", shortcut: nil, category: "Copilot") {
+                hasProject
+            } action: { [weak terminalProxy] in
+                terminalProxy?.send("/tasks\n")
+            },
+            PaletteCommand(id: "copilot-session", title: "Copilot: Session Info", icon: "clock.arrow.circlepath", shortcut: nil, category: "Copilot") {
+                hasProject
+            } action: { [weak terminalProxy] in
+                terminalProxy?.send("/session\n")
+            },
+            PaletteCommand(id: "copilot-instructions", title: "Copilot: View Instructions", icon: "doc.plaintext", shortcut: nil, category: "Copilot") {
+                hasProject
+            } action: { [weak terminalProxy] in
+                terminalProxy?.send("/instructions\n")
+            },
+            PaletteCommand(id: "copilot-agent", title: "Copilot: Agent Mode", icon: "cpu", shortcut: nil, category: "Copilot",
+                           argumentPrompt: "Agent name or command (optional)") {
+                hasProject
+            } action: { [weak terminalProxy] in
+                terminalProxy?.send("/agent\n")
+            } actionWithArgument: { [weak terminalProxy] arg in
+                let trimmed = arg.trimmingCharacters(in: .whitespaces)
+                if trimmed.isEmpty {
+                    terminalProxy?.send("/agent\n")
+                } else {
+                    terminalProxy?.send("/agent \(trimmed)\n")
+                }
+            },
+            PaletteCommand(id: "copilot-mcp", title: "Copilot: MCP Tools", icon: "wrench.and.screwdriver", shortcut: nil, category: "Copilot") {
+                hasProject
+            } action: { [weak terminalProxy] in
+                terminalProxy?.send("/mcp\n")
             },
             PaletteCommand(id: "copilot-cycle-mode", title: "Copilot: Cycle Mode", icon: "arrow.left.arrow.right", shortcut: nil, category: "Copilot") {
                 hasProject
