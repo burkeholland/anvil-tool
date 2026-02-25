@@ -1448,7 +1448,7 @@ struct SidebarView: View {
                 ChangesListView(model: changesModel, filePreview: filePreview, workingDirectory: model, onReviewAll: onReviewAll, onBranchDiff: onBranchDiff, onCreatePR: onCreatePR)
 
             case .activity:
-                ActivityFeedView(model: activityModel, filePreview: filePreview)
+                ActivityFeedView(model: activityModel, filePreview: filePreview, rootURL: model.directoryURL)
 
             case .search:
                 SearchView(model: searchModel, filePreview: filePreview)
