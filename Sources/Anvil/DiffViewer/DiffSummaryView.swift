@@ -338,7 +338,7 @@ struct DiffSummaryView: View {
                         }
                     } else {
                         VStack(alignment: .leading, spacing: 0) {
-                            ForEach(Array(diff.hunks.enumerated()), id: \.element.id) { hunkIdx, hunk in
+                            ForEach(Array(diff.hunks.enumerated()), id: \.element.id) { (hunkIdx, hunk) in
                                 DiffHunkView(
                                     hunk: hunk,
                                     syntaxHighlights: highlights,

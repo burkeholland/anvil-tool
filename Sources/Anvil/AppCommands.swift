@@ -502,7 +502,7 @@ struct ViewCommands: Commands {
             Button("Discard Focused Hunk") {
                 discardFocusedHunk?()
             }
-            .keyboardShortcut(.delete, modifiers: [])
+            .keyboardShortcut("d", modifiers: [])
             .disabled(discardFocusedHunk == nil)
 
             Button("Toggle File Reviewed") {
