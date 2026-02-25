@@ -16,6 +16,7 @@ struct ContentView: View {
     @StateObject private var terminalProxy = TerminalInputProxy()
     @StateObject private var quickOpenModel = QuickOpenModel()
     @StateObject private var searchModel = SearchModel()
+    @State private var notificationManager = AgentNotificationManager()
     @State private var sidebarWidth: CGFloat = 240
     @State private var previewWidth: CGFloat = 400
     @State private var showSidebar = true
@@ -88,6 +89,7 @@ struct ContentView: View {
         }
         .onAppear {
             filePreview.rootDirectory = workingDirectory.directoryURL
+            notificationManager.connect(to: activityModel)
             if let url = workingDirectory.directoryURL {
                 recentProjects.recordOpen(url)
                 changesModel.start(rootURL: url)

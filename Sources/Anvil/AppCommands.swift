@@ -137,6 +137,7 @@ struct ViewCommands: Commands {
     @FocusedValue(\.decreaseFontSize) var decreaseFontSize
     @FocusedValue(\.resetFontSize) var resetFontSize
     @AppStorage("autoLaunchCopilot") private var autoLaunchCopilot = true
+    @AppStorage("notificationsEnabled") private var notificationsEnabled = true
 
     var body: some Commands {
         CommandGroup(after: .sidebar) {
@@ -155,6 +156,8 @@ struct ViewCommands: Commands {
             Divider()
 
             Toggle("Auto-Launch Copilot", isOn: $autoLaunchCopilot)
+
+            Toggle("Agent Notifications", isOn: $notificationsEnabled)
 
             if let autoFollow = autoFollow {
                 Toggle("Auto-Follow Changes", isOn: autoFollow)
