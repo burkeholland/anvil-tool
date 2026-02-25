@@ -91,11 +91,12 @@ struct DiffHunkView: View {
     var syntaxHighlights: [Int: AttributedString] = [:]
     var onStage: (() -> Void)?
     var onDiscard: (() -> Void)?
+    var onRequestFix: (() -> Void)?
     var isFocused: Bool = false
     @State private var isHovered = false
 
     private var hasActions: Bool {
-        onStage != nil || onDiscard != nil
+        onStage != nil || onDiscard != nil || onRequestFix != nil
     }
 
     var body: some View {
@@ -147,6 +148,15 @@ struct DiffHunkView: View {
                 }
                 .buttonStyle(.borderless)
                 .help("Discard this hunk")
+            }
+            if let onRequestFix {
+                Button { onRequestFix() } label: {
+                    Image(systemName: "wrench.and.screwdriver.fill")
+                        .font(.system(size: 14))
+                        .foregroundStyle(.orange)
+                }
+                .buttonStyle(.borderless)
+                .help("Request Fix for this hunk")
             }
         }
         .padding(.horizontal, 6)
