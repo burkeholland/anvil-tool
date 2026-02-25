@@ -22,13 +22,17 @@ LOOP_INTERVAL=300         # Seconds between cycles (5 min)
 LABEL="anvil-auto"        # Label applied to all auto-created issues
 REPO=""                   # Detected from gh repo view
 DRY_RUN=false
+DEBUG=false
+DEBUG_PHASE=""            # Run only this phase in debug mode
 
 # ─── Parse args ──────────────────────────────────────────────────────────────
 
 for arg in "$@"; do
   case "$arg" in
     --dry-run) DRY_RUN=true ;;
-    *) echo "Unknown argument: $arg"; exit 1 ;;
+    --debug) DEBUG=true ;;
+    --debug-phase=*) DEBUG=true; DEBUG_PHASE="${arg#--debug-phase=}" ;;
+    *) echo "Unknown argument: $arg"; echo "Usage: $0 [--dry-run] [--debug] [--debug-phase=merge|triage|plan|assign]"; exit 1 ;;
   esac
 done
 
@@ -57,7 +61,7 @@ REPO_NAME="$(echo "$REPO" | cut -d/ -f2)"
 
 log "🏗️  ralph-team.sh starting for $REPO"
 log "   MAX_ACTIVE_AGENTS=$MAX_ACTIVE_AGENTS  MAX_BACKLOG=$MAX_BACKLOG"
-log "   LOOP_INTERVAL=${LOOP_INTERVAL}s  DRY_RUN=$DRY_RUN"
+log "   LOOP_INTERVAL=${LOOP_INTERVAL}s  DRY_RUN=$DRY_RUN  DEBUG=$DEBUG"
 
 # Ensure the label exists
 if ! gh label list --repo "$REPO" --json name -q '.[].name' | grep -qx "$LABEL"; then
@@ -105,19 +109,19 @@ CONTEXT_EOF
 phase_merge() {
   log "📦 Phase 1: MERGE — checking for mergeable PRs..."
 
-  # Get open PRs authored by Copilot, oldest first, excluding build-failed
+  # Get Copilot PRs that are ready (not WIP, no build-failed label), oldest first
   local pr_numbers
   pr_numbers="$(gh pr list --repo "$REPO" --state open \
-    --json number,author,createdAt,labels \
-    --jq '[.[] | select(.author.login == "Copilot" or .author.login == "copilot[bot]") | select(([.labels[]?.name] | index("build-failed")) | not)] | sort_by(.createdAt) | .[].number')" || return 0
+    --json number,author,title,createdAt,labels \
+    --jq '[.[] | select(.author.login == "app/copilot-swe-agent") | select(.title | startswith("[WIP]") | not) | select(([.labels[]?.name] | index("build-failed")) | not)] | sort_by(.createdAt) | .[].number')" || return 0
 
   if [ -z "$pr_numbers" ]; then
-    log "   No open Copilot PRs found."
+    log "   No ready Copilot PRs found (WIP PRs are skipped)."
     return 0
   fi
 
   # Make sure we're on main with latest
-  git checkout main --quiet 2>/dev/null || true
+  git checkout main --force --quiet 2>/dev/null || true
   git pull --quiet origin main 2>/dev/null || true
 
   local merged_count=0
@@ -145,16 +149,36 @@ phase_merge() {
       continue
     fi
 
-    # Checkout PR locally and build
-    gh pr checkout "$pr_num" --force --quiet 2>/dev/null || {
-      log "   ❌ Could not checkout PR #$pr_num. Skipping."
+    # Fetch PR head and test-merge into a temp branch (keeps main clean)
+    local pr_head
+    pr_head="$(gh pr view "$pr_num" --repo "$REPO" --json headRefOid -q '.headRefOid')" || {
+      log "   ⚠️  Could not get head SHA for PR #$pr_num. Skipping."
+      continue
+    }
+    git fetch --quiet origin "$pr_head" 2>/dev/null || {
+      log "   ❌ Could not fetch PR #$pr_num head. Skipping."
       continue
     }
 
+    git checkout -B "ralph-team/test-merge" main --quiet 2>/dev/null || {
+      log "   ❌ Could not create test branch for PR #$pr_num. Skipping."
+      git checkout main --force --quiet 2>/dev/null || true
+      continue
+    }
+
+    if ! git merge --no-edit --quiet "$pr_head" 2>/dev/null; then
+      log "   ⚠️  PR #$pr_num merge conflicts locally. Skipping."
+      git merge --abort 2>/dev/null || true
+      git checkout main --force --quiet 2>/dev/null || true
+      continue
+    fi
+
     log "   🔨 Building PR #$pr_num..."
     if swift build 2>&1 | tail -3; then
-      log "   ✅ Build passed for PR #$pr_num. Merging..."
-      git checkout main --quiet 2>/dev/null || true
+      log "   ✅ Build passed for PR #$pr_num. Marking ready and merging..."
+      git checkout main --force --quiet 2>/dev/null || true
+      # Mark as ready (PRs from Copilot arrive as drafts)
+      gh pr ready "$pr_num" --repo "$REPO" 2>/dev/null || true
       gh pr merge "$pr_num" --repo "$REPO" --squash --delete-branch \
         --body "Merged by ralph-team.sh after local build verification." || {
         log "   ❌ Merge failed for PR #$pr_num."
@@ -166,7 +190,7 @@ phase_merge() {
       break
     else
       log "   ❌ Build failed for PR #$pr_num. Commenting and labeling."
-      git checkout main --quiet 2>/dev/null || true
+      git checkout main --force --quiet 2>/dev/null || true
       gh pr comment "$pr_num" --repo "$REPO" \
         --body "❌ ralph-team: Build failed locally (\`swift build\`). Please fix compilation errors." \
         2>/dev/null || true
@@ -174,6 +198,10 @@ phase_merge() {
       gh pr edit "$pr_num" --repo "$REPO" --add-label "build-failed" 2>/dev/null || true
     fi
   done <<< "$pr_numbers"
+
+  # Clean up test branch
+  git checkout main --force --quiet 2>/dev/null || true
+  git branch -D "ralph-team/test-merge" 2>/dev/null || true
 
   log "   Merged $merged_count PR(s) this cycle."
 }
@@ -187,7 +215,7 @@ phase_triage() {
   local conflicting_prs
   conflicting_prs="$(gh pr list --repo "$REPO" --state open \
     --json number,author,comments \
-    --jq '[.[] | select(.author.login == "Copilot" or .author.login == "copilot[bot]") | select(.comments | length > 0)] | .[].number')" || true
+    --jq '[.[] | select(.author.login == "app/copilot-swe-agent") | select(.comments | length > 0)] | .[].number')" || true
 
   local pr_num
   while IFS= read -r pr_num; do
@@ -232,7 +260,7 @@ phase_triage() {
     local closed_by_prs
     closed_by_prs="$(gh pr list --repo "$REPO" --state merged \
       --limit 20 --json author,closingIssuesReferences \
-      --jq '[.[] | select(.author.login == "Copilot" or .author.login == "copilot[bot]") | .closingIssuesReferences[].number] | unique | .[]' 2>/dev/null)" || closed_by_prs=""
+      --jq '[.[] | select(.author.login == "app/copilot-swe-agent") | .closingIssuesReferences[].number] | unique | .[]' 2>/dev/null)" || closed_by_prs=""
 
     local issue_num issue_title
     while IFS=$'\t' read -r issue_num issue_title; do
@@ -323,16 +351,18 @@ $open_issue_titles
 
 Identify exactly $issues_to_create improvements or features to build next. Each should be:
 1. A single focused unit of work (completable in one session)
-2. Scoped to specific files or modules (to minimize merge conflicts with parallel work)
+2. Scoped to a specific area of the app (to minimize merge conflicts with parallel work)
 3. Not duplicating any open issue listed above
 4. Impactful — ask yourself what matters most to a developer using this app right now
+
+Do NOT specify which files to modify — the implementing agent will figure that out.
 
 Output ONLY a JSON array. No markdown, no explanation, no code fences. Just the raw JSON array:
 [
   {
     \"title\": \"Short descriptive title\",
-    \"description\": \"Detailed description of what to build and why. Include which files/modules to modify. Be specific enough that an engineer can implement this without asking questions.\",
-    \"module\": \"The primary directory under Sources/Anvil/ this touches\"
+    \"problem\": \"What is the current problem or gap (1-2 sentences)\",
+    \"solution\": \"What to build and how it should work (2-4 sentences)\"
   }
 ]"
 
@@ -374,24 +404,28 @@ Output ONLY a JSON array. No markdown, no explanation, no code fences. Just the 
 
   local i=0
   while [ "$i" -lt "$count" ]; do
-    local title description module
+    local title problem solution
     title="$(echo "$json_output" | jq -r ".[$i].title")"
-    description="$(echo "$json_output" | jq -r ".[$i].description")"
-    module="$(echo "$json_output" | jq -r ".[$i].module // empty")"
+    problem="$(echo "$json_output" | jq -r ".[$i].problem // .[$i].description // empty")"
+    solution="$(echo "$json_output" | jq -r ".[$i].solution // empty")"
 
-    local full_body="$description"
-    if [ -n "$module" ]; then
+    # Compose structured issue body
+    local full_body="## Problem
+
+$problem"
+
+    if [ -n "$solution" ]; then
       full_body="$full_body
 
----
-*Primary module: \`Sources/Anvil/$module/\`*
-*Filed by ralph-team.sh*"
-    else
-      full_body="$full_body
+## Solution
 
----
-*Filed by ralph-team.sh*"
+$solution"
     fi
+
+    full_body="$full_body
+
+---
+🤖 *Filed by ralph-team.sh*"
 
     log "   📋 Creating issue: $title"
     gh issue create --repo "$REPO" \
@@ -420,7 +454,7 @@ phase_assign() {
   local open_pr_count
   open_pr_count="$(gh pr list --repo "$REPO" --state open \
     --json number,author \
-    --jq '[.[] | select(.author.login == "Copilot" or .author.login == "copilot[bot]")] | length' 2>/dev/null)" || open_pr_count=0
+    --jq '[.[] | select(.author.login == "app/copilot-swe-agent")] | length' 2>/dev/null)" || open_pr_count=0
 
   # Use the higher of the two as "active"
   local effective_active=$active_count
@@ -472,30 +506,53 @@ phase_assign() {
   log "   Assigned $assigned_count issue(s) this cycle."
 }
 
+# ─── Run Cycle ────────────────────────────────────────────────────────────────
+
+run_cycle() {
+  local iteration="$1"
+
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  log "🏗️  ralph-team.sh — Cycle $iteration"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+
+  if [ -z "$DEBUG_PHASE" ] || [ "$DEBUG_PHASE" = "merge" ]; then
+    phase_merge || log "⚠️  phase_merge failed, continuing..."
+    echo ""
+  fi
+
+  if [ -z "$DEBUG_PHASE" ] || [ "$DEBUG_PHASE" = "triage" ]; then
+    phase_triage || log "⚠️  phase_triage failed, continuing..."
+    echo ""
+  fi
+
+  if [ -z "$DEBUG_PHASE" ] || [ "$DEBUG_PHASE" = "plan" ]; then
+    phase_plan || log "⚠️  phase_plan failed, continuing..."
+    echo ""
+  fi
+
+  if [ -z "$DEBUG_PHASE" ] || [ "$DEBUG_PHASE" = "assign" ]; then
+    phase_assign || log "⚠️  phase_assign failed, continuing..."
+    echo ""
+  fi
+}
+
 # ─── Main Loop ───────────────────────────────────────────────────────────────
 
 ITERATION=0
 
+if [ "$DEBUG" = true ]; then
+  ITERATION=1
+  log "🐛 DEBUG MODE — running 1 cycle${DEBUG_PHASE:+ (phase: $DEBUG_PHASE)} then exiting"
+  run_cycle "$ITERATION"
+  log "🐛 DEBUG complete."
+  exit 0
+fi
+
 while true; do
   ITERATION=$((ITERATION + 1))
-  echo ""
-  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  log "🏗️  ralph-team.sh — Cycle $ITERATION"
-  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  echo ""
-
-  phase_merge || log "⚠️  phase_merge failed, continuing..."
-  echo ""
-
-  phase_triage || log "⚠️  phase_triage failed, continuing..."
-  echo ""
-
-  phase_plan || log "⚠️  phase_plan failed, continuing..."
-  echo ""
-
-  phase_assign || log "⚠️  phase_assign failed, continuing..."
-  echo ""
-
+  run_cycle "$ITERATION"
   log "💤 Cycle $ITERATION complete. Sleeping ${LOOP_INTERVAL}s..."
   sleep "$LOOP_INTERVAL"
 done
