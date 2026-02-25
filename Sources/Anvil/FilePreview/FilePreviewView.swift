@@ -66,6 +66,12 @@ struct FilePreviewView: View {
                 ProgressView()
                     .controlSize(.small)
                 Spacer()
+            } else if let image = model.previewImage {
+                ImagePreviewContent(
+                    image: image,
+                    imageSize: model.imageSize,
+                    fileSize: model.imageFileSize
+                )
             } else if model.activeTab == .changes, let diff = model.fileDiff {
                 DiffView(diff: diff)
             } else if let content = model.fileContent {
@@ -103,6 +109,85 @@ struct FilePreviewView: View {
         case "png", "jpg", "jpeg", "gif":   return "photo"
         default:                            return "doc"
         }
+    }
+}
+
+/// Displays an image file centered with metadata.
+struct ImagePreviewContent: View {
+    let image: NSImage
+    let imageSize: CGSize?
+    let fileSize: Int?
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Image display
+            GeometryReader { geo in
+                let fitted = fittedSize(for: image.size, in: geo.size)
+                Image(nsImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: fitted.width, height: fitted.height)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(checkerboard)
+            }
+
+            Divider()
+
+            // Metadata bar
+            HStack(spacing: 16) {
+                if let size = imageSize, size.width > 0, size.height > 0 {
+                    Label("\(Int(size.width)) × \(Int(size.height))", systemImage: "ruler")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                if let bytes = fileSize {
+                    Label(formatBytes(bytes), systemImage: "internaldrive")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
+        }
+    }
+
+    /// Checkerboard background for images with transparency.
+    private var checkerboard: some View {
+        Canvas { context, size in
+            let cellSize: CGFloat = 8
+            let cols = Int(ceil(size.width / cellSize))
+            let rows = Int(ceil(size.height / cellSize))
+            for row in 0..<rows {
+                for col in 0..<cols {
+                    let isLight = (row + col) % 2 == 0
+                    let rect = CGRect(
+                        x: CGFloat(col) * cellSize,
+                        y: CGFloat(row) * cellSize,
+                        width: cellSize, height: cellSize
+                    )
+                    context.fill(Path(rect), with: .color(isLight ? Color(white: 0.18) : Color(white: 0.14)))
+                }
+            }
+        }
+    }
+
+    private func fittedSize(for imageSize: CGSize, in containerSize: CGSize) -> CGSize {
+        guard imageSize.width > 0, imageSize.height > 0 else { return containerSize }
+        let padding: CGFloat = 24
+        let maxW = containerSize.width - padding
+        let maxH = containerSize.height - padding
+        let scale = min(maxW / imageSize.width, maxH / imageSize.height, 1.0)
+        return CGSize(width: imageSize.width * scale, height: imageSize.height * scale)
+    }
+
+    private func formatBytes(_ bytes: Int) -> String {
+        if bytes < 1024 { return "\(bytes) B" }
+        let kb = Double(bytes) / 1024
+        if kb < 1024 { return String(format: "%.1f KB", kb) }
+        let mb = kb / 1024
+        return String(format: "%.1f MB", mb)
     }
 }
 

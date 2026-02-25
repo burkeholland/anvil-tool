@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 import Combine
 
 enum PreviewTab {
@@ -14,6 +15,9 @@ final class FilePreviewModel: ObservableObject {
     @Published private(set) var isLoading = false
     @Published var activeTab: PreviewTab = .source
     @Published private(set) var lineCount: Int = 0
+    @Published private(set) var previewImage: NSImage?
+    @Published private(set) var imageSize: CGSize?
+    @Published private(set) var imageFileSize: Int?
 
     /// The root directory for running git commands.
     var rootDirectory: URL? {
@@ -32,6 +36,12 @@ final class FilePreviewModel: ObservableObject {
 
     var fileExtension: String {
         selectedURL?.pathExtension.lowercased() ?? ""
+    }
+
+    /// Whether the selected file is an image.
+    var isImageFile: Bool {
+        guard let ext = selectedURL?.pathExtension.lowercased() else { return false }
+        return Self.imageExtensions.contains(ext)
     }
 
     /// Whether the selected file has git changes.
@@ -76,6 +86,9 @@ final class FilePreviewModel: ObservableObject {
         fileContent = nil
         fileDiff = nil
         lineCount = 0
+        previewImage = nil
+        imageSize = nil
+        imageFileSize = nil
         activeTab = .source
     }
 
@@ -83,22 +96,38 @@ final class FilePreviewModel: ObservableObject {
     /// Called automatically by the internal FileWatcher when files change on disk.
     func refresh() {
         guard let url = selectedURL, let root = rootDirectory else { return }
+        let isImage = Self.imageExtensions.contains(url.pathExtension.lowercased())
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let content: String?
-            if let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
-               let size = attrs[.size] as? Int, size <= 1_048_576 {
-                content = try? String(contentsOf: url, encoding: .utf8)
-            } else {
-                content = nil
-            }
-            let diff = DiffProvider.diff(for: url, in: root)
-            DispatchQueue.main.async {
-                guard self?.selectedURL == url else { return }
-                if content != self?.fileContent {
-                    self?.fileContent = content
-                    self?.lineCount = content?.components(separatedBy: "\n").count ?? 0
+            if isImage {
+                let image = NSImage(contentsOf: url)
+                let attrs = try? FileManager.default.attributesOfItem(atPath: url.path)
+                let fileSize = attrs?[.size] as? Int
+                let pixelSize = image?.representations.first.map {
+                    CGSize(width: $0.pixelsWide, height: $0.pixelsHigh)
                 }
-                self?.fileDiff = diff
+                DispatchQueue.main.async {
+                    guard self?.selectedURL == url else { return }
+                    self?.previewImage = image
+                    self?.imageSize = pixelSize
+                    self?.imageFileSize = fileSize
+                }
+            } else {
+                let content: String?
+                if let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+                   let size = attrs[.size] as? Int, size <= 1_048_576 {
+                    content = try? String(contentsOf: url, encoding: .utf8)
+                } else {
+                    content = nil
+                }
+                let diff = DiffProvider.diff(for: url, in: root)
+                DispatchQueue.main.async {
+                    guard self?.selectedURL == url else { return }
+                    if content != self?.fileContent {
+                        self?.fileContent = content
+                        self?.lineCount = content?.components(separatedBy: "\n").count ?? 0
+                    }
+                    self?.fileDiff = diff
+                }
             }
         }
     }
@@ -115,27 +144,51 @@ final class FilePreviewModel: ObservableObject {
     private func loadFile(_ url: URL) {
         isLoading = true
         let root = rootDirectory
+        let isImage = Self.imageExtensions.contains(url.pathExtension.lowercased())
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let content: String?
-            // Skip large files (> 1 MB) and binary files
-            if let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
-               let size = attrs[.size] as? Int, size <= 1_048_576 {
-                content = try? String(contentsOf: url, encoding: .utf8)
-            } else {
-                content = nil
-            }
-            let diff: FileDiff? = root.flatMap { DiffProvider.diff(for: url, in: $0) }
-            DispatchQueue.main.async {
-                guard self?.selectedURL == url else { return }
-                self?.fileContent = content
-                self?.lineCount = content?.components(separatedBy: "\n").count ?? 0
-                self?.fileDiff = diff
-                self?.isLoading = false
-                // Auto-switch to changes tab if file has a diff
-                if diff != nil {
-                    self?.activeTab = .changes
-                } else {
+            if isImage {
+                let image = NSImage(contentsOf: url)
+                let attrs = try? FileManager.default.attributesOfItem(atPath: url.path)
+                let fileSize = attrs?[.size] as? Int
+                let pixelSize = image?.representations.first.map {
+                    CGSize(width: $0.pixelsWide, height: $0.pixelsHigh)
+                }
+                DispatchQueue.main.async {
+                    guard self?.selectedURL == url else { return }
+                    self?.previewImage = image
+                    self?.imageSize = pixelSize
+                    self?.imageFileSize = fileSize
+                    self?.fileContent = nil
+                    self?.fileDiff = nil
+                    self?.lineCount = 0
+                    self?.isLoading = false
                     self?.activeTab = .source
+                }
+            } else {
+                let content: String?
+                // Skip large files (> 1 MB) and binary files
+                if let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+                   let size = attrs[.size] as? Int, size <= 1_048_576 {
+                    content = try? String(contentsOf: url, encoding: .utf8)
+                } else {
+                    content = nil
+                }
+                let diff: FileDiff? = root.flatMap { DiffProvider.diff(for: url, in: $0) }
+                DispatchQueue.main.async {
+                    guard self?.selectedURL == url else { return }
+                    self?.fileContent = content
+                    self?.lineCount = content?.components(separatedBy: "\n").count ?? 0
+                    self?.fileDiff = diff
+                    self?.previewImage = nil
+                    self?.imageSize = nil
+                    self?.imageFileSize = nil
+                    self?.isLoading = false
+                    // Auto-switch to changes tab if file has a diff
+                    if diff != nil {
+                        self?.activeTab = .changes
+                    } else {
+                        self?.activeTab = .source
+                    }
                 }
             }
         }
@@ -185,5 +238,10 @@ final class FilePreviewModel: ObservableObject {
         "scala": "scala",
         "dart": "dart",
         "vim": "vim",
+    ]
+
+    static let imageExtensions: Set<String> = [
+        "png", "jpg", "jpeg", "gif", "bmp", "tiff", "tif",
+        "webp", "heic", "heif", "ico", "icns", "svg",
     ]
 }
