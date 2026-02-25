@@ -13,10 +13,12 @@ struct ContentView: View {
     @StateObject private var activityModel = ActivityFeedModel()
     @StateObject private var recentProjects = RecentProjectsModel()
     @StateObject private var terminalProxy = TerminalInputProxy()
+    @StateObject private var quickOpenModel = QuickOpenModel()
     @State private var sidebarWidth: CGFloat = 240
     @State private var previewWidth: CGFloat = 400
     @State private var showSidebar = true
     @State private var sidebarTab: SidebarTab = .files
+    @State private var showQuickOpen = false
 
     var body: some View {
         Group {
@@ -46,6 +48,7 @@ struct ContentView: View {
                 changesModel?.start(rootURL: url)
             }
         })
+        .focusedSceneValue(\.quickOpen, workingDirectory.directoryURL != nil ? { showQuickOpen = true } : nil)
         .onChange(of: workingDirectory.directoryURL) { _, newURL in
             filePreview.close()
             filePreview.rootDirectory = newURL
@@ -65,46 +68,71 @@ struct ContentView: View {
     }
 
     private var projectView: some View {
-        HStack(spacing: 0) {
-            if showSidebar {
-                SidebarView(
-                    model: workingDirectory,
-                    filePreview: filePreview,
-                    changesModel: changesModel,
-                    activityModel: activityModel,
-                    activeTab: $sidebarTab
-                )
-                    .frame(width: max(sidebarWidth, 0))
+        ZStack {
+            HStack(spacing: 0) {
+                if showSidebar {
+                    SidebarView(
+                        model: workingDirectory,
+                        filePreview: filePreview,
+                        changesModel: changesModel,
+                        activityModel: activityModel,
+                        activeTab: $sidebarTab
+                    )
+                        .frame(width: max(sidebarWidth, 0))
 
-                PanelDivider(
-                    width: $sidebarWidth,
-                    minWidth: 140,
-                    maxWidth: 500,
-                    edge: .leading
-                )
+                    PanelDivider(
+                        width: $sidebarWidth,
+                        minWidth: 140,
+                        maxWidth: 500,
+                        edge: .leading
+                    )
+                }
+
+                VStack(spacing: 0) {
+                    ToolbarView(
+                        workingDirectory: workingDirectory,
+                        showSidebar: $showSidebar,
+                        onOpenDirectory: { browseForDirectory() }
+                    )
+
+                    EmbeddedTerminalView(workingDirectory: workingDirectory)
+                        .id(workingDirectory.directoryURL)
+                }
+
+                if filePreview.selectedURL != nil {
+                    PanelDivider(
+                        width: $previewWidth,
+                        minWidth: 200,
+                        maxWidth: 800,
+                        edge: .trailing
+                    )
+
+                    FilePreviewView(model: filePreview)
+                        .frame(width: max(previewWidth, 0))
+                }
             }
 
-            VStack(spacing: 0) {
-                ToolbarView(
-                    workingDirectory: workingDirectory,
-                    showSidebar: $showSidebar,
-                    onOpenDirectory: { browseForDirectory() }
-                )
+            // Quick Open overlay
+            if showQuickOpen {
+                Color.black.opacity(0.2)
+                    .ignoresSafeArea()
+                    .onTapGesture { dismissQuickOpen() }
 
-                EmbeddedTerminalView(workingDirectory: workingDirectory)
-                    .id(workingDirectory.directoryURL)
+                VStack {
+                    QuickOpenView(
+                        model: quickOpenModel,
+                        filePreview: filePreview,
+                        onDismiss: { dismissQuickOpen() }
+                    )
+                    .padding(.top, 60)
+
+                    Spacer()
+                }
             }
-
-            if filePreview.selectedURL != nil {
-                PanelDivider(
-                    width: $previewWidth,
-                    minWidth: 200,
-                    maxWidth: 800,
-                    edge: .trailing
-                )
-
-                FilePreviewView(model: filePreview)
-                    .frame(width: max(previewWidth, 0))
+        }
+        .onChange(of: showQuickOpen) { _, isShowing in
+            if isShowing, let url = workingDirectory.directoryURL {
+                quickOpenModel.index(rootURL: url)
             }
         }
     }
@@ -131,6 +159,11 @@ struct ContentView: View {
         if panel.runModal() == .OK, let url = panel.url {
             openDirectory(url)
         }
+    }
+
+    private func dismissQuickOpen() {
+        showQuickOpen = false
+        quickOpenModel.reset()
     }
 }
 

@@ -27,6 +27,10 @@ struct RefreshKey: FocusedValueKey {
     typealias Value = () -> Void
 }
 
+struct QuickOpenKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
 extension FocusedValues {
     var sidebarVisible: Binding<Bool>? {
         get { self[SidebarVisibleKey.self] }
@@ -57,6 +61,11 @@ extension FocusedValues {
         get { self[RefreshKey.self] }
         set { self[RefreshKey.self] = newValue }
     }
+
+    var quickOpen: (() -> Void)? {
+        get { self[QuickOpenKey.self] }
+        set { self[QuickOpenKey.self] = newValue }
+    }
 }
 
 // MARK: - View Menu Commands
@@ -67,9 +76,18 @@ struct ViewCommands: Commands {
     @FocusedValue(\.previewOpen) var previewOpen
     @FocusedValue(\.closePreview) var closePreview
     @FocusedValue(\.refresh) var refresh
+    @FocusedValue(\.quickOpen) var quickOpen
 
     var body: some Commands {
         CommandGroup(after: .sidebar) {
+            Button("Quick Open…") {
+                quickOpen?()
+            }
+            .keyboardShortcut("o", modifiers: [.command, .shift])
+            .disabled(quickOpen == nil)
+
+            Divider()
+
             Button("Toggle Sidebar") {
                 sidebarVisible?.wrappedValue.toggle()
             }
