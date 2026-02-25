@@ -39,7 +39,11 @@ struct ContentView: View {
         .focusedSceneValue(\.sidebarVisible, $showSidebar)
         .focusedSceneValue(\.sidebarTab, $sidebarTab)
         .focusedSceneValue(\.previewOpen, filePreview.selectedURL != nil)
-        .focusedSceneValue(\.closePreview, { [weak filePreview] in filePreview?.close() })
+        .focusedSceneValue(\.closePreview, { [weak filePreview] in
+            if let url = filePreview?.selectedURL {
+                filePreview?.closeTab(url)
+            }
+        })
         .focusedSceneValue(\.openDirectory, {
             browseForDirectory()
         })

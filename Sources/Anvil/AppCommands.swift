@@ -124,7 +124,7 @@ struct ViewCommands: Commands {
 
             Divider()
 
-            Button("Close Preview") {
+            Button("Close Tab") {
                 closePreview?()
             }
             .keyboardShortcut("w", modifiers: .command)

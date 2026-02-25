@@ -7,6 +7,11 @@ struct FilePreviewView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            // Tab bar (when multiple tabs are open)
+            if model.openTabs.count > 1 {
+                PreviewTabBar(model: model)
+            }
+
             // Header bar
             HStack(spacing: 8) {
                 Image(systemName: iconForExtension(model.fileExtension))
@@ -38,14 +43,16 @@ struct FilePreviewView: View {
                 }
 
                 Button {
-                    model.close()
+                    if let url = model.selectedURL {
+                        model.closeTab(url)
+                    }
                 } label: {
                     Image(systemName: "xmark")
                         .font(.system(size: 10, weight: .semibold))
                         .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.borderless)
-                .help("Close Preview")
+                .help("Close Tab")
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
@@ -83,6 +90,94 @@ struct FilePreviewView: View {
             }
         }
         .background(Color(nsColor: .textBackgroundColor))
+    }
+
+    private func iconForExtension(_ ext: String) -> String {
+        switch ext {
+        case "swift":                       return "swift"
+        case "js", "ts", "jsx", "tsx":      return "curlybraces"
+        case "json":                        return "curlybraces.square"
+        case "md", "txt":                   return "doc.text"
+        case "py":                          return "chevron.left.forwardslash.chevron.right"
+        case "sh", "bash", "zsh":           return "terminal"
+        case "png", "jpg", "jpeg", "gif":   return "photo"
+        default:                            return "doc"
+        }
+    }
+}
+
+/// Tab bar for switching between open files in the preview pane.
+struct PreviewTabBar: View {
+    @ObservedObject var model: FilePreviewModel
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 0) {
+                ForEach(model.openTabs, id: \.self) { url in
+                    PreviewTabItem(
+                        url: url,
+                        isActive: model.selectedURL == url,
+                        onSelect: { model.select(url) },
+                        onClose: { model.closeTab(url) }
+                    )
+                }
+            }
+        }
+        .background(Color(nsColor: .windowBackgroundColor))
+        .overlay(alignment: .bottom) {
+            Divider()
+        }
+    }
+}
+
+struct PreviewTabItem: View {
+    let url: URL
+    let isActive: Bool
+    let onSelect: () -> Void
+    let onClose: () -> Void
+    @State private var isHovering = false
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Image(systemName: iconForExtension(url.pathExtension.lowercased()))
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
+
+            Text(url.lastPathComponent)
+                .font(.system(size: 11))
+                .lineLimit(1)
+                .foregroundStyle(isActive ? .primary : .secondary)
+
+            Button {
+                onClose()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 8, weight: .semibold))
+                    .foregroundStyle(.tertiary)
+                    .frame(width: 14, height: 14)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .opacity(isHovering || isActive ? 1 : 0)
+            .allowsHitTesting(isHovering || isActive)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+        .background(
+            isActive
+                ? Color(nsColor: .controlBackgroundColor)
+                : Color.clear
+        )
+        .overlay(alignment: .bottom) {
+            if isActive {
+                Rectangle()
+                    .fill(Color.accentColor)
+                    .frame(height: 2)
+            }
+        }
+        .contentShape(Rectangle())
+        .onTapGesture { onSelect() }
+        .onHover { isHovering = $0 }
     }
 
     private func iconForExtension(_ ext: String) -> String {

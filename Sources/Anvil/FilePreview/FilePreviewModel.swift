@@ -8,6 +8,7 @@ enum PreviewTab {
 
 final class FilePreviewModel: ObservableObject {
     @Published private(set) var selectedURL: URL?
+    @Published private(set) var openTabs: [URL] = []
     @Published private(set) var fileContent: String?
     @Published private(set) var fileDiff: FileDiff?
     @Published private(set) var isLoading = false
@@ -45,16 +46,32 @@ final class FilePreviewModel: ObservableObject {
 
     func select(_ url: URL) {
         guard !url.hasDirectoryPath else { return }
-        if selectedURL == url {
-            close()
-            return
+        // Add to tabs if not already open
+        if !openTabs.contains(url) {
+            openTabs.append(url)
         }
+        if selectedURL == url { return }
         selectedURL = url
         loadFile(url)
     }
 
+    func closeTab(_ url: URL) {
+        guard let index = openTabs.firstIndex(of: url) else { return }
+        openTabs.remove(at: index)
+
+        if openTabs.isEmpty {
+            close()
+        } else if selectedURL == url {
+            // Switch to adjacent tab
+            let newIndex = min(index, openTabs.count - 1)
+            selectedURL = openTabs[newIndex]
+            loadFile(openTabs[newIndex])
+        }
+    }
+
     func close() {
         selectedURL = nil
+        openTabs.removeAll()
         fileContent = nil
         fileDiff = nil
         activeTab = .source
