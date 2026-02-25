@@ -1,5 +1,12 @@
 import Foundation
 
+/// Gutter indicator for a line in the source view.
+enum GutterChangeKind {
+    case added
+    case modified
+    case deleted  // marker at a line position where content was removed
+}
+
 /// A single line in a diff hunk.
 struct DiffLine: Identifiable {
     enum Kind {
@@ -272,5 +279,75 @@ enum DiffParser {
             newRanges.append(newChangeStart..<newChangeEnd)
         }
         return (oldRanges, newRanges)
+    }
+
+    // MARK: - Gutter Change Map
+
+    /// Computes a mapping from new-file line numbers to gutter indicators.
+    /// Additions paired with preceding deletions are "modified" (replacement);
+    /// pure additions are "added". Deletion-only regions produce a "deleted" marker
+    /// at the nearest new-file line.
+    static func gutterChanges(from diff: FileDiff) -> [Int: GutterChangeKind] {
+        var result: [Int: GutterChangeKind] = [:]
+
+        for hunk in diff.hunks {
+            let lines = hunk.lines
+
+            // Single pass: detect deletion→addition pairs structurally
+            var i = 0
+            while i < lines.count {
+                if lines[i].kind == .deletion {
+                    let delStart = i
+                    while i < lines.count && lines[i].kind == .deletion {
+                        i += 1
+                    }
+                    // Collect any immediately following additions (paired replacements)
+                    let addStart = i
+                    while i < lines.count && lines[i].kind == .addition {
+                        i += 1
+                    }
+                    let addEnd = i
+
+                    if addStart < addEnd {
+                        // Paired: mark additions as modified
+                        for j in addStart..<addEnd {
+                            if let n = lines[j].newLineNumber {
+                                result[n] = .modified
+                            }
+                        }
+                    } else {
+                        // Pure deletion — place marker at nearest new-file line
+                        var markerLine: Int? = nil
+                        for j in i..<lines.count {
+                            if let n = lines[j].newLineNumber {
+                                markerLine = n
+                                break
+                            }
+                        }
+                        if markerLine == nil {
+                            for j in stride(from: delStart - 1, through: 0, by: -1) {
+                                if let n = lines[j].newLineNumber {
+                                    markerLine = n
+                                    break
+                                }
+                            }
+                        }
+                        if let m = markerLine, result[m] == nil {
+                            result[m] = .deleted
+                        }
+                    }
+                } else if lines[i].kind == .addition {
+                    // Pure addition (not preceded by deletions)
+                    if let n = lines[i].newLineNumber, result[n] == nil {
+                        result[n] = .added
+                    }
+                    i += 1
+                } else {
+                    i += 1
+                }
+            }
+        }
+
+        return result
     }
 }

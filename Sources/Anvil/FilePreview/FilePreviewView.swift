@@ -103,7 +103,8 @@ struct FilePreviewView: View {
             } else if let content = model.fileContent {
                 HighlightedTextView(
                     content: content,
-                    language: model.highlightLanguage
+                    language: model.highlightLanguage,
+                    gutterChanges: model.fileDiff.map { DiffParser.gutterChanges(from: $0) } ?? [:]
                 )
             } else {
                 Spacer()
@@ -327,10 +328,11 @@ struct PreviewTabItem: View {
 }
 
 /// NSViewRepresentable wrapper around NSTextView with Highlightr syntax highlighting
-/// and a line number gutter.
+/// and a line number gutter with optional change indicators.
 struct HighlightedTextView: NSViewRepresentable {
     let content: String
     let language: String?
+    var gutterChanges: [Int: GutterChangeKind] = [:]
 
     func makeNSView(context: Context) -> NSScrollView {
         let scrollView = NSScrollView()
@@ -368,12 +370,14 @@ struct HighlightedTextView: NSViewRepresentable {
         context.coordinator.textView = textView
         context.coordinator.rulerView = rulerView
         context.coordinator.applyHighlighting(content: content, language: language)
+        rulerView.gutterChanges = gutterChanges
 
         return scrollView
     }
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         context.coordinator.applyHighlighting(content: content, language: language)
+        context.coordinator.rulerView?.gutterChanges = gutterChanges
     }
 
     func makeCoordinator() -> Coordinator {
@@ -420,12 +424,18 @@ struct HighlightedTextView: NSViewRepresentable {
     }
 }
 
-/// Draws line numbers in a vertical ruler alongside an NSTextView.
+/// Draws line numbers in a vertical ruler alongside an NSTextView,
+/// with optional colored gutter bars for changed lines.
 final class LineNumberRulerView: NSRulerView {
     private weak var targetTextView: NSTextView?
     private let gutterBackground = NSColor(red: 0.10, green: 0.10, blue: 0.12, alpha: 1.0)
     private let lineNumberColor = NSColor(white: 0.40, alpha: 1.0)
     private let lineNumberFont = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .regular)
+
+    /// Line-number → change kind mapping. Set externally; triggers redraw.
+    var gutterChanges: [Int: GutterChangeKind] = [:] {
+        didSet { needsDisplay = true }
+    }
 
     init(textView: NSTextView) {
         self.targetTextView = textView
@@ -532,6 +542,27 @@ final class LineNumberRulerView: NSRulerView {
                     y: lineRect.minY + (lineRect.height - strSize.height) / 2 - visibleRect.origin.y
                 )
                 numStr.draw(at: drawPoint, withAttributes: attrs)
+
+                // Draw gutter change indicator bar
+                if let change = gutterChanges[lineNumber] {
+                    let barColor: NSColor
+                    switch change {
+                    case .added:    barColor = NSColor.systemGreen
+                    case .modified: barColor = NSColor.systemBlue
+                    case .deleted:  barColor = NSColor.systemRed
+                    }
+                    barColor.setFill()
+                    let barWidth: CGFloat = change == .deleted ? 6 : 3
+                    let barY = lineRect.minY - visibleRect.origin.y
+                    let barHeight = change == .deleted ? 3 : lineRect.height
+                    let barRect = NSRect(
+                        x: bounds.maxX - barWidth - 1,
+                        y: barY,
+                        width: barWidth,
+                        height: barHeight
+                    )
+                    NSBezierPath(roundedRect: barRect, xRadius: 1, yRadius: 1).fill()
+                }
             }
 
             charIndex = NSMaxRange(lineRange)
