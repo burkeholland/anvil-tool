@@ -8,6 +8,7 @@ struct DiffSummaryView: View {
     var onDismiss: (() -> Void)?
     @State private var collapsedFiles: Set<URL> = []
     @State private var scrollTarget: URL?
+    @AppStorage("diffViewMode") private var diffMode: String = DiffViewMode.unified.rawValue
 
     private var filesWithDiffs: [ChangedFile] {
         changesModel.changedFiles.filter { $0.diff != nil }
@@ -75,6 +76,14 @@ struct DiffSummaryView: View {
             }
 
             if !filesWithDiffs.isEmpty {
+                Picker("", selection: $diffMode) {
+                    ForEach(DiffViewMode.allCases, id: \.rawValue) { m in
+                        Text(m.rawValue).tag(m.rawValue)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 180)
+
                 Button {
                     if collapsedFiles.count == filesWithDiffs.count {
                         collapsedFiles.removeAll()
@@ -188,9 +197,18 @@ struct DiffSummaryView: View {
             // Diff content
             if !isCollapsed {
                 if let diff = file.diff {
-                    VStack(alignment: .leading, spacing: 0) {
-                        ForEach(diff.hunks) { hunk in
-                            DiffHunkView(hunk: hunk)
+                    let viewMode = DiffViewMode(rawValue: diffMode) ?? .unified
+                    if viewMode == .sideBySide {
+                        VStack(alignment: .leading, spacing: 0) {
+                            ForEach(DiffRowPairer.pairLines(from: diff.hunks)) { row in
+                                SideBySideRowView(row: row)
+                            }
+                        }
+                    } else {
+                        VStack(alignment: .leading, spacing: 0) {
+                            ForEach(diff.hunks) { hunk in
+                                DiffHunkView(hunk: hunk)
+                            }
                         }
                     }
                 } else if file.status == .untracked {

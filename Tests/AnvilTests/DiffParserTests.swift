@@ -267,4 +267,91 @@ final class DiffParserTests: XCTestCase {
         let deletionLine = lines.first { $0.kind == .deletion }!
         XCTAssertNil(deletionLine.inlineHighlights)
     }
+
+    // MARK: - Side-by-Side Row Pairing
+
+    func testPairContextLines() {
+        let lines = [
+            DiffLine(id: 0, kind: .context, text: "unchanged", oldLineNumber: 1, newLineNumber: 1),
+        ]
+        let hunk = DiffHunk(id: 0, header: "@@ -1,1 +1,1 @@", lines: lines)
+        let rows = DiffRowPairer.pairLines(from: [hunk])
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertNotNil(rows[0].left)
+        XCTAssertNotNil(rows[0].right)
+        XCTAssertEqual(rows[0].left?.kind, .context)
+        XCTAssertEqual(rows[0].right?.kind, .context)
+    }
+
+    func testPairMatchedDeletionAddition() {
+        let lines = [
+            DiffLine(id: 0, kind: .deletion, text: "old", oldLineNumber: 1, newLineNumber: nil),
+            DiffLine(id: 1, kind: .addition, text: "new", oldLineNumber: nil, newLineNumber: 1),
+        ]
+        let hunk = DiffHunk(id: 0, header: "@@ -1,1 +1,1 @@", lines: lines)
+        let rows = DiffRowPairer.pairLines(from: [hunk])
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertEqual(rows[0].left?.kind, .deletion)
+        XCTAssertEqual(rows[0].right?.kind, .addition)
+    }
+
+    func testPairMoreDeletionsThanAdditions() {
+        let lines = [
+            DiffLine(id: 0, kind: .deletion, text: "del1", oldLineNumber: 1, newLineNumber: nil),
+            DiffLine(id: 1, kind: .deletion, text: "del2", oldLineNumber: 2, newLineNumber: nil),
+            DiffLine(id: 2, kind: .addition, text: "add1", oldLineNumber: nil, newLineNumber: 1),
+        ]
+        let hunk = DiffHunk(id: 0, header: "@@ -1,2 +1,1 @@", lines: lines)
+        let rows = DiffRowPairer.pairLines(from: [hunk])
+        XCTAssertEqual(rows.count, 2)
+        // First row: paired
+        XCTAssertEqual(rows[0].left?.text, "del1")
+        XCTAssertEqual(rows[0].right?.text, "add1")
+        // Second row: orphaned deletion
+        XCTAssertEqual(rows[1].left?.text, "del2")
+        XCTAssertNil(rows[1].right)
+    }
+
+    func testPairMoreAdditionsThanDeletions() {
+        let lines = [
+            DiffLine(id: 0, kind: .deletion, text: "del1", oldLineNumber: 1, newLineNumber: nil),
+            DiffLine(id: 1, kind: .addition, text: "add1", oldLineNumber: nil, newLineNumber: 1),
+            DiffLine(id: 2, kind: .addition, text: "add2", oldLineNumber: nil, newLineNumber: 2),
+        ]
+        let hunk = DiffHunk(id: 0, header: "@@ -1,1 +1,2 @@", lines: lines)
+        let rows = DiffRowPairer.pairLines(from: [hunk])
+        XCTAssertEqual(rows.count, 2)
+        // First row: paired
+        XCTAssertEqual(rows[0].left?.text, "del1")
+        XCTAssertEqual(rows[0].right?.text, "add1")
+        // Second row: orphaned addition
+        XCTAssertNil(rows[1].left)
+        XCTAssertEqual(rows[1].right?.text, "add2")
+    }
+
+    func testPairStandaloneAddition() {
+        let lines = [
+            DiffLine(id: 0, kind: .context, text: "ctx", oldLineNumber: 1, newLineNumber: 1),
+            DiffLine(id: 1, kind: .addition, text: "new", oldLineNumber: nil, newLineNumber: 2),
+            DiffLine(id: 2, kind: .context, text: "ctx2", oldLineNumber: 2, newLineNumber: 3),
+        ]
+        let hunk = DiffHunk(id: 0, header: "@@ -1,2 +1,3 @@", lines: lines)
+        let rows = DiffRowPairer.pairLines(from: [hunk])
+        XCTAssertEqual(rows.count, 3)
+        XCTAssertNil(rows[1].left)
+        XCTAssertEqual(rows[1].right?.kind, .addition)
+    }
+
+    func testPairHunkHeader() {
+        let lines = [
+            DiffLine(id: 0, kind: .hunkHeader, text: "@@ -1,1 +1,1 @@", oldLineNumber: nil, newLineNumber: nil),
+            DiffLine(id: 1, kind: .context, text: "line", oldLineNumber: 1, newLineNumber: 1),
+        ]
+        let hunk = DiffHunk(id: 0, header: "@@ -1,1 +1,1 @@", lines: lines)
+        let rows = DiffRowPairer.pairLines(from: [hunk])
+        XCTAssertEqual(rows.count, 2)
+        // Hunk header appears on both sides
+        XCTAssertEqual(rows[0].left?.kind, .hunkHeader)
+        XCTAssertEqual(rows[0].right?.kind, .hunkHeader)
+    }
 }

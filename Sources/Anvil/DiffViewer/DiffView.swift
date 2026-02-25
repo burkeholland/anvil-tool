@@ -1,24 +1,39 @@
 import SwiftUI
 
-/// Renders a unified diff with colored additions/deletions and line numbers.
+/// Diff display mode — unified (interleaved) or side-by-side (split).
+enum DiffViewMode: String, CaseIterable {
+    case unified = "Unified"
+    case sideBySide = "Side by Side"
+}
+
+/// Renders a diff with a toggle between unified and side-by-side modes.
 struct DiffView: View {
     let diff: FileDiff
+    @AppStorage("diffViewMode") private var mode: String = DiffViewMode.unified.rawValue
+
+    private var viewMode: DiffViewMode {
+        DiffViewMode(rawValue: mode) ?? .unified
+    }
+
+    var body: some View {
+        switch viewMode {
+        case .unified:
+            UnifiedDiffView(diff: diff, mode: $mode)
+        case .sideBySide:
+            SideBySideDiffView(diff: diff, mode: $mode)
+        }
+    }
+}
+
+/// The original unified diff renderer, now extracted as its own view.
+struct UnifiedDiffView: View {
+    let diff: FileDiff
+    @Binding var mode: String
 
     var body: some View {
         ScrollView([.horizontal, .vertical]) {
             VStack(alignment: .leading, spacing: 0) {
-                // Stats bar
-                HStack(spacing: 12) {
-                    Label("\(diff.additionCount) additions", systemImage: "plus")
-                        .foregroundStyle(.green)
-                    Label("\(diff.deletionCount) deletions", systemImage: "minus")
-                        .foregroundStyle(.red)
-                    Spacer()
-                }
-                .font(.caption)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(Color(nsColor: .controlBackgroundColor))
+                DiffStatsBar(diff: diff, mode: $mode)
 
                 Divider()
 
@@ -29,6 +44,35 @@ struct DiffView: View {
             }
         }
         .background(Color(nsColor: .textBackgroundColor))
+    }
+}
+
+/// Shared stats bar with diff mode toggle, used by both unified and side-by-side views.
+struct DiffStatsBar: View {
+    let diff: FileDiff
+    @Binding var mode: String
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Label("\(diff.additionCount) additions", systemImage: "plus")
+                .foregroundStyle(.green)
+            Label("\(diff.deletionCount) deletions", systemImage: "minus")
+                .foregroundStyle(.red)
+
+            Spacer()
+
+            Picker("", selection: $mode) {
+                ForEach(DiffViewMode.allCases, id: \.rawValue) { m in
+                    Text(m.rawValue).tag(m.rawValue)
+                }
+            }
+            .pickerStyle(.segmented)
+            .frame(width: 180)
+        }
+        .font(.caption)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(Color(nsColor: .controlBackgroundColor))
     }
 }
 
