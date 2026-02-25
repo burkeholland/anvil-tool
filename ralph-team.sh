@@ -109,11 +109,11 @@ CONTEXT_EOF
 phase_merge() {
   log "📦 Phase 1: MERGE — checking for mergeable PRs..."
 
-  # Get Copilot PRs that are ready (not WIP, no build-failed label), oldest first
+  # Get Copilot PRs that are ready (not WIP), oldest first
   local pr_numbers
   pr_numbers="$(gh pr list --repo "$REPO" --state open \
-    --json number,author,title,createdAt,labels \
-    --jq '[.[] | select(.author.login == "app/copilot-swe-agent") | select(.title | startswith("[WIP]") | not) | select(([.labels[]?.name] | index("build-failed")) | not)] | sort_by(.createdAt) | .[].number')" || return 0
+    --json number,author,title,createdAt \
+    --jq '[.[] | select(.author.login == "app/copilot-swe-agent") | select(.title | startswith("[WIP]") | not)] | sort_by(.createdAt) | .[].number')" || return 0
 
   if [ -z "$pr_numbers" ]; then
     log "   No ready Copilot PRs found (WIP PRs are skipped)."
@@ -142,10 +142,40 @@ phase_merge() {
       continue
     }
     if [ "$mergeable" = "CONFLICTING" ]; then
-      log "   ⚠️  PR #$pr_num has merge conflicts. Commenting and skipping."
-      gh pr comment "$pr_num" --repo "$REPO" \
-        --body "⚠️ ralph-team: This PR has merge conflicts with main. Please rebase or I'll close it on the next triage pass." \
-        2>/dev/null || true
+      # Smart conflict resolution: ask @copilot to rebase, track progress
+      local our_rebase_comment
+      our_rebase_comment="$(gh pr view "$pr_num" --repo "$REPO" --json comments \
+        --jq '[.comments[] | select(.author.login != "app/copilot-swe-agent" and .author.login != "copilot-swe-agent") | select(.body | contains("ralph-team:") and contains("@copilot") and contains("rebase"))] | last')" || our_rebase_comment=""
+
+      if [ "$our_rebase_comment" = "null" ] || [ -z "$our_rebase_comment" ]; then
+        log "   ⚠️  PR #$pr_num has merge conflicts. Asking @copilot to rebase."
+        gh pr comment "$pr_num" --repo "$REPO" \
+          --body "⚠️ ralph-team: This PR has merge conflicts with main. @copilot please rebase this branch onto main and resolve any conflicts, keeping the intent of your changes intact." \
+          2>/dev/null || true
+      else
+        local our_comment_date
+        our_comment_date="$(echo "$our_rebase_comment" | jq -r '.createdAt')" || our_comment_date=""
+        local latest_commit_date
+        latest_commit_date="$(gh pr view "$pr_num" --repo "$REPO" --json commits \
+          --jq '[.commits[].committedDate] | sort | last')" || latest_commit_date=""
+
+        if [ -n "$latest_commit_date" ] && [ -n "$our_comment_date" ] && [[ "$latest_commit_date" > "$our_comment_date" ]]; then
+          log "   🗑️  PR #$pr_num: agent pushed after rebase request but still conflicting. Closing."
+          local linked_issue
+          linked_issue="$(gh pr view "$pr_num" --repo "$REPO" --json closingIssuesReferences \
+            --jq '.closingIssuesReferences[0].number')" || linked_issue=""
+          gh pr close "$pr_num" --repo "$REPO" \
+            --comment "Closed by ralph-team: agent attempted rebase but merge conflicts persist. Will reopen the linked issue for a fresh attempt." \
+            2>/dev/null || true
+          if [ -n "$linked_issue" ] && [ "$linked_issue" != "null" ]; then
+            gh issue reopen "$linked_issue" --repo "$REPO" 2>/dev/null || true
+            gh issue edit "$linked_issue" --repo "$REPO" --remove-assignee "copilot-swe-agent" 2>/dev/null || true
+            log "   ♻️  Reopened issue #$linked_issue for fresh attempt."
+          fi
+        else
+          log "   ⏳ PR #$pr_num: waiting for @copilot to rebase (no new commits yet)."
+        fi
+      fi
       continue
     fi
 
@@ -174,7 +204,12 @@ phase_merge() {
     fi
 
     log "   🔨 Building PR #$pr_num..."
-    if swift build 2>&1 | tail -3; then
+    local build_output
+    build_output="$(swift build 2>&1)"
+    local build_exit=$?
+    echo "$build_output" | tail -3
+
+    if [ "$build_exit" -eq 0 ]; then
       log "   ✅ Build passed for PR #$pr_num. Marking ready and merging..."
       git checkout main --force --quiet 2>/dev/null || true
       # Mark as ready (PRs from Copilot arrive as drafts)
@@ -189,13 +224,40 @@ phase_merge() {
       # Break after merge — next cycle will re-evaluate remaining PRs against updated main
       break
     else
-      log "   ❌ Build failed for PR #$pr_num. Commenting and labeling."
+      log "   ❌ Build failed for PR #$pr_num."
       git checkout main --force --quiet 2>/dev/null || true
-      gh pr comment "$pr_num" --repo "$REPO" \
-        --body "❌ ralph-team: Build failed locally (\`swift build\`). Please fix compilation errors." \
-        2>/dev/null || true
-      # Add build-failed label so we skip it next cycle
-      gh pr edit "$pr_num" --repo "$REPO" --add-label "build-failed" 2>/dev/null || true
+
+      # Smart build-failure handling: check if we already asked @copilot to fix
+      local our_build_comment
+      our_build_comment="$(gh pr view "$pr_num" --repo "$REPO" --json comments \
+        --jq '[.comments[] | select(.author.login != "app/copilot-swe-agent" and .author.login != "copilot-swe-agent") | select(.body | contains("ralph-team:") and contains("@copilot") and contains("Build failed"))] | last')" || our_build_comment=""
+
+      if [ "$our_build_comment" = "null" ] || [ -z "$our_build_comment" ]; then
+        # First time — include compilation errors and mention @copilot
+        local error_lines
+        error_lines="$(echo "$build_output" | grep -E '(error:|fatal error:)' | head -20)"
+        gh pr comment "$pr_num" --repo "$REPO" \
+          --body "$(printf '❌ ralph-team: Build failed locally (\`swift build\`). @copilot please fix these compilation errors:\n\n```\n%s\n```' "$error_lines")" \
+          2>/dev/null || true
+      else
+        # Already asked — check if agent pushed new commits since our comment
+        local our_comment_date
+        our_comment_date="$(echo "$our_build_comment" | jq -r '.createdAt')" || our_comment_date=""
+        local latest_commit_date
+        latest_commit_date="$(gh pr view "$pr_num" --repo "$REPO" --json commits \
+          --jq '[.commits[].committedDate] | sort | last')" || latest_commit_date=""
+
+        if [ -n "$latest_commit_date" ] && [ -n "$our_comment_date" ] && [[ "$latest_commit_date" > "$our_comment_date" ]]; then
+          # Agent pushed but build still fails — update with new errors
+          local error_lines
+          error_lines="$(echo "$build_output" | grep -E '(error:|fatal error:)' | head -20)"
+          gh pr comment "$pr_num" --repo "$REPO" \
+            --body "$(printf '❌ ralph-team: Build still failing after your latest push. @copilot please fix these remaining errors:\n\n```\n%s\n```' "$error_lines")" \
+            2>/dev/null || true
+        else
+          log "   ⏳ PR #$pr_num: waiting for @copilot to fix build (no new commits yet)."
+        fi
+      fi
     fi
   done <<< "$pr_numbers"
 
@@ -211,37 +273,8 @@ phase_merge() {
 phase_triage() {
   log "🧹 Phase 2: TRIAGE — checking for stale issues and PRs..."
 
-  # Close PRs that have been conflicting for more than 1 cycle (have our conflict comment)
-  local conflicting_prs
-  conflicting_prs="$(gh pr list --repo "$REPO" --state open \
-    --json number,author,comments \
-    --jq '[.[] | select(.author.login == "app/copilot-swe-agent") | select(.comments | length > 0)] | .[].number')" || true
-
-  local pr_num
-  while IFS= read -r pr_num; do
-    [ -z "$pr_num" ] && continue
-
-    # Check if we already commented about conflicts
-    local has_conflict_comment
-    has_conflict_comment="$(gh pr view "$pr_num" --repo "$REPO" --json comments \
-      --jq '[.comments[] | select(.body | contains("merge conflicts"))] | length')" || continue
-
-    if [ "$has_conflict_comment" -gt 0 ]; then
-      # Check if still conflicting
-      local mergeable
-      mergeable="$(gh pr view "$pr_num" --repo "$REPO" --json mergeable -q '.mergeable')" || continue
-      if [ "$mergeable" = "CONFLICTING" ]; then
-        if [ "$DRY_RUN" = true ]; then
-          log "   [DRY RUN] Would close stale conflicting PR #$pr_num"
-        else
-          log "   🗑️  Closing stale conflicting PR #$pr_num"
-          gh pr close "$pr_num" --repo "$REPO" \
-            --comment "Closed by ralph-team: merge conflicts were not resolved." \
-            2>/dev/null || true
-        fi
-      fi
-    fi
-  done <<< "$conflicting_prs"
+  # Note: merge conflict and build failure resolution is handled in phase_merge
+  # via @copilot rebase/fix requests with smart dedup.
 
   # Check open issues — use copilot to evaluate staleness
   local open_issues
