@@ -52,10 +52,45 @@ struct DiffSummaryView: View {
                             scrollTarget = nil
                         }
                     }
+                    .onChange(of: changesModel.focusedFileIndex) { _, idx in
+                        if let idx, changesModel.changedFiles.indices.contains(idx) {
+                            withAnimation(.easeInOut(duration: 0.25)) {
+                                proxy.scrollTo(changesModel.changedFiles[idx].url, anchor: .top)
+                            }
+                        }
+                    }
                 }
             }
         }
         .background(Color(nsColor: .textBackgroundColor))
+        .focusable()
+        .onKeyPress { keyPress in
+            switch keyPress.characters {
+            case "]": changesModel.focusNextFile(); return .handled
+            case "[": changesModel.focusPreviousFile(); return .handled
+            case "j", "n": changesModel.focusNextHunk(); return .handled
+            case "k", "p": changesModel.focusPreviousHunk(); return .handled
+            case "s": changesModel.stageFocusedHunk(); return .handled
+            case "d": changesModel.discardFocusedHunk(); return .handled
+            case "r": changesModel.toggleFocusedFileReviewed(); return .handled
+            default:
+                if keyPress.key == .return {
+                    if let url = changesModel.focusedFile?.url { onSelectFile?(url) }
+                    return .handled
+                }
+                return .ignored
+            }
+        }
+        .focusedValue(\.nextReviewFile, { changesModel.focusNextFile() })
+        .focusedValue(\.previousReviewFile, { changesModel.focusPreviousFile() })
+        .focusedValue(\.nextHunk, { changesModel.focusNextHunk() })
+        .focusedValue(\.previousHunk, { changesModel.focusPreviousHunk() })
+        .focusedValue(\.stageFocusedHunk, changesModel.focusedHunk != nil ? { changesModel.stageFocusedHunk() } : nil)
+        .focusedValue(\.discardFocusedHunk, changesModel.focusedHunk != nil ? { changesModel.discardFocusedHunk() } : nil)
+        .focusedValue(\.toggleFocusedFileReviewed, changesModel.focusedFile != nil ? { changesModel.toggleFocusedFileReviewed() } : nil)
+        .focusedValue(\.openFocusedFile, changesModel.focusedFile != nil ? {
+            if let url = changesModel.focusedFile?.url { onSelectFile?(url) }
+        } : nil)
     }
 
     // MARK: - Header
@@ -177,6 +212,7 @@ struct DiffSummaryView: View {
     private func fileDiffSection(_ file: ChangedFile) -> some View {
         let isCollapsed = collapsedFiles.contains(file.url)
         let isStaged = file.staging == .staged || file.staging == .partial
+        let isFocusedFile = changesModel.focusedFile?.url == file.url
 
         // File header
         VStack(alignment: .leading, spacing: 0) {
@@ -263,6 +299,10 @@ struct DiffSummaryView: View {
             .padding(.vertical, 6)
             .contentShape(Rectangle())
             .onTapGesture {
+                if let idx = changesModel.changedFiles.firstIndex(where: { $0.id == file.id }) {
+                    changesModel.focusedFileIndex = idx
+                    changesModel.focusedHunkIndex = nil
+                }
                 withAnimation(.easeInOut(duration: 0.2)) {
                     if isCollapsed {
                         collapsedFiles.remove(file.url)
@@ -271,7 +311,17 @@ struct DiffSummaryView: View {
                     }
                 }
             }
-            .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
+            .background(
+                isFocusedFile
+                    ? Color.accentColor.opacity(0.1)
+                    : Color(nsColor: .controlBackgroundColor).opacity(0.5)
+            )
+            .overlay(
+                isFocusedFile
+                    ? Rectangle().frame(height: 1.5).foregroundStyle(Color.accentColor.opacity(0.6))
+                    : nil,
+                alignment: .bottom
+            )
 
             Divider()
 
@@ -288,7 +338,7 @@ struct DiffSummaryView: View {
                         }
                     } else {
                         VStack(alignment: .leading, spacing: 0) {
-                            ForEach(diff.hunks) { hunk in
+                            ForEach(Array(diff.hunks.enumerated()), id: \.element.id) { hunkIdx, hunk in
                                 DiffHunkView(
                                     hunk: hunk,
                                     syntaxHighlights: highlights,
@@ -297,7 +347,8 @@ struct DiffSummaryView: View {
                                     },
                                     onDiscard: {
                                         changesModel.discardHunk(patch: DiffParser.reconstructPatch(fileDiff: diff, hunk: hunk))
-                                    }
+                                    },
+                                    isFocused: isFocusedFile && changesModel.focusedHunkIndex == hunkIdx
                                 )
                             }
                         }

@@ -103,6 +103,38 @@ struct CloneRepositoryKey: FocusedValueKey {
     typealias Value = () -> Void
 }
 
+struct NextReviewFileKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
+struct PreviousReviewFileKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
+struct NextHunkKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
+struct PreviousHunkKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
+struct StageFocusedHunkKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
+struct DiscardFocusedHunkKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
+struct ToggleFocusedFileReviewedKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
+struct OpenFocusedFileKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
 extension FocusedValues {
     var sidebarVisible: Binding<Bool>? {
         get { self[SidebarVisibleKey.self] }
@@ -228,6 +260,46 @@ extension FocusedValues {
         get { self[CloneRepositoryKey.self] }
         set { self[CloneRepositoryKey.self] = newValue }
     }
+
+    var nextReviewFile: (() -> Void)? {
+        get { self[NextReviewFileKey.self] }
+        set { self[NextReviewFileKey.self] = newValue }
+    }
+
+    var previousReviewFile: (() -> Void)? {
+        get { self[PreviousReviewFileKey.self] }
+        set { self[PreviousReviewFileKey.self] = newValue }
+    }
+
+    var nextHunk: (() -> Void)? {
+        get { self[NextHunkKey.self] }
+        set { self[NextHunkKey.self] = newValue }
+    }
+
+    var previousHunk: (() -> Void)? {
+        get { self[PreviousHunkKey.self] }
+        set { self[PreviousHunkKey.self] = newValue }
+    }
+
+    var stageFocusedHunk: (() -> Void)? {
+        get { self[StageFocusedHunkKey.self] }
+        set { self[StageFocusedHunkKey.self] = newValue }
+    }
+
+    var discardFocusedHunk: (() -> Void)? {
+        get { self[DiscardFocusedHunkKey.self] }
+        set { self[DiscardFocusedHunkKey.self] = newValue }
+    }
+
+    var toggleFocusedFileReviewed: (() -> Void)? {
+        get { self[ToggleFocusedFileReviewedKey.self] }
+        set { self[ToggleFocusedFileReviewedKey.self] = newValue }
+    }
+
+    var openFocusedFile: (() -> Void)? {
+        get { self[OpenFocusedFileKey.self] }
+        set { self[OpenFocusedFileKey.self] = newValue }
+    }
 }
 
 // MARK: - View Menu Commands
@@ -254,6 +326,14 @@ struct ViewCommands: Commands {
     @FocusedValue(\.previousChange) var previousChange
     @FocusedValue(\.reviewAllChanges) var reviewAllChanges
     @FocusedValue(\.goToLine) var goToLine
+    @FocusedValue(\.nextReviewFile) var nextReviewFile
+    @FocusedValue(\.previousReviewFile) var previousReviewFile
+    @FocusedValue(\.nextHunk) var nextHunk
+    @FocusedValue(\.previousHunk) var previousHunk
+    @FocusedValue(\.stageFocusedHunk) var stageFocusedHunk
+    @FocusedValue(\.discardFocusedHunk) var discardFocusedHunk
+    @FocusedValue(\.toggleFocusedFileReviewed) var toggleFocusedFileReviewed
+    @FocusedValue(\.openFocusedFile) var openFocusedFile
     @AppStorage("autoLaunchCopilot") private var autoLaunchCopilot = true
     @AppStorage("notificationsEnabled") private var notificationsEnabled = true
 
@@ -386,6 +466,56 @@ struct ViewCommands: Commands {
             }
             .keyboardShortcut("d", modifiers: [.command, .shift])
             .disabled(reviewAllChanges == nil)
+
+            Divider()
+
+            Button("Next File in Review") {
+                nextReviewFile?()
+            }
+            .keyboardShortcut("]", modifiers: [])
+            .disabled(nextReviewFile == nil)
+
+            Button("Previous File in Review") {
+                previousReviewFile?()
+            }
+            .keyboardShortcut("[", modifiers: [])
+            .disabled(previousReviewFile == nil)
+
+            Button("Next Hunk") {
+                nextHunk?()
+            }
+            .keyboardShortcut("j", modifiers: [])
+            .disabled(nextHunk == nil)
+
+            Button("Previous Hunk") {
+                previousHunk?()
+            }
+            .keyboardShortcut("k", modifiers: [])
+            .disabled(previousHunk == nil)
+
+            Button("Stage Focused Hunk") {
+                stageFocusedHunk?()
+            }
+            .keyboardShortcut("s", modifiers: [])
+            .disabled(stageFocusedHunk == nil)
+
+            Button("Discard Focused Hunk") {
+                discardFocusedHunk?()
+            }
+            .keyboardShortcut(.delete, modifiers: [])
+            .disabled(discardFocusedHunk == nil)
+
+            Button("Toggle File Reviewed") {
+                toggleFocusedFileReviewed?()
+            }
+            .keyboardShortcut("r", modifiers: [])
+            .disabled(toggleFocusedFileReviewed == nil)
+
+            Button("Open File in Preview") {
+                openFocusedFile?()
+            }
+            .keyboardShortcut(.return, modifiers: [])
+            .disabled(openFocusedFile == nil)
 
             Divider()
 
