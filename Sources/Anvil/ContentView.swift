@@ -35,6 +35,7 @@ struct ContentView: View {
     @State private var isDroppingFolder = false
     @AppStorage("autoFollowChanges") private var autoFollow = true
     @AppStorage("terminalFontSize") private var terminalFontSize: Double = 14
+    @StateObject private var buildVerifier = BuildVerifier()
     @State private var isDroppingFileToTerminal = false
     @State private var showTaskBanner = false
     @State private var showKeyboardShortcuts = false
@@ -160,6 +161,7 @@ struct ContentView: View {
         ))
         .onChange(of: workingDirectory.directoryURL) { _, newURL in
             showTaskBanner = false
+            buildVerifier.cancel()
             filePreview.close(persist: false)
             filePreview.rootDirectory = newURL
             terminalTabs.reset()
@@ -188,10 +190,14 @@ struct ContentView: View {
                 withAnimation(.easeInOut(duration: 0.25)) {
                     showTaskBanner = true
                 }
+                if let url = workingDirectory.directoryURL {
+                    buildVerifier.run(at: url)
+                }
             } else if isActive {
                 withAnimation(.easeInOut(duration: 0.25)) {
                     showTaskBanner = false
                 }
+                buildVerifier.cancel()
             }
         }
         .onAppear {
@@ -402,6 +408,7 @@ struct ContentView: View {
                             changedFileCount: changesModel.changedFiles.count,
                             totalAdditions: changesModel.totalAdditions,
                             totalDeletions: changesModel.totalDeletions,
+                            buildStatus: buildVerifier.status,
                             onReviewAll: {
                                 showDiffSummary = true
                                 showTaskBanner = false
