@@ -48,7 +48,7 @@ struct EmbeddedTerminalView: View {
     }
 
     var body: some View {
-        ZStack {
+        ZStack(alignment: .topTrailing) {
             TerminalNSView(
                 workingDirectory: workingDirectory,
                 terminalProxy: isActiveTab ? terminalProxy : nil,
@@ -76,6 +76,12 @@ struct EmbeddedTerminalView: View {
 
             if copilotNotFound && shouldLaunchCopilot {
                 copilotNotFoundBanner
+            }
+
+            if terminalProxy.isShowingFindBar && isActiveTab {
+                TerminalSearchBarView(proxy: terminalProxy)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .animation(.easeInOut(duration: 0.2), value: terminalProxy.isShowingFindBar)
             }
         }
     }

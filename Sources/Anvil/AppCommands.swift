@@ -67,6 +67,14 @@ struct FindInTerminalKey: FocusedValueKey {
     typealias Value = () -> Void
 }
 
+struct FindTerminalNextKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
+struct FindTerminalPreviousKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
 struct ShowCommandPaletteKey: FocusedValueKey {
     typealias Value = () -> Void
 }
@@ -224,6 +232,16 @@ extension FocusedValues {
         set { self[FindInTerminalKey.self] = newValue }
     }
 
+    var findTerminalNext: (() -> Void)? {
+        get { self[FindTerminalNextKey.self] }
+        set { self[FindTerminalNextKey.self] = newValue }
+    }
+
+    var findTerminalPrevious: (() -> Void)? {
+        get { self[FindTerminalPreviousKey.self] }
+        set { self[FindTerminalPreviousKey.self] = newValue }
+    }
+
     var showCommandPalette: (() -> Void)? {
         get { self[ShowCommandPaletteKey.self] }
         set { self[ShowCommandPaletteKey.self] = newValue }
@@ -332,6 +350,8 @@ struct ViewCommands: Commands {
     @FocusedValue(\.autoFollow) var autoFollow
     @FocusedValue(\.findInProject) var findInProject
     @FocusedValue(\.findInTerminal) var findInTerminal
+    @FocusedValue(\.findTerminalNext) var findTerminalNext
+    @FocusedValue(\.findTerminalPrevious) var findTerminalPrevious
     @FocusedValue(\.increaseFontSize) var increaseFontSize
     @FocusedValue(\.decreaseFontSize) var decreaseFontSize
     @FocusedValue(\.resetFontSize) var resetFontSize
@@ -384,6 +404,18 @@ struct ViewCommands: Commands {
             }
             .keyboardShortcut("f", modifiers: .command)
             .disabled(findInTerminal == nil)
+
+            Button("Find Next in Terminal") {
+                findTerminalNext?()
+            }
+            .keyboardShortcut("g", modifiers: .command)
+            .disabled(findTerminalNext == nil)
+
+            Button("Find Previous in Terminal") {
+                findTerminalPrevious?()
+            }
+            .keyboardShortcut("g", modifiers: [.command, .shift])
+            .disabled(findTerminalPrevious == nil)
 
             Button("Go to Line…") {
                 goToLine?()
