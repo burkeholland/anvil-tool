@@ -9,6 +9,7 @@ struct ChangesListView: View {
     @ObservedObject var workingDirectory: WorkingDirectoryModel
     var onReviewAll: (() -> Void)?
     var onBranchDiff: (() -> Void)?
+    var onCreatePR: (() -> Void)?
     @EnvironmentObject var terminalProxy: TerminalInputProxy
     @State private var fileToDiscard: ChangedFile?
     @State private var showDiscardAllConfirm = false
@@ -95,6 +96,30 @@ struct ChangesListView: View {
         if workingDirectory.hasRemotes && (workingDirectory.aheadCount > 0 || !workingDirectory.hasUpstream) && model.changedFiles.isEmpty {
             Section {
                 SyncPromptView(workingDirectory: workingDirectory)
+            }
+        }
+        if workingDirectory.hasUpstream && model.changedFiles.isEmpty {
+            if let prURL = workingDirectory.openPRURL, let url = URL(string: prURL) {
+                Section {
+                    PRStatusRow(title: workingDirectory.openPRTitle ?? "Open Pull Request", url: url)
+                }
+            } else if let onCreatePR, workingDirectory.aheadCount == 0 {
+                Section {
+                    Button {
+                        onCreatePR()
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "arrow.triangle.pull")
+                                .font(.system(size: 11))
+                                .foregroundStyle(.purple)
+                            Text("Create Pull Request")
+                                .font(.system(size: 12, weight: .medium))
+                            Spacer()
+                        }
+                        .padding(.vertical, 2)
+                    }
+                    .buttonStyle(.plain)
+                }
             }
         }
     }
@@ -1317,5 +1342,33 @@ struct SyncPromptView: View {
             }
         }
         .padding(.vertical, 4)
+    }
+}
+
+/// Row shown in the Changes panel when the current branch has an open pull request.
+struct PRStatusRow: View {
+    let title: String
+    let url: URL
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "arrow.triangle.pull")
+                .font(.system(size: 11))
+                .foregroundStyle(.purple)
+            Text(title)
+                .font(.system(size: 12, weight: .medium))
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Spacer()
+            Button {
+                NSWorkspace.shared.open(url)
+            } label: {
+                Text("Open")
+                    .font(.system(size: 10))
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.mini)
+        }
+        .padding(.vertical, 2)
     }
 }

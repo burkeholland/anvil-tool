@@ -44,6 +44,7 @@ struct ContentView: View {
     @State private var showProjectSwitcher = false
     @State private var showBranchDiff = false
     @State private var showCloneSheet = false
+    @State private var showCreatePR = false
 
     var body: some View {
         ZStack {
@@ -223,6 +224,13 @@ struct ContentView: View {
                 onDismiss: { showCloneSheet = false }
             )
         }
+        .sheet(isPresented: $showCreatePR) {
+            CreatePullRequestView(
+                workingDirectory: workingDirectory,
+                changesModel: changesModel,
+                onDismiss: { showCreatePR = false }
+            )
+        }
     }
 
     private var projectView: some View {
@@ -245,7 +253,8 @@ struct ContentView: View {
                             }
                             showDiffSummary = false
                             showBranchDiff = true
-                        }
+                        },
+                        onCreatePR: { showCreatePR = true }
                     )
                         .frame(width: max(sidebarWidth, 0))
 
@@ -881,6 +890,22 @@ struct ContentView: View {
                 workingDirectory?.fetch()
             },
 
+            PaletteCommand(id: "create-pr", title: "Create Pull Request…", icon: "arrow.triangle.pull", shortcut: nil, category: "Git") {
+                hasProject && workingDirectory.hasUpstream && workingDirectory.openPRURL == nil
+            } action: {
+                showSidebar = true
+                sidebarTab = .changes
+                showCreatePR = true
+            },
+
+            PaletteCommand(id: "view-pr", title: "View Pull Request", icon: "arrow.triangle.pull", shortcut: nil, category: "Git") {
+                hasProject && workingDirectory.openPRURL != nil
+            } action: { [weak workingDirectory] in
+                if let urlString = workingDirectory?.openPRURL, let url = URL(string: urlString) {
+                    NSWorkspace.shared.open(url)
+                }
+            },
+
             PaletteCommand(id: "keyboard-shortcuts", title: "Keyboard Shortcuts", icon: "keyboard", shortcut: "⌘/", category: "Help") {
                 true
             } action: {
@@ -1339,6 +1364,7 @@ struct SidebarView: View {
     @Binding var activeTab: SidebarTab
     var onReviewAll: (() -> Void)?
     var onBranchDiff: (() -> Void)?
+    var onCreatePR: (() -> Void)?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -1418,7 +1444,7 @@ struct SidebarView: View {
                 }
 
             case .changes:
-                ChangesListView(model: changesModel, filePreview: filePreview, workingDirectory: model, onReviewAll: onReviewAll, onBranchDiff: onBranchDiff)
+                ChangesListView(model: changesModel, filePreview: filePreview, workingDirectory: model, onReviewAll: onReviewAll, onBranchDiff: onBranchDiff, onCreatePR: onCreatePR)
 
             case .activity:
                 ActivityFeedView(model: activityModel, filePreview: filePreview)

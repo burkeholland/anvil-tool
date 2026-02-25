@@ -45,6 +45,22 @@ struct StatusBarView: View {
                         }
                     }
 
+                    // PR indicator
+                    if let prURL = workingDirectory.openPRURL, let url = URL(string: prURL) {
+                        Button {
+                            NSWorkspace.shared.open(url)
+                        } label: {
+                            HStack(spacing: 2) {
+                                Image(systemName: "arrow.triangle.pull")
+                                    .font(.system(size: 8, weight: .bold))
+                                Text("PR")
+                            }
+                            .foregroundStyle(.purple)
+                        }
+                        .buttonStyle(.plain)
+                        .help(workingDirectory.openPRTitle.map { "Pull Request: \($0)" } ?? "Open Pull Request")
+                    }
+
                     // Sync button
                     if workingDirectory.hasRemotes {
                         syncButton
