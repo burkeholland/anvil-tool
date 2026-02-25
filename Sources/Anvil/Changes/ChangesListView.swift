@@ -137,7 +137,8 @@ struct ChangesListView: View {
                         isStaged: true,
                         isReviewed: model.isReviewed(file),
                         isFocused: fileIdx == model.focusedFileIndex,
-                        onToggleReview: { model.toggleReviewed(file) }
+                        onToggleReview: { model.toggleReviewed(file) },
+                        onOpenFile: { filePreview.select(file.url) }
                     )
                     .contentShape(Rectangle())
                     .onTapGesture {
@@ -181,7 +182,8 @@ struct ChangesListView: View {
                         isStaged: false,
                         isReviewed: model.isReviewed(file),
                         isFocused: fileIdx == model.focusedFileIndex,
-                        onToggleReview: { model.toggleReviewed(file) }
+                        onToggleReview: { model.toggleReviewed(file) },
+                        onOpenFile: { filePreview.select(file.url) }
                     )
                     .contentShape(Rectangle())
                     .onTapGesture {
@@ -1107,6 +1109,10 @@ struct ChangedFileRow: View {
     var isReviewed: Bool = false
     var isFocused: Bool = false
     var onToggleReview: (() -> Void)? = nil
+    var onOpenFile: (() -> Void)? = nil
+
+    @State private var isHovering = false
+    @State private var dismissTask: DispatchWorkItem?
 
     var body: some View {
         HStack(spacing: 6) {
@@ -1187,6 +1193,25 @@ struct ChangedFileRow: View {
                 ? RoundedRectangle(cornerRadius: 4).strokeBorder(Color.accentColor.opacity(0.7), lineWidth: 1.5)
                 : nil
         )
+        .onHover { hovering in
+            dismissTask?.cancel()
+            if hovering {
+                isHovering = true
+            } else {
+                let task = DispatchWorkItem { isHovering = false }
+                dismissTask = task
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4, execute: task)
+            }
+        }
+        .onDisappear { dismissTask?.cancel() }
+        .popover(isPresented: Binding(
+            get: { isHovering && file.diff != nil },
+            set: { if !$0 { isHovering = false } }
+        ), arrowEdge: .trailing) {
+            if let diff = file.diff {
+                DiffPreviewPopover(diff: diff, onOpenFull: onOpenFile)
+            }
+        }
     }
 
     private var statusLabel: String {
