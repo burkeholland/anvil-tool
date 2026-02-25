@@ -14,6 +14,12 @@ struct FilePreviewView: View {
         model.fileDiff.map { DiffParser.gutterChanges(from: $0) } ?? [:]
     }
 
+    /// Document symbols parsed from the current file.
+    private var documentSymbols: [DocumentSymbol] {
+        guard let content = model.fileContent else { return [] }
+        return SymbolParser.parse(source: content, language: model.highlightLanguage)
+    }
+
     /// Number of contiguous change regions in the current file.
     private var changeRegionCount: Int {
         model.changeRegions(from: currentGutterChanges).count
@@ -97,6 +103,33 @@ struct FilePreviewView: View {
                     }
                     .pickerStyle(.segmented)
                     .frame(width: model.hasDiff && model.isMarkdownFile ? 280 : 200)
+                }
+
+                // Symbol outline
+                if !documentSymbols.isEmpty && model.activeTab == .source {
+                    Button {
+                        model.showSymbolOutline.toggle()
+                    } label: {
+                        HStack(spacing: 3) {
+                            Image(systemName: "list.bullet.indent")
+                                .font(.system(size: 11))
+                            Text("\(documentSymbols.count)")
+                                .font(.system(size: 10))
+                        }
+                        .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Document Symbols")
+                    .popover(isPresented: $model.showSymbolOutline, arrowEdge: .bottom) {
+                        SymbolOutlineView(
+                            symbols: documentSymbols,
+                            onSelect: { line in
+                                model.scrollToLine = line
+                                model.lastNavigatedLine = line
+                            },
+                            onDismiss: { model.showSymbolOutline = false }
+                        )
+                    }
                 }
 
                 // @Mention in terminal

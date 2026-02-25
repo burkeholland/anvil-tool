@@ -22,6 +22,8 @@ final class FilePreviewModel: ObservableObject {
     var lastNavigatedLine: Int = 1
     /// Controls the Go to Line overlay in the file preview.
     @Published var showGoToLine = false
+    /// Controls the symbol outline popover in the file preview.
+    @Published var showSymbolOutline = false
     @Published private(set) var previewImage: NSImage?
     @Published private(set) var imageSize: CGSize?
     @Published private(set) var imageFileSize: Int?
@@ -74,6 +76,7 @@ final class FilePreviewModel: ObservableObject {
         guard !url.hasDirectoryPath else { return }
         let wasCommitDiff = commitDiffContext != nil
         commitDiffContext = nil
+        showSymbolOutline = false
         // Add to tabs if not already open
         if !openTabs.contains(url) {
             openTabs.append(url)
@@ -124,6 +127,7 @@ final class FilePreviewModel: ObservableObject {
         imageFileSize = nil
         activeTab = .source
         commitDiffContext = nil
+        showSymbolOutline = false
     }
 
     /// Refresh both source content and diff for the current file.

@@ -573,6 +573,12 @@ struct ContentView: View {
                 showKeyboardShortcuts = true
             },
 
+            PaletteCommand(id: "go-to-symbol", title: "Go to Symbol…", icon: "list.bullet.indent", shortcut: nil, category: "Navigation") {
+                filePreview.selectedURL != nil && filePreview.fileContent != nil && filePreview.activeTab == .source
+            } action: { [weak filePreview] in
+                filePreview?.showSymbolOutline = true
+            },
+
             PaletteCommand(id: "go-to-line", title: "Go to Line…", icon: "arrow.right.to.line", shortcut: "⌘L", category: "Navigation") {
                 filePreview.selectedURL != nil && filePreview.fileContent != nil && filePreview.activeTab == .source
             } action: { [weak filePreview] in
