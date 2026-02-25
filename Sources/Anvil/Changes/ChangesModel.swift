@@ -80,6 +80,81 @@ final class ChangesModel: ObservableObject {
         !stagedFiles.isEmpty && !commitMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !isCommitting
     }
 
+    // MARK: - Commit Message Generation
+
+    /// Generates a structured commit message from the current changes.
+    /// - Parameter allFiles: When `true`, uses all changed files (for Stage All & Commit).
+    ///   When `false` (default), uses staged files if any are staged, otherwise all changed files.
+    func generateCommitMessage(allFiles: Bool = false) -> String {
+        let files: [ChangedFile]
+        if allFiles {
+            files = changedFiles
+        } else {
+            files = stagedFiles.isEmpty ? changedFiles : stagedFiles
+        }
+        guard !files.isEmpty else { return "" }
+
+        let added = files.filter { $0.status == .added || $0.status == .untracked }
+        let modified = files.filter { $0.status == .modified }
+        let deleted = files.filter { $0.status == .deleted }
+        let renamed = files.filter { $0.status == .renamed }
+
+        // Build subject line
+        let subject = buildSubject(added: added, modified: modified, deleted: deleted, renamed: renamed)
+
+        // Build body with per-file stats
+        var bodyLines: [String] = []
+        if files.count > 1 {
+            bodyLines.append("")
+            for file in files {
+                let stats = fileStatsLabel(file)
+                bodyLines.append("- \(file.relativePath)\(stats)")
+            }
+        }
+
+        return subject + bodyLines.joined(separator: "\n")
+    }
+
+    private func buildSubject(added: [ChangedFile], modified: [ChangedFile], deleted: [ChangedFile], renamed: [ChangedFile]) -> String {
+        var parts: [String] = []
+
+        if !added.isEmpty {
+            let names = added.prefix(3).map(\.fileName)
+            let label = names.joined(separator: ", ")
+            parts.append("Add \(label)\(added.count > 3 ? " and \(added.count - 3) more" : "")")
+        }
+        if !modified.isEmpty {
+            let names = modified.prefix(3).map(\.fileName)
+            let label = names.joined(separator: ", ")
+            parts.append("Update \(label)\(modified.count > 3 ? " and \(modified.count - 3) more" : "")")
+        }
+        if !deleted.isEmpty {
+            let names = deleted.prefix(3).map(\.fileName)
+            let label = names.joined(separator: ", ")
+            parts.append("Remove \(label)\(deleted.count > 3 ? " and \(deleted.count - 3) more" : "")")
+        }
+        if !renamed.isEmpty {
+            let names = renamed.prefix(2).map(\.fileName)
+            let label = names.joined(separator: ", ")
+            parts.append("Rename \(label)\(renamed.count > 2 ? " and \(renamed.count - 2) more" : "")")
+        }
+
+        if parts.isEmpty { return "Update files" }
+        return parts.joined(separator: "; ")
+    }
+
+    private func fileStatsLabel(_ file: ChangedFile) -> String {
+        guard let diff = file.diff else {
+            return file.status == .untracked ? " (new)" : ""
+        }
+        let adds = diff.additionCount
+        let dels = diff.deletionCount
+        if adds > 0 && dels > 0 { return " (+\(adds)/-\(dels))" }
+        if adds > 0 { return " (+\(adds))" }
+        if dels > 0 { return " (-\(dels))" }
+        return ""
+    }
+
     // MARK: - Review Tracking Methods
 
     var reviewedCount: Int {
@@ -719,4 +794,11 @@ final class ChangesModel: ObservableObject {
         let msg = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
         return (false, msg)
     }
+
+    #if DEBUG
+    /// Test helper to set changed files directly.
+    func setChangedFilesForTesting(_ files: [ChangedFile]) {
+        changedFiles = files
+    }
+    #endif
 }

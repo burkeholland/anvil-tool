@@ -439,6 +439,20 @@ private struct ReviewCommitForm: View {
                 RoundedRectangle(cornerRadius: 6)
                     .strokeBorder(Color(nsColor: .separatorColor), lineWidth: 0.5)
             )
+            .overlay(alignment: .bottomTrailing) {
+                Button {
+                    model.commitMessage = model.generateCommitMessage(allFiles: true)
+                } label: {
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 20, height: 20)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.borderless)
+                .help("Generate commit message from changes")
+                .padding(4)
+            }
 
             HStack(spacing: 8) {
                 Button {
