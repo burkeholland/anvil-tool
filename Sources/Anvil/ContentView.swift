@@ -1,16 +1,28 @@
 import SwiftUI
 
+enum SidebarTab {
+    case files
+    case changes
+}
+
 struct ContentView: View {
     @StateObject private var workingDirectory = WorkingDirectoryModel()
     @StateObject private var filePreview = FilePreviewModel()
+    @StateObject private var changesModel = ChangesModel()
     @State private var sidebarWidth: CGFloat = 240
     @State private var previewWidth: CGFloat = 400
     @State private var showSidebar = true
+    @State private var sidebarTab: SidebarTab = .files
 
     var body: some View {
         HStack(spacing: 0) {
             if showSidebar {
-                SidebarView(model: workingDirectory, filePreview: filePreview)
+                SidebarView(
+                    model: workingDirectory,
+                    filePreview: filePreview,
+                    changesModel: changesModel,
+                    activeTab: $sidebarTab
+                )
                     .frame(width: max(sidebarWidth, 0))
 
                 PanelDivider(
@@ -48,9 +60,15 @@ struct ContentView: View {
         .onChange(of: workingDirectory.directoryURL) { _, newURL in
             filePreview.close()
             filePreview.rootDirectory = newURL
+            if let url = newURL {
+                changesModel.start(rootURL: url)
+            }
         }
         .onAppear {
             filePreview.rootDirectory = workingDirectory.directoryURL
+            if let url = workingDirectory.directoryURL {
+                changesModel.start(rootURL: url)
+            }
         }
     }
 }
@@ -107,39 +125,102 @@ struct ToolbarView: View {
 struct SidebarView: View {
     @ObservedObject var model: WorkingDirectoryModel
     @ObservedObject var filePreview: FilePreviewModel
+    @ObservedObject var changesModel: ChangesModel
+    @Binding var activeTab: SidebarTab
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                Text("Files")
-                    .font(.headline)
-                    .foregroundStyle(.secondary)
+            // Tab bar
+            HStack(spacing: 0) {
+                SidebarTabButton(
+                    title: "Files",
+                    systemImage: "folder",
+                    isActive: activeTab == .files
+                ) {
+                    activeTab = .files
+                }
+
+                SidebarTabButton(
+                    title: "Changes",
+                    systemImage: "arrow.triangle.2.circlepath",
+                    isActive: activeTab == .changes,
+                    badge: changesModel.changedFiles.isEmpty ? nil : changesModel.changedFiles.count
+                ) {
+                    activeTab = .changes
+                }
+
                 Spacer()
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
             .background(.bar)
 
-            if let rootURL = model.directoryURL {
-                FileTreeView(rootURL: rootURL, filePreview: filePreview)
-                    .id(rootURL) // Reset state when directory changes
-            } else {
-                VStack(spacing: 12) {
-                    Spacer()
-                    Image(systemName: "folder.badge.questionmark")
-                        .font(.system(size: 32))
-                        .foregroundStyle(.tertiary)
-                    Text("No directory selected")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                    Text("Use Open… to choose a project")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
-                    Spacer()
+            Divider()
+
+            // Content
+            switch activeTab {
+            case .files:
+                if let rootURL = model.directoryURL {
+                    FileTreeView(rootURL: rootURL, filePreview: filePreview)
+                        .id(rootURL)
+                } else {
+                    VStack(spacing: 12) {
+                        Spacer()
+                        Image(systemName: "folder.badge.questionmark")
+                            .font(.system(size: 32))
+                            .foregroundStyle(.tertiary)
+                        Text("No directory selected")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                        Text("Use Open… to choose a project")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                        Spacer()
+                    }
+                    .frame(maxWidth: .infinity)
                 }
-                .frame(maxWidth: .infinity)
+
+            case .changes:
+                ChangesListView(model: changesModel, filePreview: filePreview)
             }
         }
         .background(Color(nsColor: .controlBackgroundColor))
+    }
+}
+
+struct SidebarTabButton: View {
+    let title: String
+    let systemImage: String
+    let isActive: Bool
+    var badge: Int? = nil
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 11))
+                Text(title)
+                    .font(.system(size: 12, weight: isActive ? .semibold : .regular))
+
+                if let badge = badge {
+                    Text("\(badge)")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1)
+                        .background(Capsule().fill(Color.accentColor))
+                }
+            }
+            .foregroundStyle(isActive ? .primary : .secondary)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(
+                isActive
+                    ? RoundedRectangle(cornerRadius: 6).fill(Color(nsColor: .controlBackgroundColor))
+                    : nil
+            )
+        }
+        .buttonStyle(.plain)
     }
 }
