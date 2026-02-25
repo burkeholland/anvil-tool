@@ -63,7 +63,29 @@ struct QuickOpenView: View {
                 ScrollViewReader { proxy in
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: 0) {
+                            // Section header for recent files
+                            if model.query.isEmpty, model.results.contains(where: \.isRecent) {
+                                Text("Recent")
+                                    .font(.system(size: 10, weight: .medium))
+                                    .foregroundStyle(.secondary)
+                                    .padding(.horizontal, 14)
+                                    .padding(.top, 6)
+                                    .padding(.bottom, 2)
+                            }
+
                             ForEach(Array(model.results.enumerated()), id: \.element.id) { index, result in
+                                // Show "Files" header at the boundary between recent and non-recent
+                                if model.query.isEmpty && !result.isRecent,
+                                   index > 0, model.results[index - 1].isRecent {
+                                    Divider()
+                                        .padding(.vertical, 4)
+                                    Text("Files")
+                                        .font(.system(size: 10, weight: .medium))
+                                        .foregroundStyle(.secondary)
+                                        .padding(.horizontal, 14)
+                                        .padding(.bottom, 2)
+                                }
+
                                 QuickOpenResultRow(
                                     result: result,
                                     isSelected: index == model.selectedIndex
@@ -141,9 +163,9 @@ struct QuickOpenResultRow: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: iconForExtension(result.fileExtension))
+            Image(systemName: result.isRecent ? "clock" : iconForExtension(result.fileExtension))
                 .font(.system(size: 13))
-                .foregroundStyle(iconColor(result.fileExtension))
+                .foregroundStyle(result.isRecent ? .orange : iconColor(result.fileExtension))
                 .frame(width: 20)
 
             Text(result.name)

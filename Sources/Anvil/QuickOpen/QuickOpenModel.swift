@@ -13,6 +13,8 @@ final class QuickOpenModel: ObservableObject {
     private var rootURL: URL?
     private var indexGeneration: UInt64 = 0
     private var gitIgnoreFilter: GitIgnoreFilter?
+    /// URLs of recently viewed files, most-recent first. Used to boost sorting.
+    private var recentURLs: [URL] = []
 
     struct IndexedFile {
         let url: URL
@@ -22,7 +24,8 @@ final class QuickOpenModel: ObservableObject {
         let relativePathLower: String
     }
 
-    func index(rootURL: URL) {
+    func index(rootURL: URL, recentURLs: [URL] = []) {
+        self.recentURLs = recentURLs
         if rootURL == self.rootURL {
             performSearch()
             return
@@ -64,10 +67,22 @@ final class QuickOpenModel: ObservableObject {
 
     private func performSearch() {
         selectedIndex = 0
+        let recentSet = Set(recentURLs)
+
         guard !query.isEmpty else {
-            // Show recent/all files when query is empty (capped)
-            results = allFiles.prefix(50).map {
-                QuickOpenResult(url: $0.url, name: $0.name, relativePath: $0.relativePath, score: 0)
+            // Show recent files first, then alphabetical
+            let recentFiles = recentURLs.compactMap { url in
+                allFiles.first(where: { $0.url == url })
+            }
+            let recentURLSet = Set(recentURLs)
+            let otherFiles = allFiles.filter { !recentURLSet.contains($0.url) }
+            let combined = recentFiles + otherFiles
+            results = combined.prefix(50).enumerated().map { index, file in
+                QuickOpenResult(
+                    url: file.url, name: file.name,
+                    relativePath: file.relativePath, score: 0,
+                    isRecent: index < recentFiles.count
+                )
             }
             return
         }
@@ -77,19 +92,19 @@ final class QuickOpenModel: ObservableObject {
 
         for file in allFiles {
             if let score = fuzzyScore(query: queryLower, target: file.nameLower, original: file.name) {
-                // Boost if path also matches
                 let pathBoost = file.relativePathLower.contains(queryLower) ? 20 : 0
-                scored.append((file, score + pathBoost))
+                let recentBoost = recentSet.contains(file.url) ? 15 : 0
+                scored.append((file, score + pathBoost + recentBoost))
             } else if file.relativePathLower.contains(queryLower) {
-                // Substring match on full path as fallback
-                scored.append((file, 10))
+                let recentBoost = recentSet.contains(file.url) ? 15 : 0
+                scored.append((file, 10 + recentBoost))
             }
         }
 
         scored.sort { $0.1 > $1.1 }
 
         results = scored.prefix(50).map {
-            QuickOpenResult(url: $0.0.url, name: $0.0.name, relativePath: $0.0.relativePath, score: $0.1)
+            QuickOpenResult(url: $0.0.url, name: $0.0.name, relativePath: $0.0.relativePath, score: $0.1, isRecent: false)
         }
     }
 
@@ -199,6 +214,8 @@ struct QuickOpenResult: Identifiable {
     let name: String
     let relativePath: String
     let score: Int
+    /// True when this result appears in the recent files section (empty query only).
+    var isRecent: Bool = false
 
     var id: URL { url }
 

@@ -393,12 +393,12 @@ struct ContentView: View {
         }
         .onChange(of: showQuickOpen) { _, isShowing in
             if isShowing, let url = workingDirectory.directoryURL {
-                quickOpenModel.index(rootURL: url)
+                quickOpenModel.index(rootURL: url, recentURLs: filePreview.recentlyViewedURLs)
             }
         }
         .onChange(of: showMentionPicker) { _, isShowing in
             if isShowing, let url = workingDirectory.directoryURL {
-                quickOpenModel.index(rootURL: url)
+                quickOpenModel.index(rootURL: url, recentURLs: filePreview.recentlyViewedURLs)
             }
         }
     }
@@ -455,18 +455,18 @@ struct ContentView: View {
             // Navigation
             PaletteCommand(id: "quick-open", title: "Quick Open File…", icon: "doc.text.magnifyingglass", shortcut: "⌘⇧O", category: "Navigation") {
                 hasProject
-            } action: { [weak quickOpenModel] in
+            } action: { [weak quickOpenModel, weak filePreview] in
                 if let url = workingDirectory.directoryURL {
-                    quickOpenModel?.index(rootURL: url)
+                    quickOpenModel?.index(rootURL: url, recentURLs: filePreview?.recentlyViewedURLs ?? [])
                 }
                 showMentionPicker = false
                 showQuickOpen = true
             },
             PaletteCommand(id: "mention-file", title: "Mention File in Terminal…", icon: "at", shortcut: "⌘⇧M", category: "Terminal") {
                 hasProject
-            } action: { [weak quickOpenModel] in
+            } action: { [weak quickOpenModel, weak filePreview] in
                 if let url = workingDirectory.directoryURL {
-                    quickOpenModel?.index(rootURL: url)
+                    quickOpenModel?.index(rootURL: url, recentURLs: filePreview?.recentlyViewedURLs ?? [])
                 }
                 showQuickOpen = false
                 showMentionPicker = true

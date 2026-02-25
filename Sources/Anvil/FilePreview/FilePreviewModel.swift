@@ -33,9 +33,15 @@ final class FilePreviewModel: ObservableObject {
     /// When set, the preview shows a commit-specific diff instead of working directory diff.
     private(set) var commitDiffContext: (sha: String, filePath: String)?
 
+    /// Recently viewed file URLs in most-recent-first order, capped at 20.
+    @Published private(set) var recentlyViewedURLs: [URL] = []
+
     /// The root directory for running git commands.
     var rootDirectory: URL? {
-        didSet { setupWatcher() }
+        didSet {
+            setupWatcher()
+            loadRecentFiles()
+        }
     }
 
     private var fileWatcher: FileWatcher?
@@ -80,6 +86,8 @@ final class FilePreviewModel: ObservableObject {
         let wasCommitDiff = commitDiffContext != nil
         commitDiffContext = nil
         showSymbolOutline = false
+        // Track in recent files
+        trackRecent(url)
         // Add to tabs if not already open
         if !openTabs.contains(url) {
             openTabs.append(url)
@@ -459,5 +467,42 @@ final class FilePreviewModel: ObservableObject {
             return rel.isEmpty ? url.lastPathComponent : rel
         }
         return url.lastPathComponent
+    }
+
+    // MARK: - Recent Files
+
+    private static let maxRecentFiles = 20
+
+    private func trackRecent(_ url: URL) {
+        let standardized = url.standardizedFileURL
+        recentlyViewedURLs.removeAll { $0 == standardized }
+        recentlyViewedURLs.insert(standardized, at: 0)
+        if recentlyViewedURLs.count > Self.maxRecentFiles {
+            recentlyViewedURLs = Array(recentlyViewedURLs.prefix(Self.maxRecentFiles))
+        }
+        saveRecentFiles()
+    }
+
+    private var recentFilesKey: String? {
+        guard let root = rootDirectory else { return nil }
+        return "dev.anvil.recentFiles.\(root.standardizedFileURL.path)"
+    }
+
+    private func saveRecentFiles() {
+        guard let key = recentFilesKey else { return }
+        let paths = recentlyViewedURLs.map(\.path)
+        UserDefaults.standard.set(paths, forKey: key)
+    }
+
+    private func loadRecentFiles() {
+        guard let key = recentFilesKey,
+              let paths = UserDefaults.standard.stringArray(forKey: key) else {
+            recentlyViewedURLs = []
+            return
+        }
+        let fm = FileManager.default
+        recentlyViewedURLs = paths.compactMap { path in
+            fm.fileExists(atPath: path) ? URL(fileURLWithPath: path) : nil
+        }
     }
 }
