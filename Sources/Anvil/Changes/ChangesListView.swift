@@ -537,6 +537,14 @@ struct ChangesListView: View {
             Label("Reveal in Finder", systemImage: "folder")
         }
 
+        if let rootURL = workingDirectory.directoryURL {
+            Button {
+                GitHubURLBuilder.openFile(rootURL: rootURL, relativePath: file.relativePath)
+            } label: {
+                Label("Open in GitHub", systemImage: "arrow.up.right.square")
+            }
+        }
+
         Divider()
 
         Button(role: .destructive) {
@@ -791,6 +799,16 @@ struct CommitRow: View {
                     NSPasteboard.general.setString(commit.shortSHA, forType: .string)
                 } label: {
                     Label("Copy Short SHA", systemImage: "doc.on.doc")
+                }
+
+                if let rootURL = model.rootDirectory {
+                    Divider()
+
+                    Button {
+                        GitHubURLBuilder.openCommit(rootURL: rootURL, sha: commit.sha)
+                    } label: {
+                        Label("Open Commit in GitHub", systemImage: "arrow.up.right.square")
+                    }
                 }
             }
 

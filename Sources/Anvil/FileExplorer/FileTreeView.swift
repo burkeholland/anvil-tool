@@ -352,6 +352,14 @@ struct FileTreeView: View {
                 }
             }
         }
+
+        Divider()
+
+        Button {
+            GitHubURLBuilder.openFile(rootURL: rootURL, relativePath: relativePath(of: url))
+        } label: {
+            Label("Open in GitHub", systemImage: "arrow.up.right.square")
+        }
     }
 }
 

@@ -65,6 +65,19 @@ struct StatusBarView: View {
                     if workingDirectory.hasRemotes {
                         syncButton
                     }
+
+                    // Open in GitHub button
+                    if let dirURL = workingDirectory.directoryURL {
+                        Button {
+                            GitHubURLBuilder.openRepo(rootURL: dirURL)
+                        } label: {
+                            Image(systemName: "arrow.up.right.square")
+                                .font(.system(size: 10))
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Open Repository in GitHub")
+                    }
                 }
                 .padding(.horizontal, 10)
                 .help("Current branch: \(branch)")
