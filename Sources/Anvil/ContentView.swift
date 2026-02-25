@@ -183,7 +183,10 @@ struct ContentView: View {
                             EmbeddedTerminalView(
                                 workingDirectory: workingDirectory,
                                 launchCopilotOverride: tab.launchCopilot,
-                                isActiveTab: tab.id == terminalTabs.activeTabID
+                                isActiveTab: tab.id == terminalTabs.activeTabID,
+                                onTitleChange: { title in
+                                    terminalTabs.updateTitle(for: tab.id, to: title)
+                                }
                             )
                             .opacity(tab.id == terminalTabs.activeTabID ? 1 : 0)
                             .allowsHitTesting(tab.id == terminalTabs.activeTabID)

@@ -94,5 +94,6 @@ private struct TerminalTabItem: View {
         .contentShape(Rectangle())
         .onTapGesture { onSelect() }
         .onHover { isHovering = $0 }
+        .help(tab.title != tab.defaultTitle ? "\(tab.defaultTitle): \(tab.title)" : tab.title)
     }
 }

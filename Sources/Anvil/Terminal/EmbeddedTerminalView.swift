@@ -11,6 +11,8 @@ struct EmbeddedTerminalView: View {
     var launchCopilotOverride: Bool?
     /// When true, this tab's terminal is connected to the TerminalInputProxy.
     var isActiveTab: Bool = true
+    /// Called when the terminal reports a title change via OSC sequences.
+    var onTitleChange: ((String) -> Void)?
     @AppStorage("autoLaunchCopilot") private var autoLaunchCopilot = true
     @AppStorage("terminalFontSize") private var fontSize: Double = 14
     @State private var processRunning = true
@@ -51,7 +53,8 @@ struct EmbeddedTerminalView: View {
                 onProcessExit: { code in
                     lastExitCode = code
                     processRunning = false
-                }
+                },
+                onTitleChange: onTitleChange
             )
             .id(terminalID)
 
@@ -110,6 +113,7 @@ private struct TerminalNSView: NSViewRepresentable {
     var autoLaunchCopilot: Bool
     var fontSize: Double
     var onProcessExit: (Int32?) -> Void
+    var onTitleChange: ((String) -> Void)?
 
     func makeNSView(context: Context) -> LocalProcessTerminalView {
         let terminalView = LocalProcessTerminalView(frame: .zero)
@@ -153,15 +157,17 @@ private struct TerminalNSView: NSViewRepresentable {
     }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onProcessExit: onProcessExit)
+        Coordinator(onProcessExit: onProcessExit, onTitleChange: onTitleChange)
     }
 
     final class Coordinator: NSObject, LocalProcessTerminalViewDelegate {
         let onProcessExit: (Int32?) -> Void
+        let onTitleChange: ((String) -> Void)?
         var lastFontSize: Double = 14
 
-        init(onProcessExit: @escaping (Int32?) -> Void) {
+        init(onProcessExit: @escaping (Int32?) -> Void, onTitleChange: ((String) -> Void)?) {
             self.onProcessExit = onProcessExit
+            self.onTitleChange = onTitleChange
         }
 
         /// Detects whether the Copilot CLI is installed, then sends the launch
@@ -177,7 +183,11 @@ private struct TerminalNSView: NSViewRepresentable {
 
         func sizeChanged(source: LocalProcessTerminalView, newCols: Int, newRows: Int) {}
 
-        func setTerminalTitle(source: LocalProcessTerminalView, title: String) {}
+        func setTerminalTitle(source: LocalProcessTerminalView, title: String) {
+            DispatchQueue.main.async { [weak self] in
+                self?.onTitleChange?(title)
+            }
+        }
 
         func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {}
 
