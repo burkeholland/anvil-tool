@@ -464,6 +464,24 @@ struct ContentView: View {
             } action: { [weak changesModel] in
                 changesModel?.discardAll()
             },
+
+            PaletteCommand(id: "git-push", title: "Push", icon: "arrow.up", shortcut: nil, category: "Git") {
+                hasProject && workingDirectory.hasRemotes && !workingDirectory.isPushing
+            } action: { [weak workingDirectory] in
+                workingDirectory?.push()
+            },
+
+            PaletteCommand(id: "git-pull", title: "Pull", icon: "arrow.down", shortcut: nil, category: "Git") {
+                hasProject && workingDirectory.hasUpstream && !workingDirectory.isPulling
+            } action: { [weak workingDirectory] in
+                workingDirectory?.pull()
+            },
+
+            PaletteCommand(id: "git-fetch", title: "Fetch", icon: "arrow.clockwise", shortcut: nil, category: "Git") {
+                hasProject && workingDirectory.hasRemotes
+            } action: { [weak workingDirectory] in
+                workingDirectory?.fetch()
+            },
         ])
     }
 
@@ -735,7 +753,7 @@ struct SidebarView: View {
                 }
 
             case .changes:
-                ChangesListView(model: changesModel, filePreview: filePreview, onReviewAll: onReviewAll)
+                ChangesListView(model: changesModel, filePreview: filePreview, workingDirectory: model, onReviewAll: onReviewAll)
 
             case .activity:
                 ActivityFeedView(model: activityModel, filePreview: filePreview)

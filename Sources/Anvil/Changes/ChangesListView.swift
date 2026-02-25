@@ -6,6 +6,7 @@ import AppKit
 struct ChangesListView: View {
     @ObservedObject var model: ChangesModel
     @ObservedObject var filePreview: FilePreviewModel
+    @ObservedObject var workingDirectory: WorkingDirectoryModel
     var onReviewAll: (() -> Void)?
     @EnvironmentObject var terminalProxy: TerminalInputProxy
     @State private var fileToDiscard: ChangedFile?
@@ -51,6 +52,13 @@ struct ChangesListView: View {
                             }
                             .buttonStyle(.plain)
                         }
+                    }
+                }
+
+                // Push prompt when there are unpushed commits
+                if workingDirectory.hasRemotes && (workingDirectory.aheadCount > 0 || !workingDirectory.hasUpstream) && model.changedFiles.isEmpty {
+                    Section {
+                        SyncPromptView(workingDirectory: workingDirectory)
                     }
                 }
 
@@ -673,5 +681,73 @@ struct DiscardRecoveryBanner: View {
         .padding(.vertical, 8)
         .background(.ultraThinMaterial)
         .overlay(alignment: .top) { Divider() }
+    }
+}
+
+/// Prompt shown in the Changes panel when there are unpushed commits.
+struct SyncPromptView: View {
+    @ObservedObject var workingDirectory: WorkingDirectoryModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: "arrow.up.circle")
+                    .font(.system(size: 14))
+                    .foregroundStyle(.orange)
+
+                if workingDirectory.hasUpstream {
+                    Text("\(workingDirectory.aheadCount) unpushed commit\(workingDirectory.aheadCount == 1 ? "" : "s")")
+                        .font(.system(size: 12, weight: .medium))
+                } else {
+                    Text("Branch not published")
+                        .font(.system(size: 12, weight: .medium))
+                }
+
+                Spacer()
+            }
+
+            HStack(spacing: 8) {
+                Button {
+                    workingDirectory.push()
+                } label: {
+                    HStack(spacing: 4) {
+                        if workingDirectory.isPushing {
+                            ProgressView()
+                                .controlSize(.mini)
+                        }
+                        Text(workingDirectory.hasUpstream ? "Push" : "Publish Branch")
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .disabled(workingDirectory.isPushing)
+
+                if workingDirectory.behindCount > 0 {
+                    Button {
+                        workingDirectory.pull()
+                    } label: {
+                        HStack(spacing: 4) {
+                            if workingDirectory.isPulling {
+                                ProgressView()
+                                    .controlSize(.mini)
+                            }
+                            Text("Pull")
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(workingDirectory.isPulling)
+                }
+            }
+
+            if let error = workingDirectory.lastSyncError {
+                Text(error)
+                    .font(.system(size: 10))
+                    .foregroundStyle(.red)
+                    .lineLimit(3)
+            }
+        }
+        .padding(.vertical, 4)
     }
 }

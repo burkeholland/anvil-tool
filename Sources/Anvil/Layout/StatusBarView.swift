@@ -16,6 +16,39 @@ struct StatusBarView: View {
                     Text(branch)
                         .lineLimit(1)
                         .truncationMode(.middle)
+
+                    // Ahead/behind indicators
+                    if workingDirectory.hasUpstream || workingDirectory.hasRemotes {
+                        if workingDirectory.aheadCount > 0 {
+                            HStack(spacing: 1) {
+                                Image(systemName: "arrow.up")
+                                    .font(.system(size: 8, weight: .bold))
+                                Text("\(workingDirectory.aheadCount)")
+                            }
+                            .foregroundStyle(.orange)
+                            .help("\(workingDirectory.aheadCount) commit\(workingDirectory.aheadCount == 1 ? "" : "s") ahead of remote")
+                        }
+                        if workingDirectory.behindCount > 0 {
+                            HStack(spacing: 1) {
+                                Image(systemName: "arrow.down")
+                                    .font(.system(size: 8, weight: .bold))
+                                Text("\(workingDirectory.behindCount)")
+                            }
+                            .foregroundStyle(.blue)
+                            .help("\(workingDirectory.behindCount) commit\(workingDirectory.behindCount == 1 ? "" : "s") behind remote")
+                        }
+                        if workingDirectory.aheadCount == 0 && workingDirectory.behindCount == 0 && workingDirectory.hasUpstream {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.system(size: 9))
+                                .foregroundStyle(.green.opacity(0.6))
+                                .help("In sync with remote")
+                        }
+                    }
+
+                    // Sync button
+                    if workingDirectory.hasRemotes {
+                        syncButton
+                    }
                 }
                 .padding(.horizontal, 10)
                 .help("Current branch: \(branch)")
@@ -75,6 +108,79 @@ struct StatusBarView: View {
         .frame(maxWidth: .infinity)
         .background(Color(nsColor: .windowBackgroundColor))
         .overlay(alignment: .top) { Divider() }
+        .overlay(alignment: .top) {
+            if let error = workingDirectory.lastSyncError {
+                HStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.yellow)
+                    Text(error)
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    Spacer()
+                    Button {
+                        workingDirectory.lastSyncError = nil
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 8, weight: .bold))
+                            .foregroundStyle(.tertiary)
+                    }
+                    .buttonStyle(.borderless)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .background(.ultraThinMaterial)
+                .overlay(alignment: .bottom) { Divider() }
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(.easeInOut(duration: 0.2), value: workingDirectory.lastSyncError != nil)
+    }
+
+    @ViewBuilder
+    private var syncButton: some View {
+        if workingDirectory.isPushing || workingDirectory.isPulling {
+            ProgressView()
+                .controlSize(.mini)
+                .scaleEffect(0.7)
+        } else {
+            Menu {
+                if workingDirectory.aheadCount > 0 || !workingDirectory.hasUpstream {
+                    Button {
+                        workingDirectory.push()
+                    } label: {
+                        Label(
+                            workingDirectory.hasUpstream
+                                ? "Push \(workingDirectory.aheadCount) Commit\(workingDirectory.aheadCount == 1 ? "" : "s")"
+                                : "Push & Set Upstream",
+                            systemImage: "arrow.up"
+                        )
+                    }
+                }
+                if workingDirectory.behindCount > 0 {
+                    Button {
+                        workingDirectory.pull()
+                    } label: {
+                        Label("Pull \(workingDirectory.behindCount) Commit\(workingDirectory.behindCount == 1 ? "" : "s")", systemImage: "arrow.down")
+                    }
+                }
+                Divider()
+                Button {
+                    workingDirectory.fetch()
+                } label: {
+                    Label("Fetch", systemImage: "arrow.clockwise")
+                }
+            } label: {
+                Image(systemName: "arrow.triangle.2.circlepath")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.secondary)
+            }
+            .menuStyle(.borderlessButton)
+            .frame(width: 16)
+            .help("Sync with remote")
+        }
     }
 }
 

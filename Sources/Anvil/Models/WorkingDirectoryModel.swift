@@ -4,6 +4,13 @@ import Combine
 final class WorkingDirectoryModel: ObservableObject {
     @Published private(set) var directoryURL: URL?
     @Published private(set) var gitBranch: String?
+    @Published private(set) var aheadCount: Int = 0
+    @Published private(set) var behindCount: Int = 0
+    @Published private(set) var hasUpstream: Bool = false
+    @Published private(set) var hasRemotes: Bool = false
+    @Published private(set) var isPushing = false
+    @Published private(set) var isPulling = false
+    @Published var lastSyncError: String?
 
     private var branchWatcher: FileWatcher?
     private var branchPollTimer: Timer?
@@ -57,6 +64,13 @@ final class WorkingDirectoryModel: ObservableObject {
         branchPollTimer?.invalidate()
         branchPollTimer = nil
         gitBranch = nil
+        aheadCount = 0
+        behindCount = 0
+        hasUpstream = false
+        hasRemotes = false
+        isPushing = false
+        isPulling = false
+        lastSyncError = nil
         directoryURL = nil
         UserDefaults.standard.removeObject(forKey: Self.lastDirectoryKey)
     }
@@ -94,11 +108,81 @@ final class WorkingDirectoryModel: ObservableObject {
     private func refreshBranch(at directory: URL) {
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let branch = Self.currentBranch(at: directory)
+            let remotes = GitRemoteProvider.hasRemotes(in: directory)
+            let upstream = GitRemoteProvider.upstream(in: directory)
+            let counts = GitRemoteProvider.aheadBehind(in: directory)
             DispatchQueue.main.async {
                 guard self?.directoryURL == directory else { return }
                 if self?.gitBranch != branch {
                     self?.gitBranch = branch
                 }
+                self?.hasRemotes = remotes
+                self?.hasUpstream = upstream != nil
+                self?.aheadCount = counts?.ahead ?? 0
+                self?.behindCount = counts?.behind ?? 0
+            }
+        }
+    }
+
+    /// True when any remote sync operation is in progress.
+    var isSyncing: Bool { isPushing || isPulling }
+
+    // MARK: - Push / Pull
+
+    func push() {
+        guard let url = directoryURL, let branch = gitBranch, !isSyncing else { return }
+        isPushing = true
+        lastSyncError = nil
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let result: (success: Bool, error: String?)
+            if self?.hasUpstream == true {
+                result = GitRemoteProvider.push(in: url)
+            } else {
+                result = GitRemoteProvider.pushSetUpstream(branch: branch, in: url)
+            }
+
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                self.isPushing = false
+                if result.success {
+                    self.lastSyncError = nil
+                    self.refreshBranch(at: url)
+                } else {
+                    self.lastSyncError = result.error ?? "Push failed"
+                }
+            }
+        }
+    }
+
+    func pull() {
+        guard let url = directoryURL, !isSyncing else { return }
+        isPulling = true
+        lastSyncError = nil
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let result = GitRemoteProvider.pull(in: url)
+
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                self.isPulling = false
+                if result.success {
+                    self.lastSyncError = nil
+                    self.refreshBranch(at: url)
+                } else {
+                    self.lastSyncError = result.error ?? "Pull failed"
+                }
+            }
+        }
+    }
+
+    func fetch() {
+        guard let url = directoryURL else { return }
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            _ = GitRemoteProvider.fetch(in: url)
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                self.refreshBranch(at: url)
             }
         }
     }
