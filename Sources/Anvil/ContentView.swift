@@ -1119,7 +1119,8 @@ struct ToolbarView: View {
                             onDismiss: { showBranchPicker = false },
                             onBranchChanged: {
                                 changesModel.refresh()
-                            }
+                            },
+                            workingDirectory: workingDirectory
                         )
                     }
                 }
