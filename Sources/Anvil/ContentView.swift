@@ -1403,7 +1403,6 @@ private struct FocusedSceneModifierB: ViewModifier {
             .focusedSceneValue(\.decreaseFontSize, onDecreaseFontSize)
             .focusedSceneValue(\.resetFontSize, onResetFontSize)
             .focusedSceneValue(\.newTerminalTab, hasProject ? onNewTerminalTab : nil)
-            .focusedSceneValue(\.newCopilotTab, hasProject ? onNewCopilotTab : nil)
             .focusedSceneValue(\.findInTerminal, hasProject ? onFindInTerminal : nil)
             .focusedSceneValue(\.showCommandPalette, onShowCommandPalette)
             .focusedSceneValue(\.nextChange, onNextChange)
