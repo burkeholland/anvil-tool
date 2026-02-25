@@ -132,6 +132,12 @@ final class ActivityFeedModel: ObservableObject {
         sessionStats = SessionStats(startTime: sessionStats.startTime)
     }
 
+    /// Adds a terminal-parsed agent action event (commandRun, fileRead, agentStatus)
+    /// to the activity feed without affecting file-change session stats.
+    func appendTerminalEvent(_ event: ActivityEvent) {
+        appendEvents([event], latestNumstat: sessionStats.currentNumstat)
+    }
+
     // MARK: - File System Change Detection
 
     private func onFileSystemChange() {
@@ -257,6 +263,8 @@ final class ActivityFeedModel: ObservableObject {
                 sessionStats.filesModified += 1
             case .gitCommit:
                 sessionStats.commitCount += 1
+            case .commandRun, .fileRead, .agentStatus:
+                break // Terminal events don't affect file-change session stats
             }
         }
 

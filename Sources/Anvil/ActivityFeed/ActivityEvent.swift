@@ -9,7 +9,7 @@ struct DiffStats: Equatable {
     var isEmpty: Bool { additions == 0 && deletions == 0 }
 }
 
-/// A single event in the activity feed — a file change or git commit observed while the agent works.
+/// A single event in the activity feed — a file change, git commit, or agent terminal action.
 struct ActivityEvent: Identifiable {
     enum Kind: Equatable {
         case fileCreated
@@ -17,6 +17,12 @@ struct ActivityEvent: Identifiable {
         case fileDeleted
         case fileRenamed(from: String)
         case gitCommit(message: String, sha: String)
+        /// A shell command the agent executed, e.g. `git diff HEAD`.
+        case commandRun(command: String)
+        /// A file the agent read from disk.
+        case fileRead(path: String)
+        /// An agent status transition, e.g. "Thinking…" or "✓ Done".
+        case agentStatus(status: String)
     }
 
     let id: UUID
@@ -45,6 +51,9 @@ struct ActivityEvent: Identifiable {
         case .fileDeleted:  return "minus.circle.fill"
         case .fileRenamed:  return "arrow.right.circle.fill"
         case .gitCommit:    return "arrow.triangle.branch"
+        case .commandRun:   return "terminal"
+        case .fileRead:     return "eye"
+        case .agentStatus:  return "circle.fill"
         }
     }
 
@@ -55,16 +64,22 @@ struct ActivityEvent: Identifiable {
         case .fileDeleted:  return "red"
         case .fileRenamed:  return "blue"
         case .gitCommit:    return "purple"
+        case .commandRun:   return "cyan"
+        case .fileRead:     return "teal"
+        case .agentStatus:  return "mint"
         }
     }
 
     var label: String {
         switch kind {
-        case .fileCreated:          return "Created"
-        case .fileModified:         return "Modified"
-        case .fileDeleted:          return "Deleted"
-        case .fileRenamed(let old): return "Renamed from \(old)"
-        case .gitCommit(let msg, _): return msg
+        case .fileCreated:              return "Created"
+        case .fileModified:             return "Modified"
+        case .fileDeleted:              return "Deleted"
+        case .fileRenamed(let old):     return "Renamed from \(old)"
+        case .gitCommit(let msg, _):    return msg
+        case .commandRun(let command):  return command
+        case .fileRead(let path):       return path
+        case .agentStatus(let status):  return status
         }
     }
 }
@@ -101,6 +116,9 @@ struct ActivityGroup: Identifiable {
         case .fileDeleted:  return "deleted"
         case .fileRenamed:  return "renamed"
         case .gitCommit:    return "committed"
+        case .commandRun:   return "run"
+        case .fileRead:     return "read"
+        case .agentStatus:  return "status"
         }
     }
 }

@@ -173,6 +173,21 @@ struct ActivityEventRow: View {
                             .lineLimit(1)
                     }
                 }
+
+                if case .commandRun(let command) = event.kind {
+                    Text(command)
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(.cyan.opacity(0.85))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+
+                if case .agentStatus(let status) = event.kind {
+                    Text(status)
+                        .font(.system(size: 10).italic())
+                        .foregroundStyle(.mint.opacity(0.85))
+                        .lineLimit(1)
+                }
             }
 
             Spacer()
@@ -261,6 +276,9 @@ struct ActivityEventRow: View {
         case .fileDeleted:  return .red
         case .fileRenamed:  return .blue
         case .gitCommit:    return .purple
+        case .commandRun:   return .cyan
+        case .fileRead:     return Color(nsColor: .systemTeal)
+        case .agentStatus:  return .mint
         }
     }
 }

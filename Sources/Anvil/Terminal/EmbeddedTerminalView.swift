@@ -15,6 +15,8 @@ struct EmbeddedTerminalView: View {
     var onTitleChange: ((String) -> Void)?
     /// Called when the user ⌘-clicks a file path in the terminal output. The Int? is a 1-based line number.
     var onOpenFile: ((URL, Int?) -> Void)?
+    /// Called when the terminal output parser detects an agent action (command, file read, status).
+    var onTerminalEvent: ((ActivityEvent) -> Void)?
     @AppStorage("autoLaunchCopilot") private var autoLaunchCopilot = true
     @AppStorage("terminalFontSize") private var fontSize: Double = 14
     @AppStorage("terminalThemeID") private var themeID: String = TerminalTheme.defaultDark.id
@@ -66,7 +68,8 @@ struct EmbeddedTerminalView: View {
                 },
                 onOpenURL: { url in
                     NSWorkspace.shared.open(url)
-                }
+                },
+                onTerminalEvent: onTerminalEvent
             )
             .id(terminalID)
 
@@ -188,6 +191,7 @@ private struct TerminalNSView: NSViewRepresentable {
     var onOpenFile: ((URL, Int?) -> Void)?
     var onCopilotNotFound: (() -> Void)?
     var onOpenURL: ((URL) -> Void)?
+    var onTerminalEvent: ((ActivityEvent) -> Void)?
 
     func makeNSView(context: Context) -> LocalProcessTerminalView {
         let terminalView = LocalProcessTerminalView(frame: .zero)
@@ -219,6 +223,11 @@ private struct TerminalNSView: NSViewRepresentable {
         detector.onOpenURL = onOpenURL
         detector.attach(to: terminalView, rootURL: workingDirectory.directoryURL)
 
+        // Attach terminal output parser for agent action detection
+        let parser = context.coordinator.outputParser
+        parser.onEvent = onTerminalEvent
+        parser.attach(to: terminalView)
+
         context.coordinator.lastFontSize = fontSize
         context.coordinator.lastThemeID = theme.id
 
@@ -239,6 +248,8 @@ private struct TerminalNSView: NSViewRepresentable {
         detector.updateRoot(workingDirectory.directoryURL)
         detector.onOpenFile = onOpenFile
         detector.onOpenURL = onOpenURL
+        // Keep parser callback in sync
+        context.coordinator.outputParser.onEvent = onTerminalEvent
         // Reconnect proxy when this tab becomes active
         if let proxy = terminalProxy, proxy.terminalView !== nsView {
             proxy.terminalView = nsView
@@ -262,6 +273,7 @@ private struct TerminalNSView: NSViewRepresentable {
         let onTitleChange: ((String) -> Void)?
         let onCopilotNotFound: (() -> Void)?
         let filePathDetector = TerminalFilePathDetector()
+        let outputParser = TerminalOutputParser()
         var lastFontSize: Double = 14
         var lastThemeID: String = TerminalTheme.defaultDark.id
 
@@ -273,6 +285,7 @@ private struct TerminalNSView: NSViewRepresentable {
 
         deinit {
             filePathDetector.detach()
+            outputParser.detach()
         }
 
         /// Detects whether the Copilot CLI is installed, then sends the launch

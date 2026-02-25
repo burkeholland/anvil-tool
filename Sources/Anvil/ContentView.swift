@@ -275,6 +275,9 @@ struct ContentView: View {
                                 },
                                 onOpenFile: { url, line in
                                     filePreview.select(url, line: line)
+                                },
+                                onTerminalEvent: { event in
+                                    activityModel.appendTerminalEvent(event)
                                 }
                             )
                             .opacity(tab.id == terminalTabs.activeTabID ? 1 : 0)
