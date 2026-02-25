@@ -277,7 +277,7 @@ struct ActivityEventRow: View {
         case .fileRenamed:  return .blue
         case .gitCommit:    return .purple
         case .commandRun:   return .cyan
-        case .fileRead:     return Color(nsColor: .systemTeal)
+        case .fileRead:     return .teal
         case .agentStatus:  return .mint
         }
     }
