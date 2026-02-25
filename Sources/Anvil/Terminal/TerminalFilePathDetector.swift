@@ -1,14 +1,19 @@
 import AppKit
 import SwiftTerm
 
-/// Detects ⌘-click on file paths in the terminal output and opens them in the preview panel.
+/// Detects ⌘-click on file paths and URLs in the terminal output.
+/// File paths open in the preview panel (with optional line navigation).
+/// URLs open in the default browser.
 /// Uses an NSEvent local monitor so no subclassing of SwiftTerm views is required.
 final class TerminalFilePathDetector {
 
     private var monitor: Any?
     private weak var terminalView: LocalProcessTerminalView?
     private var projectRootURL: URL?
-    var onOpenFile: ((URL) -> Void)?
+    /// Called when ⌘-clicking a file path. The Int? is the 1-based line number if present.
+    var onOpenFile: ((URL, Int?) -> Void)?
+    /// Called when ⌘-clicking a URL. Opens in the default browser.
+    var onOpenURL: ((URL) -> Void)?
 
     func attach(to view: LocalProcessTerminalView, rootURL: URL?) {
         detach()
@@ -39,8 +44,7 @@ final class TerminalFilePathDetector {
 
     private func handleMouseUp(_ event: NSEvent) -> NSEvent? {
         guard event.modifierFlags.contains(.command),
-              let tv = terminalView,
-              let rootURL = projectRootURL else {
+              let tv = terminalView else {
             return event
         }
 
@@ -55,20 +59,32 @@ final class TerminalFilePathDetector {
         let pointInView = tv.convert(pointInWindow, from: nil)
         guard let (col, row) = gridPosition(in: tv, at: pointInView) else { return event }
 
-        // Extract line text and find file path
+        // Extract line text
         let terminal = tv.getTerminal()
         guard let bufferLine = terminal.getLine(row: row) else { return event }
         let lineText = bufferLine.translateToString(trimRight: true)
-        guard let token = extractPathToken(from: lineText, column: col) else { return event }
 
-        // Resolve to a real file
-        guard let fileURL = resolveFilePath(token, rootURL: rootURL) else { return event }
-
-        // Open the file — consume the event so SwiftTerm doesn't also handle it
-        DispatchQueue.main.async { [weak self] in
-            self?.onOpenFile?(fileURL)
+        // Try file path first (requires project root)
+        if let rootURL = projectRootURL,
+           let token = extractPathToken(from: lineText, column: col) {
+            let (pathPart, lineNumber) = parseLineNumber(from: token)
+            if let fileURL = resolveFilePath(pathPart, rootURL: rootURL) {
+                DispatchQueue.main.async { [weak self] in
+                    self?.onOpenFile?(fileURL, lineNumber)
+                }
+                return nil
+            }
         }
-        return nil
+
+        // Fall back to URL detection
+        if let url = extractURL(from: lineText, column: col) {
+            DispatchQueue.main.async { [weak self] in
+                self?.onOpenURL?(url)
+            }
+            return nil
+        }
+
+        return event
     }
 
     // MARK: - Grid Position Calculation
@@ -95,28 +111,34 @@ final class TerminalFilePathDetector {
         return (col, row)
     }
 
-    // MARK: - Path Token Extraction
+    // MARK: - Path Token Extraction (internal for testing)
 
     /// Extracts a file-path-like token around the given column in a line of text.
-    private func extractPathToken(from line: String, column: Int) -> String? {
+    /// The token may include a `:line` or `:line:col` suffix (e.g., `main.swift:42:10`).
+    func extractPathToken(from line: String, column: Int) -> String? {
         guard !line.isEmpty else { return nil }
         let chars = Array(line)
         let safeCol = min(max(column, 0), chars.count - 1)
 
         // Expand left
         var left = safeCol
-        while left > 0 && isPathChar(chars[left - 1]) {
+        while left > 0 && isPathOrLocChar(chars[left - 1]) {
             left -= 1
         }
 
         // Expand right
         var right = safeCol
-        while right < chars.count - 1 && isPathChar(chars[right + 1]) {
+        while right < chars.count - 1 && isPathOrLocChar(chars[right + 1]) {
             right += 1
         }
 
         guard left <= right else { return nil }
-        let token = String(chars[left...right])
+        var token = String(chars[left...right])
+
+        // Strip trailing colon (e.g., from "file.swift:42:" at end of error message)
+        while token.hasSuffix(":") {
+            token = String(token.dropLast())
+        }
 
         // Must contain at least one path separator or dot to look like a file path
         guard token.contains("/") || token.contains(".") else { return nil }
@@ -126,9 +148,58 @@ final class TerminalFilePathDetector {
         return token
     }
 
-    private func isPathChar(_ ch: Character) -> Bool {
+    /// Separates a path token into the file path and an optional line number.
+    /// Handles `path:line`, `path:line:col`, and plain `path`.
+    func parseLineNumber(from token: String) -> (path: String, line: Int?) {
+        let parts = token.components(separatedBy: ":")
+        guard parts.count >= 2 else { return (token, nil) }
+
+        // Try parsing from the end: the last numeric segments are line/col
+        if parts.count >= 3,
+           let _ = Int(parts[parts.count - 1]),
+           let line = Int(parts[parts.count - 2]) {
+            // path:line:col
+            let path = parts.dropLast(2).joined(separator: ":")
+            return (path, line)
+        } else if let line = Int(parts.last!) {
+            // path:line
+            let path = parts.dropLast().joined(separator: ":")
+            return (path, line)
+        }
+
+        return (token, nil)
+    }
+
+    func isPathOrLocChar(_ ch: Character) -> Bool {
         ch.isLetter || ch.isNumber || ch == "/" || ch == "." || ch == "-"
-            || ch == "_" || ch == "+" || ch == "@" || ch == "~"
+            || ch == "_" || ch == "+" || ch == "@" || ch == "~" || ch == ":"
+    }
+
+    // MARK: - URL Detection
+
+    /// Extracts a URL from the line text around the given column position.
+    func extractURL(from line: String, column: Int) -> URL? {
+        // Find all URL-like ranges in the line using a simple regex
+        guard let regex = try? NSRegularExpression(
+            pattern: #"https?://[^\s<>\"\'\)\]}>]+"#,
+            options: []
+        ) else { return nil }
+
+        let nsLine = line as NSString
+        let matches = regex.matches(in: line, range: NSRange(location: 0, length: nsLine.length))
+
+        for match in matches {
+            let range = match.range
+            // Check if the click column falls within this URL
+            if column >= range.location && column < range.location + range.length {
+                let urlString = nsLine.substring(with: range)
+                // Strip trailing punctuation that's likely not part of the URL
+                let cleaned = urlString.trimmingCharacters(in: CharacterSet(charactersIn: ".,;:!?)]}"))
+                return URL(string: cleaned)
+            }
+        }
+
+        return nil
     }
 
     // MARK: - File Path Resolution

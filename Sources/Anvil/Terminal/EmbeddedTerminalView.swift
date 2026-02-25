@@ -13,8 +13,8 @@ struct EmbeddedTerminalView: View {
     var isActiveTab: Bool = true
     /// Called when the terminal reports a title change via OSC sequences.
     var onTitleChange: ((String) -> Void)?
-    /// Called when the user ⌘-clicks a file path in the terminal output.
-    var onOpenFile: ((URL) -> Void)?
+    /// Called when the user ⌘-clicks a file path in the terminal output. The Int? is a 1-based line number.
+    var onOpenFile: ((URL, Int?) -> Void)?
     @AppStorage("autoLaunchCopilot") private var autoLaunchCopilot = true
     @AppStorage("terminalFontSize") private var fontSize: Double = 14
     @AppStorage("terminalThemeID") private var themeID: String = TerminalTheme.defaultDark.id
@@ -63,6 +63,9 @@ struct EmbeddedTerminalView: View {
                 onOpenFile: onOpenFile,
                 onCopilotNotFound: {
                     copilotNotFound = true
+                },
+                onOpenURL: { url in
+                    NSWorkspace.shared.open(url)
                 }
             )
             .id(terminalID)
@@ -182,8 +185,9 @@ private struct TerminalNSView: NSViewRepresentable {
     var theme: TerminalTheme
     var onProcessExit: (Int32?) -> Void
     var onTitleChange: ((String) -> Void)?
-    var onOpenFile: ((URL) -> Void)?
+    var onOpenFile: ((URL, Int?) -> Void)?
     var onCopilotNotFound: (() -> Void)?
+    var onOpenURL: ((URL) -> Void)?
 
     func makeNSView(context: Context) -> LocalProcessTerminalView {
         let terminalView = LocalProcessTerminalView(frame: .zero)
@@ -209,9 +213,10 @@ private struct TerminalNSView: NSViewRepresentable {
             context.coordinator.scheduleAutoLaunch(terminalView)
         }
 
-        // Attach ⌘-click file path detector
+        // Attach ⌘-click file path and URL detector
         let detector = context.coordinator.filePathDetector
         detector.onOpenFile = onOpenFile
+        detector.onOpenURL = onOpenURL
         detector.attach(to: terminalView, rootURL: workingDirectory.directoryURL)
 
         context.coordinator.lastFontSize = fontSize
@@ -233,6 +238,7 @@ private struct TerminalNSView: NSViewRepresentable {
         let detector = context.coordinator.filePathDetector
         detector.updateRoot(workingDirectory.directoryURL)
         detector.onOpenFile = onOpenFile
+        detector.onOpenURL = onOpenURL
         // Reconnect proxy when this tab becomes active
         if let proxy = terminalProxy, proxy.terminalView !== nsView {
             proxy.terminalView = nsView

@@ -270,8 +270,8 @@ struct ContentView: View {
                                 onTitleChange: { title in
                                     terminalTabs.updateTitle(for: tab.id, to: title)
                                 },
-                                onOpenFile: { url in
-                                    filePreview.select(url)
+                                onOpenFile: { url, line in
+                                    filePreview.select(url, line: line)
                                 }
                             )
                             .opacity(tab.id == terminalTabs.activeTabID ? 1 : 0)
