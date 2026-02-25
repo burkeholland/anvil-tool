@@ -14,6 +14,10 @@ struct AnvilApp: App {
             ViewCommands()
             FileCommands()
         }
+
+        Settings {
+            SettingsView()
+        }
     }
 }
 
