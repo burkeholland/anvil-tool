@@ -309,4 +309,52 @@ final class FilePreviewModel: ObservableObject {
     static let markdownExtensions: Set<String> = [
         "md", "markdown", "mdown", "mkd",
     ]
+
+    // MARK: - Path Helpers
+
+    /// The relative path of the selected file from the root directory.
+    var relativePath: String {
+        guard let url = selectedURL, let root = rootDirectory else { return fileName }
+        return Self.relativePath(of: url, from: root)
+    }
+
+    /// The directory components of the relative path (excluding filename).
+    var relativeDirectoryComponents: [String] {
+        let components = relativePath.components(separatedBy: "/")
+        guard components.count > 1 else { return [] }
+        return Array(components.dropLast())
+    }
+
+    /// Computes a disambiguated display name for a tab URL.
+    /// Shows only the filename when unique, adds minimal parent path when names collide.
+    func tabDisplayName(for url: URL) -> String {
+        let name = url.lastPathComponent
+        let duplicates = openTabs.filter { $0.lastPathComponent == name }
+        guard duplicates.count > 1, let root = rootDirectory else { return name }
+
+        let paths = duplicates.map { Self.relativePath(of: $0, from: root).components(separatedBy: "/") }
+        let targetPath = Self.relativePath(of: url, from: root).components(separatedBy: "/")
+
+        // Find minimum suffix depth that makes this tab unique
+        for depth in 2...targetPath.count {
+            let suffix = targetPath.suffix(depth).joined(separator: "/")
+            let matches = paths.filter { $0.suffix(depth).joined(separator: "/") == suffix }
+            if matches.count == 1 {
+                return suffix
+            }
+        }
+
+        return Self.relativePath(of: url, from: root)
+    }
+
+    private static func relativePath(of url: URL, from root: URL) -> String {
+        let filePath = url.standardizedFileURL.path
+        let rootPath = root.standardizedFileURL.path
+        if filePath.hasPrefix(rootPath) {
+            var rel = String(filePath.dropFirst(rootPath.count))
+            if rel.hasPrefix("/") { rel = String(rel.dropFirst()) }
+            return rel.isEmpty ? url.lastPathComponent : rel
+        }
+        return url.lastPathComponent
+    }
 }

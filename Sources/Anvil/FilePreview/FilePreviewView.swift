@@ -18,10 +18,7 @@ struct FilePreviewView: View {
                     .foregroundStyle(.secondary)
                     .font(.system(size: 12))
 
-                Text(model.fileName)
-                    .font(.system(.body, design: .monospaced))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+                breadcrumbPath
 
                 if let ctx = model.commitDiffContext {
                     Text(String(ctx.sha.prefix(8)))
@@ -139,6 +136,25 @@ struct FilePreviewView: View {
         default:                            return "doc"
         }
     }
+
+    /// Breadcrumb-style path display: directories in tertiary, filename in primary.
+    @ViewBuilder
+    private var breadcrumbPath: some View {
+        let dirs = model.relativeDirectoryComponents
+        if dirs.isEmpty {
+            Text(model.fileName)
+                .font(.system(.body, design: .monospaced))
+                .lineLimit(1)
+                .truncationMode(.middle)
+        } else {
+            (Text(dirs.joined(separator: " / ") + " / ")
+                .foregroundStyle(.tertiary)
+             + Text(model.fileName))
+                .font(.system(.body, design: .monospaced))
+                .lineLimit(1)
+                .truncationMode(.head)
+        }
+    }
 }
 
 /// Displays an image file centered with metadata.
@@ -230,6 +246,7 @@ struct PreviewTabBar: View {
                 ForEach(model.openTabs, id: \.self) { url in
                     PreviewTabItem(
                         url: url,
+                        displayName: model.tabDisplayName(for: url),
                         isActive: model.selectedURL == url,
                         onSelect: { model.select(url) },
                         onClose: { model.closeTab(url) }
@@ -246,6 +263,7 @@ struct PreviewTabBar: View {
 
 struct PreviewTabItem: View {
     let url: URL
+    let displayName: String
     let isActive: Bool
     let onSelect: () -> Void
     let onClose: () -> Void
@@ -257,7 +275,7 @@ struct PreviewTabItem: View {
                 .font(.system(size: 10))
                 .foregroundStyle(.secondary)
 
-            Text(url.lastPathComponent)
+            Text(displayName)
                 .font(.system(size: 11))
                 .lineLimit(1)
                 .foregroundStyle(isActive ? .primary : .secondary)

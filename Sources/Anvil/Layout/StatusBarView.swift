@@ -24,11 +24,11 @@ struct StatusBarView: View {
             }
 
             // Center: Selected file info
-            if let url = filePreview.selectedURL {
+            if filePreview.selectedURL != nil {
                 HStack(spacing: 5) {
                     Image(systemName: "doc")
                         .font(.system(size: 9))
-                    Text(url.lastPathComponent)
+                    Text(filePreview.relativePath)
                         .lineLimit(1)
                         .truncationMode(.middle)
                 }
