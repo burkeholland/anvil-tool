@@ -136,7 +136,8 @@ struct ChangesListView: View {
                             isSelected: false,
                             isStaged: false,
                             isReviewed: false,
-                            isFocused: false
+                            isFocused: false,
+                            onDiscard: { fileToDiscard = file }
                         )
                         if let onResolveConflicts {
                             Button {
@@ -182,7 +183,8 @@ struct ChangesListView: View {
                         isReviewed: model.isReviewed(file),
                         isFocused: fileIdx == model.focusedFileIndex,
                         onToggleReview: { model.toggleReviewed(file) },
-                        onOpenFile: { filePreview.select(file.url) }
+                        onOpenFile: { filePreview.select(file.url) },
+                        onDiscard: { fileToDiscard = file }
                     )
                     .contentShape(Rectangle())
                     .onTapGesture {
@@ -227,7 +229,8 @@ struct ChangesListView: View {
                         isReviewed: model.isReviewed(file),
                         isFocused: fileIdx == model.focusedFileIndex,
                         onToggleReview: { model.toggleReviewed(file) },
-                        onOpenFile: { filePreview.select(file.url) }
+                        onOpenFile: { filePreview.select(file.url) },
+                        onDiscard: { fileToDiscard = file }
                     )
                     .contentShape(Rectangle())
                     .onTapGesture {
@@ -1173,6 +1176,7 @@ struct ChangedFileRow: View {
     var isFocused: Bool = false
     var onToggleReview: (() -> Void)? = nil
     var onOpenFile: (() -> Void)? = nil
+    var onDiscard: (() -> Void)? = nil
 
     @State private var isHovering = false
     @State private var dismissTask: DispatchWorkItem?
@@ -1235,6 +1239,19 @@ struct ChangedFileRow: View {
                 }
                 .buttonStyle(.borderless)
                 .help(isReviewed ? "Mark as unreviewed (R)" : "Mark as reviewed (R)")
+            }
+
+            // Discard button (trash icon, shown on hover)
+            if let onDiscard, isHovering {
+                Button {
+                    onDiscard()
+                } label: {
+                    Image(systemName: "trash")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.red.opacity(0.8))
+                }
+                .buttonStyle(.borderless)
+                .help("Discard Changes…")
             }
 
             // Staging indicator
