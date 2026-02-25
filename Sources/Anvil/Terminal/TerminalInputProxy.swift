@@ -30,6 +30,12 @@ final class TerminalInputProxy: ObservableObject {
         send("@\(String(sanitized)) ")
     }
 
+    /// Moves keyboard focus to the terminal view.
+    func focusTerminal() {
+        guard let tv = terminalView else { return }
+        tv.window?.makeFirstResponder(tv)
+    }
+
     /// Shows the terminal's built-in find bar (⌘F).
     func showFindBar() {
         guard let tv = terminalView else { return }

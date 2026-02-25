@@ -19,10 +19,20 @@ final class ActivityFeedModel: ObservableObject {
     @Published private(set) var sessionStats = SessionStats()
     /// True when file changes were detected within the last 10 seconds.
     @Published private(set) var isAgentActive = false
+    /// Elapsed seconds since the current task started (first file event of the session).
+    @Published private(set) var taskElapsedSeconds: Int = 0
+    /// True when no file-system activity has been detected for 60 seconds since the last event.
+    @Published private(set) var isTaskStalled: Bool = false
     /// Timestamp of the last detected activity event.
     private(set) var lastActivityTime: Date?
     /// Timer that clears the active state after a quiet period.
     private var activityCooldownTimer: Timer?
+    /// Timer that ticks every second to update taskElapsedSeconds.
+    private var elapsedTimer: Timer?
+    /// Timer that fires after 60 s of no file activity to set isTaskStalled.
+    private var stallTimer: Timer?
+    /// Timestamp of the first file event for the current task.
+    private var taskStartTime: Date?
 
     /// Tracks aggregate statistics for the current activity session.
     struct SessionStats {
@@ -74,6 +84,8 @@ final class ActivityFeedModel: ObservableObject {
         fileWatcher?.stop()
         gitPollTimer?.invalidate()
         activityCooldownTimer?.invalidate()
+        elapsedTimer?.invalidate()
+        stallTimer?.invalidate()
     }
 
     func start(rootURL: URL) {
@@ -115,6 +127,11 @@ final class ActivityFeedModel: ObservableObject {
         gitPollTimer = nil
         activityCooldownTimer?.invalidate()
         activityCooldownTimer = nil
+        elapsedTimer?.invalidate()
+        elapsedTimer = nil
+        stallTimer?.invalidate()
+        stallTimer = nil
+        taskStartTime = nil
         rootURL = nil
         knownFiles = [:]
         lastHeadSHA = nil
@@ -122,6 +139,8 @@ final class ActivityFeedModel: ObservableObject {
         groups.removeAll()
         latestFileChange = nil
         isAgentActive = false
+        taskElapsedSeconds = 0
+        isTaskStalled = false
         lastActivityTime = nil
         sessionStats = SessionStats()
     }
@@ -281,9 +300,33 @@ final class ActivityFeedModel: ObservableObject {
         // Mark agent as active and schedule cooldown
         lastActivityTime = Date()
         isAgentActive = true
+        isTaskStalled = false
+
+        // Restart stall timer — fires 60 s after the last file event
+        stallTimer?.invalidate()
+        stallTimer = Timer.scheduledTimer(withTimeInterval: 60.0, repeats: false) { [weak self] _ in
+            self?.isTaskStalled = true
+        }
+
+        // Start the elapsed timer on the first file event of this task
+        if taskStartTime == nil {
+            taskStartTime = Date()
+            elapsedTimer?.invalidate()
+            elapsedTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+                guard let self = self, let start = self.taskStartTime else { return }
+                self.taskElapsedSeconds = Int(Date().timeIntervalSince(start))
+            }
+        }
+
         activityCooldownTimer?.invalidate()
         activityCooldownTimer = Timer.scheduledTimer(withTimeInterval: 10.0, repeats: false) { [weak self] _ in
-            self?.isAgentActive = false
+            guard let self = self else { return }
+            self.isAgentActive = false
+            // Reset the elapsed timer when the task completes
+            self.elapsedTimer?.invalidate()
+            self.elapsedTimer = nil
+            self.taskStartTime = nil
+            self.taskElapsedSeconds = 0
         }
     }
 

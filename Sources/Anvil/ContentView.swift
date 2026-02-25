@@ -1084,6 +1084,7 @@ struct ToolbarView: View {
     @ObservedObject var activityModel: ActivityFeedModel
     @ObservedObject var filePreview: FilePreviewModel
     @ObservedObject var recentProjects: RecentProjectsModel
+    @EnvironmentObject var terminalProxy: TerminalInputProxy
     @Binding var showSidebar: Bool
     @Binding var autoFollow: Bool
     @Binding var showBranchPicker: Bool
@@ -1154,7 +1155,10 @@ struct ToolbarView: View {
 
             Spacer()
 
-            AgentActivityIndicator(activityModel: activityModel)
+            AgentActivityIndicator(
+                activityModel: activityModel,
+                onFocusTerminal: { terminalProxy.focusTerminal() }
+            )
 
             Button {
                 showCopilotActions.toggle()
@@ -1726,6 +1730,7 @@ struct ChangesNavigationBar: View {
 /// Compact indicator in the toolbar showing whether the agent is actively making changes.
 struct AgentActivityIndicator: View {
     @ObservedObject var activityModel: ActivityFeedModel
+    var onFocusTerminal: (() -> Void)? = nil
     @State private var isPulsing = false
 
     var body: some View {
@@ -1746,15 +1751,27 @@ struct AgentActivityIndicator: View {
                     }
 
                 VStack(alignment: .leading, spacing: 0) {
-                    if activityModel.isAgentActive, let change = activityModel.latestFileChange {
-                        Text(change.url.lastPathComponent)
-                            .font(.system(size: 10))
-                            .lineLimit(1)
-                            .foregroundStyle(.primary)
+                    if activityModel.isAgentActive {
+                        HStack(spacing: 4) {
+                            if let change = activityModel.latestFileChange {
+                                Text(change.url.lastPathComponent)
+                                    .font(.system(size: 10))
+                                    .lineLimit(1)
+                                    .foregroundStyle(.primary)
+                            }
+                            Text(formattedElapsed)
+                                .font(.system(size: 10, design: .monospaced))
+                                .foregroundStyle(.secondary)
+                        }
                     } else {
-                        Text(summaryText)
-                            .font(.system(size: 10))
-                            .foregroundStyle(.secondary)
+                        HStack(spacing: 4) {
+                            Text(summaryText)
+                                .font(.system(size: 10))
+                                .foregroundStyle(.secondary)
+                            if activityModel.isTaskStalled {
+                                stallBadge
+                            }
+                        }
                     }
                 }
             }
@@ -1768,6 +1785,27 @@ struct AgentActivityIndicator: View {
             )
             .help(activityModel.isAgentActive ? "Agent is actively making changes" : "Agent idle — \(activityModel.sessionStats.totalFilesTouched) files touched this session")
         }
+    }
+
+    @ViewBuilder
+    private var stallBadge: some View {
+        Button {
+            onFocusTerminal?()
+        } label: {
+            Text("possibly stalled")
+                .font(.system(size: 9, weight: .medium))
+                .foregroundStyle(.orange)
+                .padding(.horizontal, 5)
+                .padding(.vertical, 2)
+                .background(Color.orange.opacity(0.15), in: RoundedRectangle(cornerRadius: 3))
+        }
+        .buttonStyle(.plain)
+        .help("No file activity for 60 seconds — tap to check the terminal")
+    }
+
+    private var formattedElapsed: String {
+        let s = activityModel.taskElapsedSeconds
+        return String(format: "%02d:%02d", s / 60, s % 60)
     }
 
     private var summaryText: String {
