@@ -85,6 +85,59 @@ enum GitLogProvider {
         return files.sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
     }
 
+    /// Fetch a page of commits from the log with optional author and date filters.
+    /// - Parameters:
+    ///   - directory: The git repository root.
+    ///   - skip: Number of commits to skip (for pagination).
+    ///   - count: Maximum number of commits to return.
+    ///   - author: If provided, only commits whose author name contains this string.
+    ///   - since: If provided, only commits after this date.
+    ///   - until: If provided, only commits before or on this date.
+    static func pagedCommits(
+        in directory: URL,
+        skip: Int = 0,
+        count: Int = 30,
+        author: String? = nil,
+        since: Date? = nil,
+        until: Date? = nil
+    ) -> [GitCommit] {
+        let format = "%H%n%h%n%s%n%an%n%aI"
+        var args = ["log", "-\(count)", "--skip=\(skip)", "--pretty=format:\(format)", "--no-merges"]
+        if let author = author, !author.isEmpty {
+            args.append("--author=\(author)")
+        }
+        let iso = ISO8601DateFormatter()
+        if let since = since {
+            args.append("--since=\(iso.string(from: since))")
+        }
+        if let until = until {
+            // Add one day so the selected date is inclusive
+            let nextDay = Calendar.current.date(byAdding: .day, value: 1, to: until) ?? until
+            args.append("--until=\(iso.string(from: nextDay))")
+        }
+        guard let output = runGit(args: args, at: directory), !output.isEmpty else {
+            return []
+        }
+
+        let lines = output.components(separatedBy: "\n")
+        var commits: [GitCommit] = []
+        var i = 0
+        while i + 4 < lines.count {
+            let sha = lines[i]
+            let shortSHA = lines[i + 1]
+            let message = lines[i + 2]
+            let author = lines[i + 3]
+            let dateStr = lines[i + 4]
+            i += 5
+            let date = ISO8601DateFormatter().date(from: dateStr) ?? Date()
+            commits.append(GitCommit(
+                sha: sha, shortSHA: shortSHA, message: message,
+                author: author, date: date, files: nil
+            ))
+        }
+        return commits
+    }
+
     /// Fetch recent commits that touched a specific file path.
     static func fileLog(path: String, in directory: URL, count: Int = 20) -> [GitCommit] {
         let format = "%H%n%h%n%s%n%an%n%aI"
