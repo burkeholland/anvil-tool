@@ -31,6 +31,19 @@ enum GitFileStatus: Equatable {
     }
 }
 
+/// Whether a file's changes are staged (in the index), unstaged, or both.
+enum StagingState: Equatable {
+    case staged
+    case unstaged
+    case partial
+}
+
+/// Extended git status for a single file, including staging information.
+struct DetailedGitFileStatus: Equatable {
+    let status: GitFileStatus
+    let staging: StagingState
+}
+
 /// Parses `git status --porcelain` output into a map of absolute paths to statuses.
 enum GitStatusProvider {
 
@@ -39,6 +52,14 @@ enum GitStatusProvider {
         guard let gitRoot = findGitRoot(for: directory) else { return [:] }
         guard let output = runGitStatus(at: directory) else { return [:] }
         return parse(output: output, gitRoot: gitRoot)
+    }
+
+    /// Returns detailed status including staging state for each file.
+    /// Only returns file-level entries (no propagated directory statuses).
+    static func detailedStatus(for directory: URL) -> (gitRoot: URL, files: [String: DetailedGitFileStatus])? {
+        guard let gitRoot = findGitRoot(for: directory) else { return nil }
+        guard let output = runGitStatus(at: directory) else { return nil }
+        return (gitRoot, parseDetailed(output: output, gitRoot: gitRoot))
     }
 
     /// Parse porcelain v1 output into status map. Exposed for testing.
@@ -84,6 +105,73 @@ enum GitStatusProvider {
                 }
                 parentPath = (parentPath as NSString).deletingLastPathComponent
             }
+        }
+
+        return statuses
+    }
+
+    /// Parse porcelain v1 output into detailed status map (no directory propagation).
+    static func parseDetailed(output: String, gitRoot: URL) -> [String: DetailedGitFileStatus] {
+        var statuses: [String: DetailedGitFileStatus] = [:]
+
+        for line in output.components(separatedBy: "\n") where line.count >= 4 {
+            let indexChar = line[line.startIndex]
+            let worktreeChar = line[line.index(after: line.startIndex)]
+            let pathStart = line.index(line.startIndex, offsetBy: 3)
+            let relativePath = unquoteGitPath(String(line[pathStart...]))
+
+            let filePath: String
+            if let arrowRange = relativePath.range(of: " -> ") {
+                filePath = String(relativePath[arrowRange.upperBound...])
+            } else {
+                filePath = relativePath
+            }
+
+            let absolutePath = gitRoot.appendingPathComponent(filePath).standardizedFileURL.path
+
+            let status: GitFileStatus
+            let staging: StagingState
+
+            switch (indexChar, worktreeChar) {
+            case ("?", "?"):
+                status = .untracked
+                staging = .unstaged
+            case ("U", _), (_, "U"):
+                status = .conflicted
+                staging = .unstaged
+            case ("D", " "):
+                status = .deleted
+                staging = .staged
+            case (" ", "D"):
+                status = .deleted
+                staging = .unstaged
+            case ("D", _):
+                status = .deleted
+                staging = .partial
+            case ("A", " "):
+                status = .added
+                staging = .staged
+            case ("A", _):
+                status = .added
+                staging = .partial
+            case ("R", " "):
+                status = .renamed
+                staging = .staged
+            case ("R", _):
+                status = .renamed
+                staging = .partial
+            case (" ", _) where worktreeChar != " ":
+                status = .modified
+                staging = .unstaged
+            case (_, " ") where indexChar != " ":
+                status = .modified
+                staging = .staged
+            default:
+                status = .modified
+                staging = (indexChar != " " && worktreeChar != " ") ? .partial : .unstaged
+            }
+
+            statuses[absolutePath] = DetailedGitFileStatus(status: status, staging: staging)
         }
 
         return statuses

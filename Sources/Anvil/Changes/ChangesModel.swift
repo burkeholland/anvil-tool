@@ -6,6 +6,7 @@ struct ChangedFile: Identifiable {
     let url: URL
     let relativePath: String
     let status: GitFileStatus
+    let staging: StagingState
     var diff: FileDiff?
 
     var id: URL { url }
@@ -26,6 +27,10 @@ final class ChangesModel: ObservableObject {
     @Published private(set) var recentCommits: [GitCommit] = []
     @Published private(set) var isLoadingCommits = false
 
+    @Published var commitMessage: String = ""
+    @Published private(set) var isCommitting = false
+    @Published private(set) var lastCommitError: String?
+
     private(set) var rootDirectory: URL?
     private var refreshGeneration: UInt64 = 0
     private var commitGeneration: UInt64 = 0
@@ -41,6 +46,18 @@ final class ChangesModel: ObservableObject {
 
     var totalDeletions: Int {
         changedFiles.compactMap(\.diff).reduce(0) { $0 + $1.deletionCount }
+    }
+
+    var stagedFiles: [ChangedFile] {
+        changedFiles.filter { $0.staging == .staged || $0.staging == .partial }
+    }
+
+    var unstagedFiles: [ChangedFile] {
+        changedFiles.filter { $0.staging == .unstaged || $0.staging == .partial }
+    }
+
+    var canCommit: Bool {
+        !stagedFiles.isEmpty && !commitMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !isCommitting
     }
 
     func start(rootURL: URL) {
@@ -65,6 +82,9 @@ final class ChangesModel: ObservableObject {
         recentCommits = []
         isLoading = false
         isLoadingCommits = false
+        commitMessage = ""
+        isCommitting = false
+        lastCommitError = nil
     }
 
     func refresh() {
@@ -74,8 +94,9 @@ final class ChangesModel: ObservableObject {
         let generation = refreshGeneration
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let gitRoot = Self.findGitRoot(for: rootURL)
-            let statuses = GitStatusProvider.status(for: rootURL)
+            let detailed = GitStatusProvider.detailedStatus(for: rootURL)
+            let gitRoot = detailed?.gitRoot ?? rootURL
+            let statuses = detailed?.files ?? [:]
             let diffs = DiffProvider.allChanges(in: rootURL)
 
             // Build a lookup from relative path → FileDiff
@@ -84,19 +105,14 @@ final class ChangesModel: ObservableObject {
                 diffMap[diff.newPath] = diff
             }
 
-            // Filter to file-level statuses (not directories), build ChangedFile list
-            let gitRootPath = (gitRoot ?? rootURL).standardizedFileURL.path
+            let gitRootPath = gitRoot.standardizedFileURL.path
             var files: [ChangedFile] = []
-            for (absPath, status) in statuses {
+            for (absPath, detail) in statuses {
                 let url = URL(fileURLWithPath: absPath)
-                // Skip directories — they have propagated statuses
+                // Skip directories
                 var isDir: ObjCBool = false
                 if FileManager.default.fileExists(atPath: absPath, isDirectory: &isDir), isDir.boolValue {
                     continue
-                }
-                // Also skip deleted files that no longer exist on disk
-                if status == .deleted && !FileManager.default.fileExists(atPath: absPath) {
-                    // Still include them — they're valid changes
                 }
 
                 let relativePath: String
@@ -111,12 +127,12 @@ final class ChangesModel: ObservableObject {
                 files.append(ChangedFile(
                     url: url,
                     relativePath: relativePath,
-                    status: status,
+                    status: detail.status,
+                    staging: detail.staging,
                     diff: diffMap[relativePath]
                 ))
             }
 
-            // Sort: directories first (by path), then alphabetically
             files.sort { $0.relativePath.localizedStandardCompare($1.relativePath) == .orderedAscending }
 
             DispatchQueue.main.async {
@@ -181,6 +197,83 @@ final class ChangesModel: ObservableObject {
         }
     }
 
+    // MARK: - Staging
+
+    /// Stage a file (add to the git index).
+    func stageFile(_ file: ChangedFile) {
+        guard let rootURL = rootDirectory else { return }
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            Self.runGitSync(args: ["add", "--", file.relativePath], at: rootURL)
+            DispatchQueue.main.async {
+                self?.refresh()
+            }
+        }
+    }
+
+    /// Unstage a file (remove from the git index but keep changes).
+    func unstageFile(_ file: ChangedFile) {
+        guard let rootURL = rootDirectory else { return }
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            if file.status == .untracked || file.status == .added {
+                Self.runGitSync(args: ["reset", "HEAD", "--", file.relativePath], at: rootURL)
+            } else {
+                Self.runGitSync(args: ["restore", "--staged", "--", file.relativePath], at: rootURL)
+            }
+            DispatchQueue.main.async {
+                self?.refresh()
+            }
+        }
+    }
+
+    /// Stage all changed files.
+    func stageAll(completion: (() -> Void)? = nil) {
+        guard let rootURL = rootDirectory else { return }
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            Self.runGitSync(args: ["add", "-A"], at: rootURL)
+            DispatchQueue.main.async {
+                self?.refresh()
+                completion?()
+            }
+        }
+    }
+
+    /// Unstage all staged files.
+    func unstageAll() {
+        guard let rootURL = rootDirectory else { return }
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            Self.runGitSync(args: ["reset", "HEAD"], at: rootURL)
+            DispatchQueue.main.async {
+                self?.refresh()
+            }
+        }
+    }
+
+    /// Commit staged changes with the current commit message.
+    func commit() {
+        guard let rootURL = rootDirectory else { return }
+        let message = commitMessage.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !message.isEmpty, !stagedFiles.isEmpty else { return }
+
+        isCommitting = true
+        lastCommitError = nil
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let (success, error) = Self.runGitCommit(message: message, at: rootURL)
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                self.isCommitting = false
+                if success {
+                    self.commitMessage = ""
+                    self.lastCommitError = nil
+                } else {
+                    self.lastCommitError = error ?? "Commit failed"
+                }
+                self.refresh()
+                self.refreshCommits()
+            }
+        }
+    }
+
     private static func runGitSync(args: [String], at directory: URL) {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
@@ -192,26 +285,27 @@ final class ChangesModel: ObservableObject {
         process.waitUntilExit()
     }
 
-    private static func findGitRoot(for directory: URL) -> URL? {
+    private static func runGitCommit(message: String, at directory: URL) -> (success: Bool, error: String?) {
         let process = Process()
-        let pipe = Pipe()
+        let errorPipe = Pipe()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-        process.arguments = ["rev-parse", "--show-toplevel"]
+        process.arguments = ["commit", "-m", message]
         process.currentDirectoryURL = directory
-        process.standardOutput = pipe
-        process.standardError = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = errorPipe
 
         do {
             try process.run()
             process.waitUntilExit()
         } catch {
-            return nil
+            return (false, error.localizedDescription)
         }
 
-        guard process.terminationStatus == 0 else { return nil }
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        guard let path = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !path.isEmpty else { return nil }
-        return URL(fileURLWithPath: path)
+        if process.terminationStatus == 0 {
+            return (true, nil)
+        }
+        let data = errorPipe.fileHandleForReading.readDataToEndOfFile()
+        let msg = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return (false, msg)
     }
 }

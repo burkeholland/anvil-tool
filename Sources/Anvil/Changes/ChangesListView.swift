@@ -2,7 +2,7 @@ import SwiftUI
 import AppKit
 
 /// Shows all git-changed files in a list with status indicators and diff stats,
-/// plus a recent commit history section.
+/// plus staging controls, a commit form, and recent commit history.
 struct ChangesListView: View {
     @ObservedObject var model: ChangesModel
     @ObservedObject var filePreview: FilePreviewModel
@@ -23,25 +23,69 @@ struct ChangesListView: View {
             .frame(maxWidth: .infinity)
         } else {
             List {
-                // Working changes section
+                // Commit form section
                 if !model.changedFiles.isEmpty {
                     Section {
-                        ForEach(model.changedFiles) { file in
+                        CommitFormView(model: model)
+                    }
+                }
+
+                // Staged changes section
+                if !model.stagedFiles.isEmpty {
+                    Section {
+                        ForEach(model.stagedFiles) { file in
                             ChangedFileRow(
                                 file: file,
-                                isSelected: filePreview.selectedURL == file.url
+                                isSelected: filePreview.selectedURL == file.url,
+                                isStaged: true
                             )
                             .contentShape(Rectangle())
                             .onTapGesture {
                                 filePreview.select(file.url)
                             }
                             .contextMenu {
-                                changedFileContextMenu(file: file)
+                                changedFileContextMenu(file: file, isStaged: true)
                             }
                         }
                     } header: {
                         HStack(spacing: 8) {
-                            Text("Working Changes")
+                            Text("Staged Changes")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(.secondary)
+                                .textCase(nil)
+                            Spacer()
+                            Button {
+                                model.unstageAll()
+                            } label: {
+                                Text("Unstage All")
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(.secondary)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+
+                // Unstaged / working changes section
+                if !model.unstagedFiles.isEmpty {
+                    Section {
+                        ForEach(model.unstagedFiles) { file in
+                            ChangedFileRow(
+                                file: file,
+                                isSelected: filePreview.selectedURL == file.url,
+                                isStaged: false
+                            )
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                filePreview.select(file.url)
+                            }
+                            .contextMenu {
+                                changedFileContextMenu(file: file, isStaged: false)
+                            }
+                        }
+                    } header: {
+                        HStack(spacing: 8) {
+                            Text("Changes")
                                 .font(.system(size: 11, weight: .semibold))
                                 .foregroundStyle(.secondary)
                                 .textCase(nil)
@@ -56,9 +100,17 @@ struct ChangesListView: View {
                                     .font(.caption.monospacedDigit())
                                     .foregroundStyle(.red)
                             }
+                            Button {
+                                model.stageAll()
+                            } label: {
+                                Text("Stage All")
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(.secondary)
+                            }
+                            .buttonStyle(.plain)
                         }
                     }
-                } else if !model.isLoading {
+                } else if model.stagedFiles.isEmpty && !model.isLoading {
                     Section {
                         HStack {
                             Spacer()
@@ -74,7 +126,7 @@ struct ChangesListView: View {
                             Spacer()
                         }
                     } header: {
-                        Text("Working Changes")
+                        Text("Changes")
                             .font(.system(size: 11, weight: .semibold))
                             .foregroundStyle(.secondary)
                             .textCase(nil)
@@ -107,7 +159,6 @@ struct ChangesListView: View {
                 Button("Discard", role: .destructive) {
                     if let file = fileToDiscard {
                         model.discardChanges(for: file)
-                        // Close preview if showing this file's diff
                         if filePreview.selectedURL == file.url {
                             filePreview.refresh()
                         }
@@ -126,7 +177,29 @@ struct ChangesListView: View {
     }
 
     @ViewBuilder
-    private func changedFileContextMenu(file: ChangedFile) -> some View {
+    private func changedFileContextMenu(file: ChangedFile, isStaged: Bool) -> some View {
+        if isStaged {
+            Button {
+                model.unstageFile(file)
+            } label: {
+                Label("Unstage", systemImage: "minus.circle")
+            }
+        } else if file.status != .untracked {
+            Button {
+                model.stageFile(file)
+            } label: {
+                Label("Stage", systemImage: "plus.circle")
+            }
+        } else {
+            Button {
+                model.stageFile(file)
+            } label: {
+                Label("Track & Stage", systemImage: "plus.circle")
+            }
+        }
+
+        Divider()
+
         Button {
             terminalProxy.mentionFile(relativePath: file.relativePath)
         } label: {
@@ -176,6 +249,83 @@ struct ChangesListView: View {
         } label: {
             Label("Discard Changes…", systemImage: "arrow.uturn.backward")
         }
+    }
+}
+
+// MARK: - Commit Form
+
+struct CommitFormView: View {
+    @ObservedObject var model: ChangesModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            // Commit message field
+            ZStack(alignment: .topLeading) {
+                if model.commitMessage.isEmpty {
+                    Text("Commit message")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.tertiary)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 6)
+                }
+                TextEditor(text: $model.commitMessage)
+                    .font(.system(size: 12))
+                    .frame(minHeight: 36, maxHeight: 80)
+                    .scrollContentBackground(.hidden)
+                    .padding(.horizontal, 2)
+                    .padding(.vertical, 2)
+            }
+            .background(
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(Color(nsColor: .textBackgroundColor))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 6)
+                    .strokeBorder(Color(nsColor: .separatorColor), lineWidth: 0.5)
+            )
+
+            HStack(spacing: 8) {
+                Button {
+                    model.commit()
+                } label: {
+                    HStack(spacing: 4) {
+                        if model.isCommitting {
+                            ProgressView()
+                                .controlSize(.mini)
+                        }
+                        Text(model.stagedFiles.isEmpty ? "Commit" : "Commit (\(model.stagedFiles.count))")
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .disabled(!model.canCommit)
+
+                Menu {
+                    Button("Stage All & Commit") {
+                        let message = model.commitMessage.trimmingCharacters(in: .whitespacesAndNewlines)
+                        guard !message.isEmpty else { return }
+                        model.stageAll {
+                            model.commit()
+                        }
+                    }
+                    .disabled(model.changedFiles.isEmpty || model.commitMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                } label: {
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 9, weight: .semibold))
+                }
+                .menuStyle(.borderlessButton)
+                .frame(width: 20)
+            }
+
+            if let error = model.lastCommitError {
+                Text(error)
+                    .font(.system(size: 10))
+                    .foregroundStyle(.red)
+                    .lineLimit(2)
+            }
+        }
+        .padding(.vertical, 4)
     }
 }
 
@@ -359,6 +509,7 @@ struct CommitFileRow: View {
 struct ChangedFileRow: View {
     let file: ChangedFile
     let isSelected: Bool
+    var isStaged: Bool = false
 
     var body: some View {
         HStack(spacing: 6) {
@@ -404,6 +555,13 @@ struct ChangedFileRow: View {
                             .foregroundStyle(.red)
                     }
                 }
+            }
+
+            // Staging indicator
+            if isStaged {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.green)
             }
         }
         .padding(.vertical, 2)
