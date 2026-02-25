@@ -7,6 +7,8 @@ struct TaskCompleteBanner: View {
     let totalAdditions: Int
     let totalDeletions: Int
     var onReviewAll: () -> Void
+    var onStageAllAndCommit: () -> Void
+    var onNewTask: () -> Void
     var onDismiss: () -> Void
 
     var body: some View {
@@ -56,7 +58,33 @@ struct TaskCompleteBanner: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
+
+                Button {
+                    onStageAllAndCommit()
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "checkmark.circle")
+                            .font(.system(size: 10))
+                        Text("Stage All & Commit")
+                            .font(.system(size: 12))
+                    }
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
             }
+
+            Button {
+                onNewTask()
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "plus.circle")
+                        .font(.system(size: 10))
+                    Text("New Task")
+                        .font(.system(size: 12))
+                }
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
 
             Button {
                 onDismiss()
