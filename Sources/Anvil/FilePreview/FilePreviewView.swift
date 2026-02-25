@@ -25,6 +25,20 @@ struct FilePreviewView: View {
         model.changeRegions(from: currentGutterChanges).count
     }
 
+    /// Dynamic width for the segmented tab picker based on visible tabs.
+    private var pickerWidth: CGFloat {
+        var tabs = 1 // Source is always present
+        if model.hasDiff { tabs += 1 }
+        if model.isMarkdownFile { tabs += 1 }
+        if !model.fileHistory.isEmpty { tabs += 1 }
+        switch tabs {
+        case 1:  return 100
+        case 2:  return 200
+        case 3:  return 280
+        default: return 360
+        }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             // Tab bar (when multiple tabs are open)
@@ -83,8 +97,8 @@ struct FilePreviewView: View {
                     .padding(.horizontal, 4)
                 }
 
-                // Source / Changes / Preview tab picker
-                if model.hasDiff || model.isMarkdownFile {
+                // Source / Changes / Preview / History tab picker
+                if model.hasDiff || model.isMarkdownFile || !model.fileHistory.isEmpty {
                     Picker("", selection: $model.activeTab) {
                         Text("Source").tag(PreviewTab.source)
                         if model.hasDiff {
@@ -100,9 +114,17 @@ struct FilePreviewView: View {
                         if model.isMarkdownFile {
                             Text("Preview").tag(PreviewTab.rendered)
                         }
+                        if !model.fileHistory.isEmpty {
+                            HStack(spacing: 4) {
+                                Text("History")
+                                Text("\(model.fileHistory.count)")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }.tag(PreviewTab.history)
+                        }
                     }
                     .pickerStyle(.segmented)
-                    .frame(width: model.hasDiff && model.isMarkdownFile ? 280 : 200)
+                    .frame(width: pickerWidth)
                 }
 
                 // Symbol outline
@@ -202,6 +224,10 @@ struct FilePreviewView: View {
                     )
                 } else if model.activeTab == .rendered, model.isMarkdownFile, let content = model.fileContent {
                     MarkdownPreviewView(content: content)
+                } else if model.activeTab == .history {
+                    if let rootURL = model.rootDirectory {
+                        FileHistoryView(model: model, rootURL: rootURL)
+                    }
                 } else if let content = model.fileContent {
                     HighlightedTextView(
                         content: content,

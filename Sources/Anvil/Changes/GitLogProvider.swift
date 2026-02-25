@@ -85,6 +85,38 @@ enum GitLogProvider {
         return files.sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
     }
 
+    /// Fetch recent commits that touched a specific file path.
+    static func fileLog(path: String, in directory: URL, count: Int = 20) -> [GitCommit] {
+        let format = "%H%n%h%n%s%n%an%n%aI"
+        guard let output = runGit(
+            args: ["log", "-\(count)", "--pretty=format:\(format)", "--no-merges", "--follow", "--", path],
+            at: directory
+        ), !output.isEmpty else {
+            return []
+        }
+
+        let lines = output.components(separatedBy: "\n")
+        var commits: [GitCommit] = []
+        var i = 0
+
+        while i + 4 < lines.count {
+            let sha = lines[i]
+            let shortSHA = lines[i + 1]
+            let message = lines[i + 2]
+            let author = lines[i + 3]
+            let dateStr = lines[i + 4]
+            i += 5
+
+            let date = ISO8601DateFormatter().date(from: dateStr) ?? Date()
+            commits.append(GitCommit(
+                sha: sha, shortSHA: shortSHA, message: message,
+                author: author, date: date, files: nil
+            ))
+        }
+
+        return commits
+    }
+
     // MARK: - Private
 
     private static func runGit(args: [String], at directory: URL) -> String? {

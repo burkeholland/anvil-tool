@@ -6,6 +6,7 @@ enum PreviewTab {
     case source
     case changes
     case rendered
+    case history
 }
 
 final class FilePreviewModel: ObservableObject {
@@ -27,6 +28,8 @@ final class FilePreviewModel: ObservableObject {
     @Published private(set) var previewImage: NSImage?
     @Published private(set) var imageSize: CGSize?
     @Published private(set) var imageFileSize: Int?
+    /// Git commit history for the currently selected file.
+    @Published private(set) var fileHistory: [GitCommit] = []
     /// When set, the preview shows a commit-specific diff instead of working directory diff.
     private(set) var commitDiffContext: (sha: String, filePath: String)?
 
@@ -85,6 +88,7 @@ final class FilePreviewModel: ObservableObject {
         if selectedURL == url && !wasCommitDiff { return }
         selectedURL = url
         lastNavigatedLine = 1
+        fileHistory = []
         loadFile(url)
     }
 
@@ -125,6 +129,7 @@ final class FilePreviewModel: ObservableObject {
         previewImage = nil
         imageSize = nil
         imageFileSize = nil
+        fileHistory = []
         activeTab = .source
         commitDiffContext = nil
         showSymbolOutline = false
@@ -264,7 +269,24 @@ final class FilePreviewModel: ObservableObject {
                     } else {
                         self?.activeTab = .source
                     }
+                    self?.loadFileHistory(for: url)
                 }
+            }
+        }
+    }
+
+    /// Loads the git commit history for a specific file in the background.
+    private func loadFileHistory(for url: URL) {
+        guard let root = rootDirectory else {
+            fileHistory = []
+            return
+        }
+        let relativePath = Self.relativePath(of: url, from: root)
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let commits = GitLogProvider.fileLog(path: relativePath, in: root)
+            DispatchQueue.main.async {
+                guard self?.selectedURL == url else { return }
+                self?.fileHistory = commits
             }
         }
     }
@@ -411,7 +433,7 @@ final class FilePreviewModel: ObservableObject {
         return Self.relativePath(of: url, from: root)
     }
 
-    private static func relativePath(of url: URL, from root: URL) -> String {
+    static func relativePath(of url: URL, from root: URL) -> String {
         let filePath = url.standardizedFileURL.path
         let rootPath = root.standardizedFileURL.path
         if filePath.hasPrefix(rootPath) {
