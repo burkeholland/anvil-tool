@@ -22,13 +22,17 @@ LOOP_INTERVAL=300         # Seconds between cycles (5 min)
 LABEL="anvil-auto"        # Label applied to all auto-created issues
 REPO=""                   # Detected from gh repo view
 DRY_RUN=false
+DEBUG=false
+DEBUG_PHASE=""            # Run only this phase in debug mode
 
 # ─── Parse args ──────────────────────────────────────────────────────────────
 
 for arg in "$@"; do
   case "$arg" in
     --dry-run) DRY_RUN=true ;;
-    *) echo "Unknown argument: $arg"; exit 1 ;;
+    --debug) DEBUG=true ;;
+    --debug-phase=*) DEBUG=true; DEBUG_PHASE="${arg#--debug-phase=}" ;;
+    *) echo "Unknown argument: $arg"; echo "Usage: $0 [--dry-run] [--debug] [--debug-phase=merge|triage|plan|assign]"; exit 1 ;;
   esac
 done
 
@@ -57,7 +61,7 @@ REPO_NAME="$(echo "$REPO" | cut -d/ -f2)"
 
 log "🏗️  ralph-team.sh starting for $REPO"
 log "   MAX_ACTIVE_AGENTS=$MAX_ACTIVE_AGENTS  MAX_BACKLOG=$MAX_BACKLOG"
-log "   LOOP_INTERVAL=${LOOP_INTERVAL}s  DRY_RUN=$DRY_RUN"
+log "   LOOP_INTERVAL=${LOOP_INTERVAL}s  DRY_RUN=$DRY_RUN  DEBUG=$DEBUG"
 
 # Ensure the label exists
 if ! gh label list --repo "$REPO" --json name -q '.[].name' | grep -qx "$LABEL"; then
@@ -502,30 +506,53 @@ phase_assign() {
   log "   Assigned $assigned_count issue(s) this cycle."
 }
 
+# ─── Run Cycle ────────────────────────────────────────────────────────────────
+
+run_cycle() {
+  local iteration="$1"
+
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  log "🏗️  ralph-team.sh — Cycle $iteration"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+
+  if [ -z "$DEBUG_PHASE" ] || [ "$DEBUG_PHASE" = "merge" ]; then
+    phase_merge || log "⚠️  phase_merge failed, continuing..."
+    echo ""
+  fi
+
+  if [ -z "$DEBUG_PHASE" ] || [ "$DEBUG_PHASE" = "triage" ]; then
+    phase_triage || log "⚠️  phase_triage failed, continuing..."
+    echo ""
+  fi
+
+  if [ -z "$DEBUG_PHASE" ] || [ "$DEBUG_PHASE" = "plan" ]; then
+    phase_plan || log "⚠️  phase_plan failed, continuing..."
+    echo ""
+  fi
+
+  if [ -z "$DEBUG_PHASE" ] || [ "$DEBUG_PHASE" = "assign" ]; then
+    phase_assign || log "⚠️  phase_assign failed, continuing..."
+    echo ""
+  fi
+}
+
 # ─── Main Loop ───────────────────────────────────────────────────────────────
 
 ITERATION=0
 
+if [ "$DEBUG" = true ]; then
+  ITERATION=1
+  log "🐛 DEBUG MODE — running 1 cycle${DEBUG_PHASE:+ (phase: $DEBUG_PHASE)} then exiting"
+  run_cycle "$ITERATION"
+  log "🐛 DEBUG complete."
+  exit 0
+fi
+
 while true; do
   ITERATION=$((ITERATION + 1))
-  echo ""
-  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  log "🏗️  ralph-team.sh — Cycle $ITERATION"
-  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  echo ""
-
-  phase_merge || log "⚠️  phase_merge failed, continuing..."
-  echo ""
-
-  phase_triage || log "⚠️  phase_triage failed, continuing..."
-  echo ""
-
-  phase_plan || log "⚠️  phase_plan failed, continuing..."
-  echo ""
-
-  phase_assign || log "⚠️  phase_assign failed, continuing..."
-  echo ""
-
+  run_cycle "$ITERATION"
   log "💤 Cycle $ITERATION complete. Sleeping ${LOOP_INTERVAL}s..."
   sleep "$LOOP_INTERVAL"
 done
