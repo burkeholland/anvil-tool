@@ -75,7 +75,7 @@ final class FilePreviewModel: ObservableObject {
         return Self.extensionToLanguage[ext]
     }
 
-    func select(_ url: URL) {
+    func select(_ url: URL, line: Int? = nil) {
         guard !url.hasDirectoryPath else { return }
         let wasCommitDiff = commitDiffContext != nil
         commitDiffContext = nil
@@ -85,12 +85,24 @@ final class FilePreviewModel: ObservableObject {
             openTabs.append(url)
         }
         // Reload if switching away from a commit diff for the same file
-        if selectedURL == url && !wasCommitDiff { return }
+        if selectedURL == url && !wasCommitDiff {
+            // Even if already selected, navigate to the requested line
+            if let line = line {
+                activeTab = .source
+                scrollToLine = line
+                lastNavigatedLine = line
+            }
+            return
+        }
         selectedURL = url
-        lastNavigatedLine = 1
+        lastNavigatedLine = line ?? 1
         fileHistory = []
+        pendingScrollLine = line
         loadFile(url)
     }
+
+    /// Line to scroll to after the file finishes loading.
+    private var pendingScrollLine: Int?
 
     /// Open a file showing the diff from a specific commit.
     func selectCommitFile(path: String, commitSHA: String, rootURL: URL) {
@@ -261,8 +273,13 @@ final class FilePreviewModel: ObservableObject {
                     self?.imageSize = nil
                     self?.imageFileSize = nil
                     self?.isLoading = false
-                    // Auto-switch to changes tab if file has a diff, rendered for markdown
-                    if diff != nil {
+                    // Navigate to pending line (from search click), overriding tab auto-switch
+                    if let line = self?.pendingScrollLine {
+                        self?.pendingScrollLine = nil
+                        self?.activeTab = .source
+                        self?.scrollToLine = line
+                        self?.lastNavigatedLine = line
+                    } else if diff != nil {
                         self?.activeTab = .changes
                     } else if Self.markdownExtensions.contains(url.pathExtension.lowercased()) {
                         self?.activeTab = .rendered

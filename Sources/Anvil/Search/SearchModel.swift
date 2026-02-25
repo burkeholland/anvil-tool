@@ -30,6 +30,8 @@ final class SearchModel: ObservableObject {
     @Published var query: String = ""
     @Published var caseSensitive: Bool = false
     @Published var useRegex: Bool = false
+    @Published var wholeWord: Bool = false
+    @Published var fileFilter: String = ""
     @Published private(set) var results: [SearchFileResult] = []
     @Published private(set) var totalMatches: Int = 0
     @Published private(set) var isSearching = false
@@ -45,10 +47,15 @@ final class SearchModel: ObservableObject {
 
     init() {
         // Debounce query changes — wait 300ms after the user stops typing
-        Publishers.CombineLatest3($query, $caseSensitive, $useRegex)
+        Publishers.CombineLatest(
+            Publishers.CombineLatest3($query, $caseSensitive, $useRegex),
+            Publishers.CombineLatest($wholeWord, $fileFilter)
+        )
             .debounce(for: .milliseconds(300), scheduler: RunLoop.main)
-            .sink { [weak self] query, caseSensitive, useRegex in
-                self?.performSearch(query: query, caseSensitive: caseSensitive, useRegex: useRegex)
+            .sink { [weak self] first, second in
+                let (query, caseSensitive, useRegex) = first
+                let (wholeWord, fileFilter) = second
+                self?.performSearch(query: query, caseSensitive: caseSensitive, useRegex: useRegex, wholeWord: wholeWord, fileFilter: fileFilter)
             }
             .store(in: &cancellables)
     }
@@ -56,12 +63,13 @@ final class SearchModel: ObservableObject {
     func setRoot(_ url: URL) {
         rootURL = url
         if !query.isEmpty {
-            performSearch(query: query, caseSensitive: caseSensitive, useRegex: useRegex)
+            performSearch(query: query, caseSensitive: caseSensitive, useRegex: useRegex, wholeWord: wholeWord, fileFilter: fileFilter)
         }
     }
 
     func clear() {
         query = ""
+        fileFilter = ""
         results = []
         totalMatches = 0
         regexError = nil
@@ -69,7 +77,7 @@ final class SearchModel: ObservableObject {
 
     // MARK: - Search Execution
 
-    private func performSearch(query: String, caseSensitive: Bool, useRegex: Bool) {
+    private func performSearch(query: String, caseSensitive: Bool, useRegex: Bool, wholeWord: Bool, fileFilter: String) {
         let trimmed = query.trimmingCharacters(in: .whitespaces)
         searchGeneration &+= 1
         let generation = searchGeneration
@@ -85,6 +93,7 @@ final class SearchModel: ObservableObject {
         regexError = nil
         isSearching = true
         let maxResults = self.maxResults
+        let trimmedFilter = fileFilter.trimmingCharacters(in: .whitespaces)
 
         workQueue.async { [weak self] in
             let isGitRepo = FileManager.default.fileExists(
@@ -93,9 +102,9 @@ final class SearchModel: ObservableObject {
 
             let result: ProcessResult
             if isGitRepo {
-                result = Self.runGitGrep(query: trimmed, caseSensitive: caseSensitive, useRegex: useRegex, at: rootURL, maxResults: maxResults)
+                result = Self.runGitGrep(query: trimmed, caseSensitive: caseSensitive, useRegex: useRegex, wholeWord: wholeWord, fileFilter: trimmedFilter, at: rootURL, maxResults: maxResults)
             } else {
-                result = Self.runGrep(query: trimmed, caseSensitive: caseSensitive, useRegex: useRegex, at: rootURL, maxResults: maxResults)
+                result = Self.runGrep(query: trimmed, caseSensitive: caseSensitive, useRegex: useRegex, wholeWord: wholeWord, fileFilter: trimmedFilter, at: rootURL, maxResults: maxResults)
             }
 
             let parsed = Self.parseGrepOutput(result.stdout ?? "", rootURL: rootURL)
@@ -120,10 +129,13 @@ final class SearchModel: ObservableObject {
 
     // MARK: - git grep
 
-    private static func runGitGrep(query: String, caseSensitive: Bool, useRegex: Bool, at directory: URL, maxResults: Int) -> ProcessResult {
+    private static func runGitGrep(query: String, caseSensitive: Bool, useRegex: Bool, wholeWord: Bool, fileFilter: String, at directory: URL, maxResults: Int) -> ProcessResult {
         var args = ["grep", "-n", "--color=never", "-I", "--max-count=50"]
         if !caseSensitive {
             args.append("-i")
+        }
+        if wholeWord {
+            args.append("-w")
         }
         if useRegex {
             args.append("-E")
@@ -131,6 +143,14 @@ final class SearchModel: ObservableObject {
             args.append("--fixed-strings")
         }
         args.append(query)
+
+        // Path filter: supports glob patterns like "*.swift" or "src/"
+        if !fileFilter.isEmpty {
+            args.append("--")
+            for pattern in fileFilter.components(separatedBy: ",").map({ $0.trimmingCharacters(in: .whitespaces) }) where !pattern.isEmpty {
+                args.append(pattern)
+            }
+        }
 
         return runProcess(
             executable: "/usr/bin/git",
@@ -141,23 +161,38 @@ final class SearchModel: ObservableObject {
 
     // MARK: - grep fallback
 
-    private static func runGrep(query: String, caseSensitive: Bool, useRegex: Bool, at directory: URL, maxResults: Int) -> ProcessResult {
-        var args = ["-rn", "--color=never", "-I", "--include=*"]
+    private static func runGrep(query: String, caseSensitive: Bool, useRegex: Bool, wholeWord: Bool, fileFilter: String, at directory: URL, maxResults: Int) -> ProcessResult {
+        var args = ["-rn", "--color=never", "-I"]
         if !caseSensitive {
             args.append("-i")
+        }
+        if wholeWord {
+            args.append("-w")
         }
         // Exclude common noisy directories
         args.append(contentsOf: [
             "--exclude-dir=.git", "--exclude-dir=.build",
             "--exclude-dir=node_modules", "--exclude-dir=.swiftpm",
         ])
+        // File include patterns: glob patterns go to --include, directory paths become search roots
+        var searchPaths: [String] = []
+        if !fileFilter.isEmpty {
+            for pattern in fileFilter.components(separatedBy: ",").map({ $0.trimmingCharacters(in: .whitespaces) }) where !pattern.isEmpty {
+                if pattern.hasSuffix("/") || !pattern.contains("*") && !pattern.contains(".") {
+                    // Directory path — use as positional search root
+                    searchPaths.append(pattern)
+                } else {
+                    args.append("--include=\(pattern)")
+                }
+            }
+        }
         if useRegex {
             args.append("-E")
         } else {
             args.append("--fixed-strings")
         }
         args.append(query)
-        args.append(".")
+        args.append(contentsOf: searchPaths.isEmpty ? ["."] : searchPaths)
 
         return runProcess(
             executable: "/usr/bin/grep",

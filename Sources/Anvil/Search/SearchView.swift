@@ -155,6 +155,38 @@ struct SearchInputBar: View {
                     .strokeBorder(Color(nsColor: .separatorColor), lineWidth: 0.5)
             )
 
+            // Files to include filter
+            HStack(spacing: 6) {
+                Image(systemName: "doc")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.tertiary)
+
+                TextField("Files to include (e.g. *.swift, src/)", text: $model.fileFilter)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 11))
+
+                if !model.fileFilter.isEmpty {
+                    Button {
+                        model.fileFilter = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.tertiary)
+                    }
+                    .buttonStyle(.borderless)
+                }
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(Color(nsColor: .textBackgroundColor))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 6)
+                    .strokeBorder(Color(nsColor: .separatorColor), lineWidth: 0.5)
+            )
+
             HStack {
                 Toggle(isOn: $model.caseSensitive) {
                     Text("Aa")
@@ -163,6 +195,15 @@ struct SearchInputBar: View {
                 .toggleStyle(.button)
                 .controlSize(.small)
                 .help("Case Sensitive")
+
+                Toggle(isOn: $model.wholeWord) {
+                    Text("ab")
+                        .font(.system(size: 11, weight: model.wholeWord ? .bold : .regular, design: .monospaced))
+                        .underline()
+                }
+                .toggleStyle(.button)
+                .controlSize(.small)
+                .help("Match Whole Word")
 
                 Toggle(isOn: $model.useRegex) {
                     Text(".*")
@@ -323,7 +364,7 @@ struct SearchMatchRow: View {
         .padding(.vertical, 3)
         .contentShape(Rectangle())
         .onTapGesture {
-            filePreview.select(fileURL)
+            filePreview.select(fileURL, line: match.lineNumber)
         }
         .background(
             filePreview.selectedURL == fileURL
