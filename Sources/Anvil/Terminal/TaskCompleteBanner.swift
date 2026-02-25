@@ -7,12 +7,17 @@ struct TaskCompleteBanner: View {
     let totalAdditions: Int
     let totalDeletions: Int
     let buildStatus: BuildVerifier.Status
+    /// The available pre-task snapshots, newest first.
+    let snapshots: [AnvilSnapshot]
     var onReviewAll: () -> Void
     var onStageAllAndCommit: () -> Void
     var onNewTask: () -> Void
     var onDismiss: () -> Void
+    var onRollback: (AnvilSnapshot) -> Void
 
     @State private var showBuildOutput = false
+    @State private var showRollbackConfirmation = false
+    @State private var selectedSnapshot: AnvilSnapshot?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -51,6 +56,10 @@ struct TaskCompleteBanner: View {
                 buildStatusBadge
 
                 Spacer()
+
+                if !snapshots.isEmpty {
+                    rollbackButton
+                }
 
                 if changedFileCount > 0 {
                     Button {
@@ -122,6 +131,67 @@ struct TaskCompleteBanner: View {
         }
         .background(.ultraThinMaterial)
         .overlay(alignment: .top) { Divider() }
+        .alert("Roll Back to Pre-Task Snapshot?", isPresented: $showRollbackConfirmation) {
+            Button("Roll Back", role: .destructive) {
+                if let snapshot = selectedSnapshot {
+                    onRollback(snapshot)
+                }
+            }
+            Button("Cancel", role: .cancel) {
+                selectedSnapshot = nil
+            }
+        } message: {
+            if let snapshot = selectedSnapshot {
+                Text("This will restore the working tree to the state from \(snapshot.relativeDate). Uncommitted changes made after that point will be discarded.")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var rollbackButton: some View {
+        if snapshots.count == 1, let snapshot = snapshots.first {
+            Button {
+                selectedSnapshot = snapshot
+                showRollbackConfirmation = true
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "arrow.uturn.backward.circle")
+                        .font(.system(size: 10))
+                    Text("Rollback")
+                        .font(.system(size: 12))
+                }
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .help("Restore working tree to the pre-task snapshot (\(snapshot.relativeDate))")
+        } else {
+            Menu {
+                ForEach(snapshots) { snapshot in
+                    Button {
+                        selectedSnapshot = snapshot
+                        showRollbackConfirmation = true
+                    } label: {
+                        Label(snapshot.relativeDate, systemImage: "arrow.uturn.backward.circle")
+                    }
+                }
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "arrow.uturn.backward.circle")
+                        .font(.system(size: 10))
+                    Text("Rollback")
+                        .font(.system(size: 12))
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 8))
+                }
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .padding(.horizontal, 6)
+            .padding(.vertical, 3)
+            .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 5))
+            .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(Color(nsColor: .separatorColor), lineWidth: 0.5))
+            .help("Roll back to a pre-task snapshot")
+        }
     }
 
     @ViewBuilder

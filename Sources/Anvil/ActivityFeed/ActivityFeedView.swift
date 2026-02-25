@@ -30,6 +30,11 @@ struct ActivityFeedView: View {
                     SessionSummaryBar(stats: model.sessionStats)
                 }
 
+                // Snapshot saved indicator
+                if let snapshot = model.latestSnapshot {
+                    SnapshotSavedBadge(snapshot: snapshot)
+                }
+
                 // Header with count and clear button
                 HStack {
                     Text("\(model.events.count) event\(model.events.count == 1 ? "" : "s")")
@@ -325,6 +330,27 @@ struct SessionSummaryBar: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .background(Color(nsColor: .controlBackgroundColor).opacity(0.3))
+        .overlay(alignment: .bottom) { Divider() }
+    }
+}
+
+/// A subtle banner shown in the activity feed when a pre-task snapshot exists.
+struct SnapshotSavedBadge: View {
+    let snapshot: AnvilSnapshot
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "camera.fill")
+                .font(.system(size: 9))
+                .foregroundStyle(.blue)
+            Text("Snapshot saved · \(snapshot.relativeDate)")
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
+            Spacer()
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 5)
+        .background(Color.blue.opacity(0.06))
         .overlay(alignment: .bottom) { Divider() }
     }
 }

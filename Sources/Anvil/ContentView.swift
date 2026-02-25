@@ -44,6 +44,7 @@ struct ContentView: View {
     @State private var showProjectSwitcher = false
     @State private var showBranchDiff = false
     @State private var showCloneSheet = false
+    @State private var rollbackErrorMessage: String? = nil
 
     var body: some View {
         ZStack {
@@ -222,6 +223,16 @@ struct ContentView: View {
                 onCloned: { url in openDirectory(url) },
                 onDismiss: { showCloneSheet = false }
             )
+        }
+        .alert("Rollback Failed", isPresented: Binding(
+            get: { rollbackErrorMessage != nil },
+            set: { if !$0 { rollbackErrorMessage = nil } }
+        )) {
+            Button("OK", role: .cancel) { rollbackErrorMessage = nil }
+        } message: {
+            if let msg = rollbackErrorMessage {
+                Text(msg)
+            }
         }
     }
 
@@ -409,6 +420,7 @@ struct ContentView: View {
                             totalAdditions: changesModel.totalAdditions,
                             totalDeletions: changesModel.totalDeletions,
                             buildStatus: buildVerifier.status,
+                            snapshots: activityModel.snapshots,
                             onReviewAll: {
                                 showDiffSummary = true
                                 showTaskBanner = false
@@ -427,6 +439,21 @@ struct ContentView: View {
                             },
                             onDismiss: {
                                 showTaskBanner = false
+                            },
+                            onRollback: { snapshot in
+                                if let url = workingDirectory.directoryURL {
+                                    DispatchQueue.global(qos: .userInitiated).async {
+                                        let result = SnapshotProvider.restore(snapshot, in: url)
+                                        DispatchQueue.main.async {
+                                            if result.success {
+                                                changesModel.refresh()
+                                                showTaskBanner = false
+                                            } else {
+                                                rollbackErrorMessage = result.error ?? "Rollback failed."
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         )
                         .transition(.move(edge: .bottom).combined(with: .opacity))

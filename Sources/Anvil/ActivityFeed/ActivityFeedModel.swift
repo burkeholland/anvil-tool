@@ -19,6 +19,10 @@ final class ActivityFeedModel: ObservableObject {
     @Published private(set) var sessionStats = SessionStats()
     /// True when file changes were detected within the last 10 seconds.
     @Published private(set) var isAgentActive = false
+    /// Pre-task snapshots taken when the agent first becomes active (newest first, max 5).
+    @Published private(set) var snapshots: [AnvilSnapshot] = []
+    /// The most recent pre-task snapshot, or nil if none have been taken.
+    var latestSnapshot: AnvilSnapshot? { snapshots.first }
     /// Timestamp of the last detected activity event.
     private(set) var lastActivityTime: Date?
     /// Timer that clears the active state after a quiet period.
@@ -124,6 +128,7 @@ final class ActivityFeedModel: ObservableObject {
         isAgentActive = false
         lastActivityTime = nil
         sessionStats = SessionStats()
+        snapshots.removeAll()
     }
 
     func clear() {
@@ -278,7 +283,21 @@ final class ActivityFeedModel: ObservableObject {
             latestFileChange = LatestFileChange(id: UUID(), url: latest.fileURL!)
         }
 
-        // Mark agent as active and schedule cooldown
+        // Mark agent as active and schedule cooldown.
+        // On the first transition (inactive → active) take a pre-task snapshot.
+        if !isAgentActive, let rootURL = rootURL {
+            workQueue.async { [weak self] in
+                guard let self = self else { return }
+                if let snapshot = SnapshotProvider.create(in: rootURL) {
+                    DispatchQueue.main.async {
+                        self.snapshots.insert(snapshot, at: 0)
+                        if self.snapshots.count > 5 {
+                            self.snapshots = Array(self.snapshots.prefix(5))
+                        }
+                    }
+                }
+            }
+        }
         lastActivityTime = Date()
         isAgentActive = true
         activityCooldownTimer?.invalidate()
