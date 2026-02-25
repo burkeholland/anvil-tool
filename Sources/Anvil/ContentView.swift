@@ -12,6 +12,7 @@ struct ContentView: View {
     @StateObject private var changesModel = ChangesModel()
     @StateObject private var activityModel = ActivityFeedModel()
     @StateObject private var recentProjects = RecentProjectsModel()
+    @StateObject private var terminalProxy = TerminalInputProxy()
     @State private var sidebarWidth: CGFloat = 240
     @State private var previewWidth: CGFloat = 400
     @State private var showSidebar = true
@@ -21,6 +22,7 @@ struct ContentView: View {
         Group {
             if workingDirectory.directoryURL != nil {
                 projectView
+                    .environmentObject(terminalProxy)
             } else {
                 WelcomeView(
                     recentProjects: recentProjects,

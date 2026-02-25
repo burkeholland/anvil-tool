@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 /// Displays a live timeline of file changes and git commits detected while the agent works.
 struct ActivityFeedView: View {
@@ -112,6 +113,7 @@ struct ActivityGroupView: View {
 struct ActivityEventRow: View {
     let event: ActivityEvent
     @ObservedObject var filePreview: FilePreviewModel
+    @EnvironmentObject var terminalProxy: TerminalInputProxy
 
     var body: some View {
         HStack(spacing: 6) {
@@ -168,6 +170,41 @@ struct ActivityEventRow: View {
                 ? RoundedRectangle(cornerRadius: 4).fill(Color.accentColor.opacity(0.1))
                 : nil
         )
+        .contextMenu {
+            if let url = event.fileURL {
+                if !event.path.isEmpty {
+                    Button {
+                        terminalProxy.mentionFile(relativePath: event.path)
+                    } label: {
+                        Label("Mention in Terminal", systemImage: "terminal")
+                    }
+
+                    Divider()
+
+                    Button {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(event.path, forType: .string)
+                    } label: {
+                        Label("Copy Relative Path", systemImage: "doc.on.doc")
+                    }
+                }
+
+                Button {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(url.path, forType: .string)
+                } label: {
+                    Label("Copy Absolute Path", systemImage: "doc.on.doc.fill")
+                }
+
+                Divider()
+
+                Button {
+                    NSWorkspace.shared.activateFileViewerSelecting([url])
+                } label: {
+                    Label("Reveal in Finder", systemImage: "folder")
+                }
+            }
+        }
     }
 
     private var iconColor: Color {

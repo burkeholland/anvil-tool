@@ -1,9 +1,11 @@
 import SwiftUI
+import AppKit
 
 /// Shows all git-changed files in a list with status indicators and diff stats.
 struct ChangesListView: View {
     @ObservedObject var model: ChangesModel
     @ObservedObject var filePreview: FilePreviewModel
+    @EnvironmentObject var terminalProxy: TerminalInputProxy
 
     var body: some View {
         if model.isLoading && model.changedFiles.isEmpty {
@@ -69,6 +71,37 @@ struct ChangesListView: View {
                         .contentShape(Rectangle())
                         .onTapGesture {
                             filePreview.select(file.url)
+                        }
+                        .contextMenu {
+                            Button {
+                                terminalProxy.mentionFile(relativePath: file.relativePath)
+                            } label: {
+                                Label("Mention in Terminal", systemImage: "terminal")
+                            }
+
+                            Divider()
+
+                            Button {
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(file.relativePath, forType: .string)
+                            } label: {
+                                Label("Copy Relative Path", systemImage: "doc.on.doc")
+                            }
+
+                            Button {
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(file.url.path, forType: .string)
+                            } label: {
+                                Label("Copy Absolute Path", systemImage: "doc.on.doc.fill")
+                            }
+
+                            Divider()
+
+                            Button {
+                                NSWorkspace.shared.activateFileViewerSelecting([file.url])
+                            } label: {
+                                Label("Reveal in Finder", systemImage: "folder")
+                            }
                         }
                     }
                 }

@@ -6,6 +6,7 @@ import SwiftTerm
 /// Shows a restart overlay when the shell process exits.
 struct EmbeddedTerminalView: View {
     @ObservedObject var workingDirectory: WorkingDirectoryModel
+    @EnvironmentObject var terminalProxy: TerminalInputProxy
     @State private var processRunning = true
     @State private var lastExitCode: Int32?
     @State private var terminalID = UUID()
@@ -14,6 +15,7 @@ struct EmbeddedTerminalView: View {
         ZStack {
             TerminalNSView(
                 workingDirectory: workingDirectory,
+                terminalProxy: terminalProxy,
                 onProcessExit: { code in
                     lastExitCode = code
                     processRunning = false
@@ -72,11 +74,13 @@ struct EmbeddedTerminalView: View {
 /// NSViewRepresentable that wraps SwiftTerm's LocalProcessTerminalView.
 private struct TerminalNSView: NSViewRepresentable {
     @ObservedObject var workingDirectory: WorkingDirectoryModel
+    var terminalProxy: TerminalInputProxy
     var onProcessExit: (Int32?) -> Void
 
     func makeNSView(context: Context) -> LocalProcessTerminalView {
         let terminalView = LocalProcessTerminalView(frame: .zero)
         terminalView.processDelegate = context.coordinator
+        terminalProxy.terminalView = terminalView
 
         let fontSize: CGFloat = 14
         terminalView.font = NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)

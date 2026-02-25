@@ -1,8 +1,10 @@
 import SwiftUI
+import AppKit
 
 struct FileTreeView: View {
     let rootURL: URL
     @ObservedObject var filePreview: FilePreviewModel
+    @EnvironmentObject var terminalProxy: TerminalInputProxy
     @StateObject private var model = FileTreeModel()
 
     var body: some View {
@@ -59,6 +61,9 @@ struct FileTreeView: View {
                             .onTapGesture {
                                 filePreview.select(result.url)
                             }
+                            .contextMenu {
+                                fileContextMenu(url: result.url, isDirectory: false)
+                            }
                         }
                     }
                     .listStyle(.sidebar)
@@ -73,6 +78,9 @@ struct FileTreeView: View {
                             gitStatus: model.gitStatuses[entry.url.path],
                             onToggle: { handleTap(entry) }
                         )
+                        .contextMenu {
+                            fileContextMenu(url: entry.url, isDirectory: entry.isDirectory)
+                        }
                     }
                 }
                 .listStyle(.sidebar)
@@ -89,6 +97,52 @@ struct FileTreeView: View {
             model.toggleDirectory(entry)
         } else {
             filePreview.select(entry.url)
+        }
+    }
+
+    private func relativePath(of url: URL) -> String {
+        let rootPath = rootURL.standardizedFileURL.path
+        let filePath = url.standardizedFileURL.path
+        if filePath.hasPrefix(rootPath) {
+            var rel = String(filePath.dropFirst(rootPath.count))
+            if rel.hasPrefix("/") { rel = String(rel.dropFirst()) }
+            return rel
+        }
+        return url.lastPathComponent
+    }
+
+    @ViewBuilder
+    private func fileContextMenu(url: URL, isDirectory: Bool) -> some View {
+        if !isDirectory {
+            Button {
+                terminalProxy.mentionFile(relativePath: relativePath(of: url))
+            } label: {
+                Label("Mention in Terminal", systemImage: "terminal")
+            }
+
+            Divider()
+        }
+
+        Button {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(relativePath(of: url), forType: .string)
+        } label: {
+            Label("Copy Relative Path", systemImage: "doc.on.doc")
+        }
+
+        Button {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(url.path, forType: .string)
+        } label: {
+            Label("Copy Absolute Path", systemImage: "doc.on.doc.fill")
+        }
+
+        Divider()
+
+        Button {
+            NSWorkspace.shared.activateFileViewerSelecting([url])
+        } label: {
+            Label("Reveal in Finder", systemImage: "folder")
         }
     }
 }
