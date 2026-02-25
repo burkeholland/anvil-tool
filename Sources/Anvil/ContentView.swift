@@ -122,6 +122,9 @@ struct ContentView: View {
             onNewTerminalTab: {
                 terminalTabs.addTab()
             },
+            onNewCopilotTab: {
+                terminalTabs.addCopilotTab()
+            },
             onFindInTerminal: {
                 terminalProxy.showFindBar()
             },
@@ -574,10 +577,15 @@ struct ContentView: View {
             },
 
             // Terminal
-            PaletteCommand(id: "new-terminal-tab", title: "New Terminal Tab", icon: "plus.rectangle", shortcut: "⌘T", category: "Terminal") {
+            PaletteCommand(id: "new-terminal-tab", title: "New Shell Tab", icon: "terminal", shortcut: "⌘T", category: "Terminal") {
                 hasProject
             } action: { [weak terminalTabs] in
                 terminalTabs?.addTab()
+            },
+            PaletteCommand(id: "new-copilot-tab", title: "New Copilot Tab", icon: "sparkle", shortcut: "⌘⇧T", category: "Terminal") {
+                hasProject
+            } action: { [weak terminalTabs] in
+                terminalTabs?.addCopilotTab()
             },
             PaletteCommand(id: "increase-font", title: "Increase Font Size", icon: "plus.magnifyingglass", shortcut: "⌘+", category: "Terminal") {
                 true

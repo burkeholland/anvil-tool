@@ -60,7 +60,8 @@ struct KeyboardShortcutsView: View {
                         ])
 
                         shortcutSection("Terminal", shortcuts: [
-                            ("⌘T", "New Terminal Tab"),
+                            ("⌘T", "New Shell Tab"),
+                            ("⌘⇧T", "New Copilot Tab"),
                             ("⌘⇧M", "Mention File in Terminal"),
                             ("⌘+", "Increase Font Size"),
                             ("⌘−", "Decrease Font Size"),
