@@ -47,6 +47,7 @@ final class FilePreviewModel: ObservableObject {
         didSet {
             setupWatcher()
             loadRecentFiles()
+            restoreOpenTabs()
         }
     }
 
@@ -97,6 +98,7 @@ final class FilePreviewModel: ObservableObject {
         // Add to tabs if not already open
         if !openTabs.contains(url) {
             openTabs.append(url)
+            saveOpenTabs()
         }
         // Reload if switching away from a commit diff for the same file
         if selectedURL == url && !wasCommitDiff {
@@ -115,6 +117,7 @@ final class FilePreviewModel: ObservableObject {
         lastNavigatedLine = line ?? 1
         fileHistory = []
         pendingScrollLine = line
+        saveOpenTabs()
         loadFile(url)
     }
 
@@ -130,6 +133,7 @@ final class FilePreviewModel: ObservableObject {
         blameGeneration &+= 1
         if !openTabs.contains(url) {
             openTabs.append(url)
+            saveOpenTabs()
         }
         selectedURL = url
         lastNavigatedLine = 1
@@ -141,17 +145,24 @@ final class FilePreviewModel: ObservableObject {
         openTabs.remove(at: index)
 
         if openTabs.isEmpty {
-            close()
+            saveOpenTabs()
+            close(persist: false)
         } else if selectedURL == url {
             // Switch to adjacent tab
             let newIndex = min(index, openTabs.count - 1)
             selectedURL = openTabs[newIndex]
             lastNavigatedLine = 1
+            saveOpenTabs()
             loadFile(openTabs[newIndex])
+        } else {
+            saveOpenTabs()
         }
     }
 
-    func close() {
+    /// Resets all preview state.
+    /// - Parameter persist: When false, skip saving tabs (used during project switch
+    ///   so the old project's persisted tabs aren't overwritten).
+    func close(persist: Bool = true) {
         selectedURL = nil
         openTabs.removeAll()
         fileContent = nil
@@ -167,6 +178,7 @@ final class FilePreviewModel: ObservableObject {
         commitDiffContext = nil
         showSymbolOutline = false
         showBlame = false
+        if persist { saveOpenTabs() }
     }
 
     /// Refresh both source content and diff for the current file.
@@ -552,5 +564,49 @@ final class FilePreviewModel: ObservableObject {
         recentlyViewedURLs = paths.compactMap { path in
             fm.fileExists(atPath: path) ? URL(fileURLWithPath: path) : nil
         }
+    }
+
+    // MARK: - Open Tabs Persistence
+
+    private var openTabsKey: String? {
+        guard let root = rootDirectory else { return nil }
+        return "dev.anvil.openTabs.\(root.standardizedFileURL.path)"
+    }
+
+    private var selectedTabKey: String? {
+        guard let root = rootDirectory else { return nil }
+        return "dev.anvil.selectedTab.\(root.standardizedFileURL.path)"
+    }
+
+    private func saveOpenTabs() {
+        guard let tabsKey = openTabsKey, let selKey = selectedTabKey else { return }
+        let paths = openTabs.map(\.path)
+        UserDefaults.standard.set(paths, forKey: tabsKey)
+        UserDefaults.standard.set(selectedURL?.path, forKey: selKey)
+    }
+
+    private func restoreOpenTabs() {
+        guard let tabsKey = openTabsKey,
+              let paths = UserDefaults.standard.stringArray(forKey: tabsKey),
+              !paths.isEmpty else { return }
+        let fm = FileManager.default
+        let validURLs = paths.compactMap { path -> URL? in
+            fm.fileExists(atPath: path) ? URL(fileURLWithPath: path) : nil
+        }
+        guard !validURLs.isEmpty else { return }
+        openTabs = validURLs
+
+        // Restore the previously selected file, or fall back to the last tab
+        let selKey = selectedTabKey
+        let restoredSelection: URL
+        if let selPath = selKey.flatMap({ UserDefaults.standard.string(forKey: $0) }),
+           let selURL = validURLs.first(where: { $0.path == selPath }) {
+            restoredSelection = selURL
+        } else {
+            restoredSelection = validURLs.last!
+        }
+        selectedURL = restoredSelection
+        lastNavigatedLine = 1
+        loadFile(restoredSelection)
     }
 }

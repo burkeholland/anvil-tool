@@ -149,7 +149,7 @@ struct ContentView: View {
         ))
         .onChange(of: workingDirectory.directoryURL) { _, newURL in
             showTaskBanner = false
-            filePreview.close()
+            filePreview.close(persist: false)
             filePreview.rootDirectory = newURL
             terminalTabs.reset()
             if let url = newURL {
@@ -765,7 +765,7 @@ struct ContentView: View {
 
     private func closeCurrentProject() {
         showTaskBanner = false
-        filePreview.close()
+        filePreview.close(persist: false)
         showDiffSummary = false
         showBranchDiff = false
         changesModel.stop()
