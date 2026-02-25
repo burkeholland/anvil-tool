@@ -236,6 +236,7 @@ struct ContentView: View {
             CreatePullRequestView(
                 workingDirectory: workingDirectory,
                 changesModel: changesModel,
+                activityFeedModel: activityModel,
                 onDismiss: { showCreatePR = false }
             )
         }

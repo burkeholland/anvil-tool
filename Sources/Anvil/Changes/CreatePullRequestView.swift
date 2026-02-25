@@ -4,6 +4,7 @@ import SwiftUI
 struct CreatePullRequestView: View {
     @ObservedObject var workingDirectory: WorkingDirectoryModel
     @ObservedObject var changesModel: ChangesModel
+    @ObservedObject var activityFeedModel: ActivityFeedModel
     var onDismiss: () -> Void
 
     @State private var prTitle: String = ""
@@ -151,11 +152,21 @@ struct CreatePullRequestView: View {
 
     private func loadInitialData() {
         guard let url = workingDirectory.directoryURL else { return }
+        // Capture model state on the main thread before dispatching to background.
+        let changedFilesSnapshot = changesModel.changedFiles
+        let recentCommitsSnapshot = changesModel.recentCommits
+        let sessionStatsSnapshot = activityFeedModel.sessionStats
         DispatchQueue.global(qos: .userInitiated).async {
             let branches = PullRequestProvider.remoteBranches(in: url)
             let suggestedBase = suggestBaseBranch(from: branches)
-            let suggestedTitle = suggestTitle()
-            let suggestedBody = generateBody()
+            let suggestedTitle = suggestTitle(recentCommits: recentCommitsSnapshot)
+            let suggestedBody = generateBody(
+                baseBranch: suggestedBase,
+                changedFiles: changedFilesSnapshot,
+                recentCommits: recentCommitsSnapshot,
+                sessionStats: sessionStatsSnapshot,
+                in: url
+            )
             DispatchQueue.main.async {
                 availableBranches = branches
                 if baseBranch.isEmpty { baseBranch = suggestedBase }
@@ -174,8 +185,8 @@ struct CreatePullRequestView: View {
         return branches.first(where: { $0 != currentBranch }) ?? "main"
     }
 
-    private func suggestTitle() -> String {
-        if let firstCommit = changesModel.recentCommits.first {
+    private func suggestTitle(recentCommits: [GitCommit]) -> String {
+        if let firstCommit = recentCommits.first {
             return firstCommit.message.components(separatedBy: "\n").first ?? firstCommit.message
         }
         let branch = workingDirectory.gitBranch ?? ""
@@ -186,15 +197,54 @@ struct CreatePullRequestView: View {
         return readable.prefix(1).uppercased() + readable.dropFirst()
     }
 
-    private func generateBody() -> String {
-        let commits = changesModel.recentCommits.prefix(10)
-        guard !commits.isEmpty else { return "" }
-        var lines = ["## Changes", ""]
-        for commit in commits {
-            let subject = commit.message.components(separatedBy: "\n").first ?? commit.message
-            lines.append("- \(subject)")
+    private func generateBody(
+        baseBranch: String,
+        changedFiles: [ChangedFile],
+        recentCommits: [GitCommit],
+        sessionStats: ActivityFeedModel.SessionStats,
+        in url: URL
+    ) -> String {
+        var sections: [String] = []
+
+        // --- Commits on this branch ---
+        let branchCommits = GitLogProvider.branchCommits(base: baseBranch, in: url)
+        let commitsToShow = branchCommits.isEmpty ? Array(recentCommits.prefix(10)) : Array(branchCommits.prefix(10))
+        if !commitsToShow.isEmpty {
+            var lines = ["## Commits", ""]
+            for commit in commitsToShow {
+                let subject = commit.message.components(separatedBy: "\n").first ?? commit.message
+                lines.append("- \(commit.shortSHA) \(subject)")
+            }
+            sections.append(lines.joined(separator: "\n"))
         }
-        return lines.joined(separator: "\n")
+
+        // --- File changes grouped by directory ---
+        if !changedFiles.isEmpty {
+            var lines = ["## Changed Files", ""]
+            let grouped = Dictionary(grouping: changedFiles) { $0.directoryPath }
+            for dir in grouped.keys.sorted() {
+                let dirLabel = dir.isEmpty ? "(root)" : "\(dir)/"
+                lines.append("**\(dirLabel)**")
+                for file in (grouped[dir] ?? []).sorted(by: { $0.fileName < $1.fileName }) {
+                    let adds = file.diff?.additionCount ?? 0
+                    let dels = file.diff?.deletionCount ?? 0
+                    let stats = (adds > 0 || dels > 0) ? " (+\(adds) -\(dels))" : ""
+                    lines.append("  - \(file.fileName)\(stats)")
+                }
+            }
+            sections.append(lines.joined(separator: "\n"))
+        }
+
+        // --- Session stats ---
+        if sessionStats.isActive {
+            var lines = ["## Session Stats", ""]
+            lines.append("- Files touched: \(sessionStats.totalFilesTouched)")
+            lines.append("- Lines added: \(sessionStats.totalAdditions)")
+            lines.append("- Lines removed: \(sessionStats.totalDeletions)")
+            sections.append(lines.joined(separator: "\n"))
+        }
+
+        return sections.joined(separator: "\n\n")
     }
 
     private func createPR() {
