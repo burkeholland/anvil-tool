@@ -34,6 +34,7 @@ struct ContentView: View {
     @State private var isDroppingFileToTerminal = false
     @State private var showTaskBanner = false
     @State private var showKeyboardShortcuts = false
+    @State private var showInstructions = false
 
     var body: some View {
         ZStack {
@@ -214,9 +215,11 @@ struct ContentView: View {
                         workingDirectory: workingDirectory,
                         changesModel: changesModel,
                         activityModel: activityModel,
+                        filePreview: filePreview,
                         showSidebar: $showSidebar,
                         autoFollow: $autoFollow,
                         showBranchPicker: $showBranchPicker,
+                        showInstructions: $showInstructions,
                         onOpenDirectory: { browseForDirectory() }
                     )
 
@@ -584,6 +587,12 @@ struct ContentView: View {
             } action: { [weak filePreview] in
                 filePreview?.showGoToLine = true
             },
+
+            PaletteCommand(id: "instructions", title: "Project Instructions…", icon: "doc.text", shortcut: nil, category: "Actions") {
+                hasProject
+            } action: {
+                showInstructions = true
+            },
         ])
     }
 
@@ -691,9 +700,11 @@ struct ToolbarView: View {
     @ObservedObject var workingDirectory: WorkingDirectoryModel
     @ObservedObject var changesModel: ChangesModel
     @ObservedObject var activityModel: ActivityFeedModel
+    @ObservedObject var filePreview: FilePreviewModel
     @Binding var showSidebar: Bool
     @Binding var autoFollow: Bool
     @Binding var showBranchPicker: Bool
+    @Binding var showInstructions: Bool
     var onOpenDirectory: () -> Void
 
     var body: some View {
@@ -767,6 +778,24 @@ struct ToolbarView: View {
             .buttonStyle(.borderless)
             .help(autoFollow ? "Auto-Follow Changes: On" : "Auto-Follow Changes: Off")
 
+            Button {
+                showInstructions.toggle()
+            } label: {
+                Image(systemName: "doc.text")
+                    .foregroundStyle(hasInstructionFiles ? .primary : .secondary)
+            }
+            .buttonStyle(.borderless)
+            .help("Project Instructions")
+            .popover(isPresented: $showInstructions, arrowEdge: .bottom) {
+                if let rootURL = workingDirectory.directoryURL {
+                    InstructionsView(
+                        rootURL: rootURL,
+                        filePreview: filePreview,
+                        onDismiss: { showInstructions = false }
+                    )
+                }
+            }
+
             Button("Open…") {
                 onOpenDirectory()
             }
@@ -776,6 +805,20 @@ struct ToolbarView: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .background(.bar)
+    }
+
+    /// Quick check for whether any instruction files exist in the project.
+    private var hasInstructionFiles: Bool {
+        guard let rootURL = workingDirectory.directoryURL else { return false }
+        let fm = FileManager.default
+        if InstructionFileSpec.knownFiles.contains(where: { spec in
+            fm.fileExists(atPath: rootURL.appendingPathComponent(spec.relativePath).path)
+        }) {
+            return true
+        }
+        // Also check for custom .instructions.md files
+        let customDir = rootURL.appendingPathComponent(".github/instructions")
+        return fm.fileExists(atPath: customDir.path)
     }
 }
 
