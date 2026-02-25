@@ -59,6 +59,10 @@ struct NewTerminalTabKey: FocusedValueKey {
     typealias Value = () -> Void
 }
 
+struct NewCopilotTabKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
 struct FindInTerminalKey: FocusedValueKey {
     typealias Value = () -> Void
 }
@@ -170,6 +174,11 @@ extension FocusedValues {
         set { self[NewTerminalTabKey.self] = newValue }
     }
 
+    var newCopilotTab: (() -> Void)? {
+        get { self[NewCopilotTabKey.self] }
+        set { self[NewCopilotTabKey.self] = newValue }
+    }
+
     var findInTerminal: (() -> Void)? {
         get { self[FindInTerminalKey.self] }
         set { self[FindInTerminalKey.self] = newValue }
@@ -237,6 +246,7 @@ struct ViewCommands: Commands {
     @FocusedValue(\.decreaseFontSize) var decreaseFontSize
     @FocusedValue(\.resetFontSize) var resetFontSize
     @FocusedValue(\.newTerminalTab) var newTerminalTab
+    @FocusedValue(\.newCopilotTab) var newCopilotTab
     @FocusedValue(\.showCommandPalette) var showCommandPalette
     @FocusedValue(\.revealInTree) var revealInTree
     @FocusedValue(\.mentionInTerminal) var mentionInTerminal
@@ -404,6 +414,12 @@ struct ViewCommands: Commands {
             }
             .keyboardShortcut("t", modifiers: .command)
             .disabled(newTerminalTab == nil)
+
+            Button("New Copilot Tab") {
+                newCopilotTab?()
+            }
+            .keyboardShortcut("t", modifiers: [.command, .shift])
+            .disabled(newCopilotTab == nil)
         }
     }
 }

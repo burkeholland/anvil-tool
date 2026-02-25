@@ -42,6 +42,28 @@ final class TerminalTabsModel: ObservableObject {
         activeTabID = tab.id
     }
 
+    func addCopilotTab() {
+        let copilotCount = tabs.filter(\.launchCopilot).count
+        let title = copilotCount == 0 ? "Copilot" : "Copilot \(copilotCount + 1)"
+        let tab = TerminalTab(id: UUID(), title: title, launchCopilot: true, defaultTitle: title)
+        tabs.append(tab)
+        activeTabID = tab.id
+    }
+
+    func closeOtherTabs(_ id: UUID) {
+        guard tabs.contains(where: { $0.id == id }) else { return }
+        tabs.removeAll { $0.id != id }
+        activeTabID = id
+    }
+
+    func closeTabsToRight(_ id: UUID) {
+        guard let index = tabs.firstIndex(where: { $0.id == id }) else { return }
+        tabs.removeSubrange((index + 1)...)
+        if let active = activeTabID, !tabs.contains(where: { $0.id == active }) {
+            activeTabID = id
+        }
+    }
+
     func closeTab(_ id: UUID) {
         guard tabs.count > 1 else { return }
         let wasActive = activeTabID == id

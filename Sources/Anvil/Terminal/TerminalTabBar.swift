@@ -1,9 +1,11 @@
 import SwiftUI
 
 /// Tab bar for switching between terminal sessions.
+/// Always visible to make terminal tabs discoverable.
 struct TerminalTabBar: View {
     @ObservedObject var model: TerminalTabsModel
-    var onNewTab: () -> Void
+    var onNewShellTab: () -> Void
+    var onNewCopilotTab: () -> Void
 
     var body: some View {
         HStack(spacing: 0) {
@@ -15,7 +17,9 @@ struct TerminalTabBar: View {
                             isActive: tab.id == model.activeTabID,
                             isOnly: model.tabs.count == 1,
                             onSelect: { model.selectTab(tab.id) },
-                            onClose: { model.closeTab(tab.id) }
+                            onClose: { model.closeTab(tab.id) },
+                            onCloseOthers: { model.closeOtherTabs(tab.id) },
+                            onCloseToRight: { model.closeTabsToRight(tab.id) }
                         )
                     }
                 }
@@ -23,8 +27,18 @@ struct TerminalTabBar: View {
 
             Spacer()
 
-            Button {
-                onNewTab()
+            Menu {
+                Button {
+                    onNewCopilotTab()
+                } label: {
+                    Label("New Copilot Tab", systemImage: "sparkle")
+                }
+
+                Button {
+                    onNewShellTab()
+                } label: {
+                    Label("New Shell Tab", systemImage: "terminal")
+                }
             } label: {
                 Image(systemName: "plus")
                     .font(.system(size: 11, weight: .medium))
@@ -32,8 +46,9 @@ struct TerminalTabBar: View {
                     .frame(width: 28, height: 28)
                     .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
-            .help("New Terminal Tab (⌘T)")
+            .menuStyle(.borderlessButton)
+            .frame(width: 28)
+            .help("New Terminal Tab")
             .padding(.trailing, 6)
         }
         .frame(height: 30)
@@ -50,6 +65,8 @@ private struct TerminalTabItem: View {
     let isOnly: Bool
     let onSelect: () -> Void
     let onClose: () -> Void
+    let onCloseOthers: () -> Void
+    let onCloseToRight: () -> Void
     @State private var isHovering = false
 
     var body: some View {
@@ -94,6 +111,13 @@ private struct TerminalTabItem: View {
         .contentShape(Rectangle())
         .onTapGesture { onSelect() }
         .onHover { isHovering = $0 }
+        .contextMenu {
+            Button("Close") { onClose() }
+                .disabled(isOnly)
+            Button("Close Other Tabs") { onCloseOthers() }
+                .disabled(isOnly)
+            Button("Close Tabs to the Right") { onCloseToRight() }
+        }
         .help(tab.title != tab.defaultTitle ? "\(tab.defaultTitle): \(tab.title)" : tab.title)
     }
 }

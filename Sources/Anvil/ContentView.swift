@@ -255,11 +255,11 @@ struct ContentView: View {
                         onCloneRepository: { showCloneSheet = true }
                     )
 
-                    if terminalTabs.tabs.count > 1 {
-                        TerminalTabBar(model: terminalTabs) {
-                            terminalTabs.addTab()
-                        }
-                    }
+                    TerminalTabBar(
+                        model: terminalTabs,
+                        onNewShellTab: { terminalTabs.addTab() },
+                        onNewCopilotTab: { terminalTabs.addCopilotTab() }
+                    )
 
                     ZStack {
                         ForEach(terminalTabs.tabs) { tab in
@@ -1288,6 +1288,7 @@ private struct FocusedSceneModifier: ViewModifier {
     var onDecreaseFontSize: () -> Void
     var onResetFontSize: () -> Void
     var onNewTerminalTab: () -> Void
+    var onNewCopilotTab: () -> Void
     var onFindInTerminal: () -> Void
     var onShowCommandPalette: () -> Void
     var onNextChange: (() -> Void)?
@@ -1329,6 +1330,8 @@ private struct FocusedSceneModifier: ViewModifier {
                 onGoToLine: onGoToLine
             ))
             .modifier(FocusedSceneModifierC(
+                hasProject: hasProject,
+                onNewCopilotTab: onNewCopilotTab,
                 onRevealInTree: onRevealInTree,
                 onMentionInTerminal: onMentionInTerminal,
                 onCloneRepository: onCloneRepository
@@ -1392,6 +1395,7 @@ private struct FocusedSceneModifierB: ViewModifier {
             .focusedSceneValue(\.decreaseFontSize, onDecreaseFontSize)
             .focusedSceneValue(\.resetFontSize, onResetFontSize)
             .focusedSceneValue(\.newTerminalTab, hasProject ? onNewTerminalTab : nil)
+            .focusedSceneValue(\.newCopilotTab, hasProject ? onNewCopilotTab : nil)
             .focusedSceneValue(\.findInTerminal, hasProject ? onFindInTerminal : nil)
             .focusedSceneValue(\.showCommandPalette, onShowCommandPalette)
             .focusedSceneValue(\.nextChange, onNextChange)
@@ -1403,12 +1407,15 @@ private struct FocusedSceneModifierB: ViewModifier {
 }
 
 private struct FocusedSceneModifierC: ViewModifier {
+    var hasProject: Bool
+    var onNewCopilotTab: () -> Void
     var onRevealInTree: (() -> Void)?
     var onMentionInTerminal: (() -> Void)?
     var onCloneRepository: (() -> Void)?
 
     func body(content: Content) -> some View {
         content
+            .focusedSceneValue(\.newCopilotTab, hasProject ? onNewCopilotTab : nil)
             .focusedSceneValue(\.revealInTree, onRevealInTree)
             .focusedSceneValue(\.mentionInTerminal, onMentionInTerminal)
             .focusedSceneValue(\.cloneRepository, onCloneRepository)
