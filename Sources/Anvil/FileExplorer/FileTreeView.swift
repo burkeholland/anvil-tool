@@ -6,18 +6,78 @@ struct FileTreeView: View {
     @StateObject private var model = FileTreeModel()
 
     var body: some View {
-        List {
-            ForEach(model.entries) { entry in
-                FileRowView(
-                    entry: entry,
-                    isExpanded: model.isExpanded(entry.url),
-                    isSelected: filePreview.selectedURL == entry.url,
-                    gitStatus: model.gitStatuses[entry.url.path],
-                    onToggle: { handleTap(entry) }
-                )
+        VStack(spacing: 0) {
+            // Search field
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.tertiary)
+                TextField("Search files…", text: $model.searchText)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 12))
+                if !model.searchText.isEmpty {
+                    Button {
+                        model.searchText = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.tertiary)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
+
+            Divider()
+
+            // Content: search results or tree
+            if model.isSearching {
+                if model.searchResults.isEmpty {
+                    VStack(spacing: 8) {
+                        Spacer()
+                        Image(systemName: "doc.questionmark")
+                            .font(.system(size: 24))
+                            .foregroundStyle(.tertiary)
+                        Text("No files matching \"\(model.searchText)\"")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                    }
+                    .frame(maxWidth: .infinity)
+                } else {
+                    List {
+                        ForEach(model.searchResults) { result in
+                            SearchResultRow(
+                                result: result,
+                                query: model.searchText,
+                                isSelected: filePreview.selectedURL == result.url,
+                                gitStatus: model.gitStatuses[result.url.path]
+                            )
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                filePreview.select(result.url)
+                            }
+                        }
+                    }
+                    .listStyle(.sidebar)
+                }
+            } else {
+                List {
+                    ForEach(model.entries) { entry in
+                        FileRowView(
+                            entry: entry,
+                            isExpanded: model.isExpanded(entry.url),
+                            isSelected: filePreview.selectedURL == entry.url,
+                            gitStatus: model.gitStatuses[entry.url.path],
+                            onToggle: { handleTap(entry) }
+                        )
+                    }
+                }
+                .listStyle(.sidebar)
             }
         }
-        .listStyle(.sidebar)
         .onAppear { model.start(rootURL: rootURL) }
         .onChange(of: model.gitStatuses) { _, _ in
             filePreview.refreshDiff()
@@ -29,6 +89,67 @@ struct FileTreeView: View {
             model.toggleDirectory(entry)
         } else {
             filePreview.select(entry.url)
+        }
+    }
+}
+
+struct SearchResultRow: View {
+    let result: FileSearchResult
+    let query: String
+    let isSelected: Bool
+    var gitStatus: GitFileStatus? = nil
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: iconForFile(result.name))
+                .foregroundStyle(.secondary)
+                .font(.system(size: 12))
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(result.name)
+                    .font(.system(size: 12))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+
+                if !result.directoryPath.isEmpty {
+                    Text(result.directoryPath)
+                        .font(.system(size: 10))
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                        .truncationMode(.head)
+                }
+            }
+
+            Spacer()
+
+            if let status = gitStatus {
+                Circle()
+                    .fill(status.color)
+                    .frame(width: 6, height: 6)
+                    .help(status.label)
+            }
+        }
+        .padding(.vertical, 2)
+        .padding(.horizontal, 4)
+        .background(
+            isSelected
+                ? RoundedRectangle(cornerRadius: 4).fill(Color.accentColor.opacity(0.2))
+                : nil
+        )
+    }
+
+    private func iconForFile(_ name: String) -> String {
+        let ext = (name as NSString).pathExtension.lowercased()
+        switch ext {
+        case "swift":                       return "swift"
+        case "js", "ts", "jsx", "tsx":      return "curlybraces"
+        case "json":                        return "curlybraces.square"
+        case "md", "txt":                   return "doc.text"
+        case "py":                          return "chevron.left.forwardslash.chevron.right"
+        case "sh", "bash", "zsh":           return "terminal"
+        case "png", "jpg", "jpeg", "gif":   return "photo"
+        case "yml", "yaml", "toml":         return "gearshape"
+        default:                            return "doc"
         }
     }
 }

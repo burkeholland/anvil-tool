@@ -4,18 +4,31 @@ import SwiftUI
 final class FileTreeModel: ObservableObject {
     @Published private(set) var entries: [FileEntry] = []
     @Published private(set) var gitStatuses: [String: GitFileStatus] = [:]
+    @Published var searchText: String = "" {
+        didSet { rebuildEntries() }
+    }
+    /// Flat list of all files for search filtering.
+    @Published private(set) var searchResults: [FileSearchResult] = []
 
     private(set) var expandedDirs: Set<URL> = []
     private var rootURL: URL?
     private var fileWatcher: FileWatcher?
     private var refreshGeneration: UInt64 = 0
+    private var indexGeneration: UInt64 = 0
+    /// Cached flat list of all files under root for fast search.
+    private var allFiles: [FileSearchResult] = []
 
     deinit {
         fileWatcher?.stop()
     }
 
+    var isSearching: Bool {
+        !searchText.isEmpty
+    }
+
     func start(rootURL: URL) {
         self.rootURL = rootURL
+        rebuildFileIndex()
         rebuildEntries()
         refreshGitStatus()
         fileWatcher = FileWatcher(directory: rootURL) { [weak self] in
@@ -41,15 +54,23 @@ final class FileTreeModel: ObservableObject {
     // MARK: - Private
 
     private func onFileSystemChange() {
+        rebuildFileIndex()
         rebuildEntries()
         refreshGitStatus()
     }
 
     private func rebuildEntries() {
         guard let rootURL = rootURL else { return }
-        var newEntries: [FileEntry] = []
-        buildEntries(for: rootURL, depth: 0, into: &newEntries)
-        entries = newEntries
+
+        if isSearching {
+            let query = searchText.lowercased()
+            searchResults = allFiles.filter { $0.name.lowercased().contains(query) || $0.relativePath.lowercased().contains(query) }
+        } else {
+            searchResults = []
+            var newEntries: [FileEntry] = []
+            buildEntries(for: rootURL, depth: 0, into: &newEntries)
+            entries = newEntries
+        }
     }
 
     private func buildEntries(for directory: URL, depth: Int, into entries: inout [FileEntry]) {
@@ -73,5 +94,64 @@ final class FileTreeModel: ObservableObject {
                 self.gitStatuses = statuses
             }
         }
+    }
+
+    /// Recursively indexes all non-hidden files for search. Runs on a background thread.
+    private func rebuildFileIndex() {
+        guard let rootURL = rootURL else { return }
+        indexGeneration &+= 1
+        let generation = indexGeneration
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            var results: [FileSearchResult] = []
+            Self.indexFiles(at: rootURL, rootURL: rootURL, into: &results)
+            DispatchQueue.main.async {
+                guard let self = self, self.indexGeneration == generation else { return }
+                self.allFiles = results
+                if self.isSearching {
+                    self.rebuildEntries()
+                }
+            }
+        }
+    }
+
+    private static func indexFiles(at directory: URL, rootURL: URL, into results: inout [FileSearchResult]) {
+        guard let contents = try? FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else { return }
+
+        let hidden: Set<String> = [".git", ".build", ".DS_Store", ".swiftpm", "node_modules"]
+        for url in contents {
+            let name = url.lastPathComponent
+            if hidden.contains(name) { continue }
+            let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
+            if isDir {
+                Self.indexFiles(at: url, rootURL: rootURL, into: &results)
+            } else {
+                let rootPath = rootURL.standardizedFileURL.path
+                let absPath = url.standardizedFileURL.path
+                var relPath = absPath
+                if absPath.hasPrefix(rootPath) {
+                    relPath = String(absPath.dropFirst(rootPath.count))
+                    if relPath.hasPrefix("/") { relPath = String(relPath.dropFirst()) }
+                }
+                results.append(FileSearchResult(url: url, name: name, relativePath: relPath))
+            }
+        }
+    }
+}
+
+/// A file entry used in search results — stores the name and relative path for display.
+struct FileSearchResult: Identifiable {
+    let url: URL
+    let name: String
+    let relativePath: String
+
+    var id: URL { url }
+
+    var directoryPath: String {
+        let dir = (relativePath as NSString).deletingLastPathComponent
+        return dir.isEmpty ? "" : dir
     }
 }
