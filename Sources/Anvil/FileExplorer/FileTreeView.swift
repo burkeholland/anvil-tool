@@ -2,6 +2,7 @@ import SwiftUI
 
 struct FileTreeView: View {
     let rootURL: URL
+    @ObservedObject var filePreview: FilePreviewModel
     @State private var entries: [FileEntry] = []
     @State private var expandedDirs: Set<URL> = []
 
@@ -11,7 +12,8 @@ struct FileTreeView: View {
                 FileRowView(
                     entry: entry,
                     isExpanded: expandedDirs.contains(entry.url),
-                    onToggle: { toggleDirectory(entry) }
+                    isSelected: filePreview.selectedURL == entry.url,
+                    onToggle: { handleTap(entry) }
                 )
             }
         }
@@ -21,6 +23,14 @@ struct FileTreeView: View {
 
     private func loadDirectory(_ url: URL) {
         entries = FileEntry.loadChildren(of: url)
+    }
+
+    private func handleTap(_ entry: FileEntry) {
+        if entry.isDirectory {
+            toggleDirectory(entry)
+        } else {
+            filePreview.select(entry.url)
+        }
     }
 
     private func toggleDirectory(_ entry: FileEntry) {
@@ -64,6 +74,7 @@ struct FileTreeView: View {
 struct FileRowView: View {
     let entry: FileEntry
     let isExpanded: Bool
+    let isSelected: Bool
     let onToggle: () -> Void
 
     var body: some View {
@@ -93,6 +104,13 @@ struct FileRowView: View {
 
             Spacer()
         }
+        .padding(.vertical, 1)
+        .padding(.horizontal, 4)
+        .background(
+            isSelected
+                ? RoundedRectangle(cornerRadius: 4).fill(Color.accentColor.opacity(0.2))
+                : nil
+        )
         .contentShape(Rectangle())
         .onTapGesture { onToggle() }
     }

@@ -2,13 +2,14 @@ import SwiftUI
 
 struct ContentView: View {
     @StateObject private var workingDirectory = WorkingDirectoryModel()
+    @StateObject private var filePreview = FilePreviewModel()
     @State private var sidebarWidth: CGFloat = 240
     @State private var showSidebar = true
 
     var body: some View {
         HStack(spacing: 0) {
             if showSidebar {
-                SidebarView(model: workingDirectory)
+                SidebarView(model: workingDirectory, filePreview: filePreview)
                     .frame(width: sidebarWidth)
 
                 Divider()
@@ -23,9 +24,19 @@ struct ContentView: View {
                 EmbeddedTerminalView(workingDirectory: workingDirectory)
                     .id(workingDirectory.directoryURL) // Respawn shell on directory change
             }
+
+            if filePreview.selectedURL != nil {
+                Divider()
+
+                FilePreviewView(model: filePreview)
+                    .frame(minWidth: 300, idealWidth: 400)
+            }
         }
         .frame(minWidth: 800, minHeight: 500)
         .background(Color(nsColor: .windowBackgroundColor))
+        .onChange(of: workingDirectory.directoryURL) { _, _ in
+            filePreview.close()
+        }
     }
 }
 
@@ -80,6 +91,7 @@ struct ToolbarView: View {
 
 struct SidebarView: View {
     @ObservedObject var model: WorkingDirectoryModel
+    @ObservedObject var filePreview: FilePreviewModel
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -94,7 +106,7 @@ struct SidebarView: View {
             .background(.bar)
 
             if let rootURL = model.directoryURL {
-                FileTreeView(rootURL: rootURL)
+                FileTreeView(rootURL: rootURL, filePreview: filePreview)
                     .id(rootURL) // Reset state when directory changes
             } else {
                 VStack(spacing: 12) {
