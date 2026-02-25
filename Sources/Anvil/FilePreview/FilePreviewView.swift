@@ -25,6 +25,11 @@ struct FilePreviewView: View {
         model.changeRegions(from: currentGutterChanges).count
     }
 
+    /// True when viewing a working-tree diff (not commit history).
+    private var isLiveDiffAvailable: Bool {
+        model.commitDiffContext == nil && model.fileDiff != nil
+    }
+
     /// Dynamic width for the segmented tab picker based on visible tabs.
     private var pickerWidth: CGFloat {
         var tabs = 1 // Source is always present
@@ -233,6 +238,14 @@ struct FilePreviewView: View {
                         content: content,
                         language: model.highlightLanguage,
                         gutterChanges: currentGutterChanges,
+                        fileDiff: isLiveDiffAvailable ? model.fileDiff : nil,
+                        onRevertHunk: isLiveDiffAvailable ? changesModel.map { cm in
+                            { hunk in
+                                if let diff = model.fileDiff {
+                                    cm.discardHunk(patch: DiffParser.reconstructPatch(fileDiff: diff, hunk: hunk))
+                                }
+                            }
+                        } : nil,
                         scrollToLine: $model.scrollToLine
                     )
                 } else {
@@ -658,6 +671,10 @@ struct HighlightedTextView: NSViewRepresentable {
     let content: String
     let language: String?
     var gutterChanges: [Int: GutterChangeKind] = [:]
+    /// The current file diff, used for gutter click popovers.
+    var fileDiff: FileDiff?
+    /// Called when the user clicks "Revert" in a gutter diff popover.
+    var onRevertHunk: ((DiffHunk) -> Void)?
     /// Binding to scroll to a specific line (1-based). Set to nil after scrolling.
     @Binding var scrollToLine: Int?
 
@@ -694,8 +711,15 @@ struct HighlightedTextView: NSViewRepresentable {
         let rulerView = LineNumberRulerView(textView: textView)
         scrollView.verticalRulerView = rulerView
 
+        // Wire gutter click to popover
+        rulerView.onGutterClick = { [weak rulerView] lineNumber, screenRect in
+            context.coordinator.handleGutterClick(lineNumber: lineNumber, rect: screenRect, rulerView: rulerView)
+        }
+
         context.coordinator.textView = textView
         context.coordinator.rulerView = rulerView
+        context.coordinator.fileDiff = fileDiff
+        context.coordinator.onRevertHunk = onRevertHunk
         context.coordinator.applyHighlighting(content: content, language: language)
         rulerView.gutterChanges = gutterChanges
 
@@ -705,6 +729,8 @@ struct HighlightedTextView: NSViewRepresentable {
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         context.coordinator.applyHighlighting(content: content, language: language)
         context.coordinator.rulerView?.gutterChanges = gutterChanges
+        context.coordinator.fileDiff = fileDiff
+        context.coordinator.onRevertHunk = onRevertHunk
 
         if let line = scrollToLine {
             DispatchQueue.main.async {
@@ -721,9 +747,12 @@ struct HighlightedTextView: NSViewRepresentable {
     final class Coordinator {
         weak var textView: NSTextView?
         weak var rulerView: LineNumberRulerView?
+        var fileDiff: FileDiff?
+        var onRevertHunk: ((DiffHunk) -> Void)?
         private let highlightr: Highlightr? = Highlightr()
         private var lastContent: String?
         private var lastLanguage: String?
+        private var activePopover: NSPopover?
 
         init() {
             highlightr?.setTheme(to: "atom-one-dark")
@@ -754,6 +783,36 @@ struct HighlightedTextView: NSViewRepresentable {
             textView.textStorage?.setAttributedString(attributed)
             rulerView?.refreshAfterContentChange()
 
+        }
+
+        /// Handles a click on a gutter change indicator.
+        func handleGutterClick(lineNumber: Int, rect: NSRect, rulerView: NSRulerView?) {
+            guard let diff = fileDiff,
+                  let region = DiffParser.changeRegion(forLine: lineNumber, in: diff),
+                  let ruler = rulerView else { return }
+
+            // Dismiss any existing popover
+            activePopover?.close()
+
+            let popover = NSPopover()
+            popover.behavior = .transient
+            popover.animates = true
+
+            let revertHandler: (() -> Void)? = onRevertHunk.map { handler in
+                { [weak popover] in
+                    handler(region.hunk)
+                    popover?.close()
+                }
+            }
+
+            let contentView = GutterDiffPopoverView(
+                deletedLines: region.deletedLines,
+                addedLines: region.addedLines,
+                onRevert: revertHandler
+            )
+            popover.contentViewController = NSHostingController(rootView: contentView)
+            popover.show(relativeTo: rect, of: ruler, preferredEdge: .maxX)
+            activePopover = popover
         }
 
         /// Scrolls the text view so the given 1-based line number is visible near the top.
@@ -839,6 +898,10 @@ final class LineNumberRulerView: NSRulerView {
         didSet { needsDisplay = true }
     }
 
+    /// Called when the user clicks on a gutter change indicator.
+    /// Parameters: (lineNumber, rectInRulerCoordinates).
+    var onGutterClick: ((Int, NSRect) -> Void)?
+
     init(textView: NSTextView) {
         self.targetTextView = textView
         super.init(scrollView: textView.enclosingScrollView!, orientation: .verticalRuler)
@@ -887,6 +950,71 @@ final class LineNumberRulerView: NSRulerView {
         if abs(ruleThickness - newThickness) > 1 {
             ruleThickness = newThickness
         }
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        guard let lineNum = lineNumber(at: point),
+              gutterChanges[lineNum] != nil else {
+            super.mouseDown(with: event)
+            return
+        }
+        // Build a rect in ruler coordinates for the clicked line
+        if let lineRect = lineRect(forLine: lineNum) {
+            onGutterClick?(lineNum, lineRect)
+        }
+    }
+
+    /// Returns the 1-based line number at the given point in ruler coordinates.
+    private func lineNumber(at point: NSPoint) -> Int? {
+        guard let textView = targetTextView,
+              let layoutManager = textView.layoutManager,
+              let textContainer = textView.textContainer,
+              let sv = scrollView else { return nil }
+
+        let visibleRect = sv.contentView.bounds
+        // Convert ruler Y to text view Y
+        let textY = point.y + visibleRect.origin.y
+        let adjustedY = textY - textView.textContainerInset.height
+
+        let glyphIndex = layoutManager.glyphIndex(for: NSPoint(x: 0, y: adjustedY), in: textContainer)
+        let charIndex = layoutManager.characterIndexForGlyph(at: glyphIndex)
+        let content = textView.string as NSString
+        let upTo = content.substring(to: min(charIndex, content.length))
+        return upTo.components(separatedBy: "\n").count
+    }
+
+    /// Returns the rect in ruler coordinates for a given 1-based line number.
+    private func lineRect(forLine lineNumber: Int) -> NSRect? {
+        guard let textView = targetTextView,
+              let layoutManager = textView.layoutManager,
+              let sv = scrollView else { return nil }
+
+        let content = textView.string as NSString
+        let totalLength = content.length
+        var charIndex = 0
+        var currentLine = 1
+        while currentLine < lineNumber && charIndex < totalLength {
+            let lineRange = content.lineRange(for: NSRange(location: charIndex, length: 0))
+            charIndex = NSMaxRange(lineRange)
+            currentLine += 1
+        }
+        charIndex = min(charIndex, totalLength)
+
+        let glyphRange = layoutManager.glyphRange(
+            forCharacterRange: NSRange(location: charIndex, length: 0),
+            actualCharacterRange: nil
+        )
+        var rect = layoutManager.lineFragmentRect(forGlyphAt: max(glyphRange.location, 0), effectiveRange: nil)
+        rect.origin.y += textView.textContainerInset.height
+
+        let visibleRect = sv.contentView.bounds
+        return NSRect(
+            x: 0,
+            y: rect.minY - visibleRect.origin.y,
+            width: ruleThickness,
+            height: rect.height
+        )
     }
 
     override func drawHashMarksAndLabels(in rect: NSRect) {
@@ -969,6 +1097,85 @@ final class LineNumberRulerView: NSRulerView {
 
             charIndex = NSMaxRange(lineRange)
             lineNumber += 1
+        }
+    }
+}
+
+/// Popover content showing the old/new code for a gutter change region.
+struct GutterDiffPopoverView: View {
+    let deletedLines: [String]
+    let addedLines: [String]
+    var onRevert: (() -> Void)?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Header
+            HStack(spacing: 6) {
+                Image(systemName: "arrow.left.arrow.right")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                Text(headerText)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                if let onRevert {
+                    Button {
+                        onRevert()
+                    } label: {
+                        HStack(spacing: 3) {
+                            Image(systemName: "arrow.uturn.backward")
+                                .font(.system(size: 9))
+                            Text("Revert")
+                                .font(.system(size: 10, weight: .medium))
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
+
+            Divider()
+
+            // Diff content
+            ScrollView([.horizontal, .vertical]) {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(deletedLines.enumerated()), id: \.offset) { _, line in
+                        Text(line.isEmpty ? " " : line)
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundStyle(Color.red.opacity(0.9))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 1)
+                            .background(Color.red.opacity(0.1))
+                    }
+                    ForEach(Array(addedLines.enumerated()), id: \.offset) { _, line in
+                        Text(line.isEmpty ? " " : line)
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundStyle(Color.green.opacity(0.9))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 1)
+                            .background(Color.green.opacity(0.1))
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+            .frame(maxHeight: 300)
+        }
+        .frame(width: 420)
+        .background(Color(nsColor: .windowBackgroundColor))
+    }
+
+    private var headerText: String {
+        if deletedLines.isEmpty {
+            return "\(addedLines.count) line\(addedLines.count == 1 ? "" : "s") added"
+        } else if addedLines.isEmpty {
+            return "\(deletedLines.count) line\(deletedLines.count == 1 ? "" : "s") deleted"
+        } else {
+            return "\(deletedLines.count) deleted → \(addedLines.count) added"
         }
     }
 }

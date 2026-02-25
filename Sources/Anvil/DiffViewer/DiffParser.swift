@@ -283,6 +283,90 @@ enum DiffParser {
         return (oldRanges, newRanges)
     }
 
+    // MARK: - Gutter Change Region Lookup
+
+    /// A contiguous change region within a hunk, used for gutter diff popovers.
+    struct ChangeRegion {
+        let hunk: DiffHunk
+        let fileDiff: FileDiff
+        /// The deleted lines (old content) in this region.
+        let deletedLines: [String]
+        /// The added lines (new content) in this region.
+        let addedLines: [String]
+        /// New-file line numbers covered by this region's additions/modifications.
+        let newLineRange: ClosedRange<Int>
+    }
+
+    /// Finds the change region containing the given new-file line number.
+    /// Returns nil if the line is not part of any change.
+    static func changeRegion(forLine lineNumber: Int, in diff: FileDiff) -> ChangeRegion? {
+        for hunk in diff.hunks {
+            let lines = hunk.lines
+            var i = 0
+            while i < lines.count {
+                if lines[i].kind == .deletion {
+                    // Collect contiguous deletions
+                    let delStart = i
+                    var deleted: [String] = []
+                    while i < lines.count && lines[i].kind == .deletion {
+                        deleted.append(lines[i].text)
+                        i += 1
+                    }
+                    // Collect any immediately following additions
+                    var added: [String] = []
+                    var addLineNumbers: [Int] = []
+                    while i < lines.count && lines[i].kind == .addition {
+                        added.append(lines[i].text)
+                        if let n = lines[i].newLineNumber { addLineNumbers.append(n) }
+                        i += 1
+                    }
+
+                    if !addLineNumbers.isEmpty && addLineNumbers.contains(lineNumber) {
+                        let range = addLineNumbers.min()!...addLineNumbers.max()!
+                        return ChangeRegion(hunk: hunk, fileDiff: diff,
+                                            deletedLines: deleted, addedLines: added,
+                                            newLineRange: range)
+                    }
+                    // Pure deletion — check if the marker line matches
+                    if addLineNumbers.isEmpty {
+                        var markerLine: Int? = nil
+                        for j in i..<lines.count {
+                            if let n = lines[j].newLineNumber { markerLine = n; break }
+                        }
+                        if markerLine == nil {
+                            for j in stride(from: delStart - 1, through: 0, by: -1) {
+                                if let n = lines[j].newLineNumber { markerLine = n; break }
+                            }
+                        }
+                        if let m = markerLine, m == lineNumber {
+                            return ChangeRegion(hunk: hunk, fileDiff: diff,
+                                                deletedLines: deleted, addedLines: [],
+                                                newLineRange: m...m)
+                        }
+                    }
+                } else if lines[i].kind == .addition {
+                    // Pure addition (not preceded by deletions)
+                    var added: [String] = []
+                    var addLineNumbers: [Int] = []
+                    while i < lines.count && lines[i].kind == .addition {
+                        added.append(lines[i].text)
+                        if let n = lines[i].newLineNumber { addLineNumbers.append(n) }
+                        i += 1
+                    }
+                    if !addLineNumbers.isEmpty && addLineNumbers.contains(lineNumber) {
+                        let range = addLineNumbers.min()!...addLineNumbers.max()!
+                        return ChangeRegion(hunk: hunk, fileDiff: diff,
+                                            deletedLines: [], addedLines: added,
+                                            newLineRange: range)
+                    }
+                } else {
+                    i += 1
+                }
+            }
+        }
+        return nil
+    }
+
     // MARK: - Patch Reconstruction
 
     /// Reconstructs a valid unified diff patch for a single hunk, suitable for `git apply`.
