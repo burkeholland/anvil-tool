@@ -31,6 +31,7 @@ struct ContentView: View {
     @AppStorage("autoFollowChanges") private var autoFollow = true
     @AppStorage("terminalFontSize") private var terminalFontSize: Double = 14
     @State private var isDroppingFileToTerminal = false
+    @State private var showTaskBanner = false
 
     var body: some View {
         ZStack {
@@ -112,6 +113,7 @@ struct ContentView: View {
             onReviewAllChanges: hasChangesToNavigate ? { showDiffSummary = true } : nil
         ))
         .onChange(of: workingDirectory.directoryURL) { _, newURL in
+            showTaskBanner = false
             filePreview.close()
             filePreview.rootDirectory = newURL
             terminalTabs.reset()
@@ -125,6 +127,17 @@ struct ContentView: View {
         .onChange(of: activityModel.latestFileChange) { _, change in
             guard autoFollow, let change = change else { return }
             filePreview.select(change.url)
+        }
+        .onChange(of: activityModel.isAgentActive) { wasActive, isActive in
+            if wasActive && !isActive && activityModel.sessionStats.totalFilesTouched > 0 {
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    showTaskBanner = true
+                }
+            } else if isActive {
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    showTaskBanner = false
+                }
+            }
         }
         .onAppear {
             filePreview.rootDirectory = workingDirectory.directoryURL
@@ -215,6 +228,22 @@ struct ContentView: View {
                         handleTerminalFileDrop(urls)
                     } isTargeted: { targeted in
                         isDroppingFileToTerminal = targeted
+                    }
+
+                    if showTaskBanner {
+                        TaskCompleteBanner(
+                            changedFileCount: changesModel.changedFiles.count,
+                            totalAdditions: changesModel.totalAdditions,
+                            totalDeletions: changesModel.totalDeletions,
+                            onReviewAll: {
+                                showDiffSummary = true
+                                showTaskBanner = false
+                            },
+                            onDismiss: {
+                                showTaskBanner = false
+                            }
+                        )
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
                     }
 
                     StatusBarView(
@@ -489,6 +518,7 @@ struct ContentView: View {
     }
 
     private func closeCurrentProject() {
+        showTaskBanner = false
         filePreview.close()
         showDiffSummary = false
         changesModel.stop()
