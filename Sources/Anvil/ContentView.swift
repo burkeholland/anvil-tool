@@ -406,6 +406,18 @@ struct ContentView: View {
                                 showDiffSummary = true
                                 showTaskBanner = false
                             },
+                            onStageAllAndCommit: {
+                                changesModel.commitMessage = changesModel.generateCommitMessage(allFiles: true)
+                                changesModel.stageAll()
+                                sidebarTab = .changes
+                                showTaskBanner = false
+                            },
+                            onNewTask: {
+                                if let tv = terminalProxy.terminalView {
+                                    tv.window?.makeFirstResponder(tv)
+                                }
+                                showTaskBanner = false
+                            },
                             onDismiss: {
                                 showTaskBanner = false
                             }
