@@ -203,6 +203,23 @@ struct FilePreviewView: View {
                 .disabled(model.selectedURL == nil)
 
                 Button {
+                    if let rootURL = model.rootDirectory {
+                        if let ctx = model.commitDiffContext {
+                            GitHubURLBuilder.openFile(rootURL: rootURL, sha: ctx.sha, relativePath: ctx.filePath)
+                        } else {
+                            GitHubURLBuilder.openFile(rootURL: rootURL, relativePath: model.relativePath)
+                        }
+                    }
+                } label: {
+                    Image(systemName: "arrow.up.right.square")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.borderless)
+                .help("Open in GitHub")
+                .disabled(model.selectedURL == nil || model.rootDirectory == nil)
+
+                Button {
                     if let url = model.selectedURL {
                         model.closeTab(url)
                     }
