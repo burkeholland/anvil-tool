@@ -95,6 +95,9 @@ final class AgentNotificationManager {
             case .fileCreated, .fileModified, .fileDeleted, .fileRenamed:
                 pendingChangedFiles.append(event.fileName)
                 resetQuiescenceTimer()
+
+            case .commandRun, .fileRead, .agentStatus:
+                break
             }
         }
     }
