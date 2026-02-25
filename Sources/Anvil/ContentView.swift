@@ -165,6 +165,7 @@ struct ContentView: View {
                     ToolbarView(
                         workingDirectory: workingDirectory,
                         changesModel: changesModel,
+                        activityModel: activityModel,
                         showSidebar: $showSidebar,
                         autoFollow: $autoFollow,
                         showBranchPicker: $showBranchPicker,
@@ -457,6 +458,12 @@ struct ContentView: View {
             } action: {
                 showBranchPicker = true
             },
+
+            PaletteCommand(id: "discard-all", title: "Discard All Changes", icon: "arrow.uturn.backward", shortcut: nil, category: "Git") {
+                hasProject && !changesModel.changedFiles.isEmpty
+            } action: { [weak changesModel] in
+                changesModel?.discardAll()
+            },
         ])
     }
 
@@ -562,6 +569,7 @@ struct ContentView: View {
 struct ToolbarView: View {
     @ObservedObject var workingDirectory: WorkingDirectoryModel
     @ObservedObject var changesModel: ChangesModel
+    @ObservedObject var activityModel: ActivityFeedModel
     @Binding var showSidebar: Bool
     @Binding var autoFollow: Bool
     @Binding var showBranchPicker: Bool
@@ -624,6 +632,8 @@ struct ToolbarView: View {
             }
 
             Spacer()
+
+            AgentActivityIndicator(activityModel: activityModel)
 
             Button {
                 autoFollow.toggle()
@@ -937,5 +947,63 @@ struct ChangesNavigationBar: View {
         .padding(.vertical, 5)
         .background(Color.orange.opacity(0.08))
         .overlay(alignment: .bottom) { Divider() }
+    }
+}
+
+/// Compact indicator in the toolbar showing whether the agent is actively making changes.
+struct AgentActivityIndicator: View {
+    @ObservedObject var activityModel: ActivityFeedModel
+    @State private var isPulsing = false
+
+    var body: some View {
+        if activityModel.sessionStats.isActive {
+            HStack(spacing: 5) {
+                Circle()
+                    .fill(activityModel.isAgentActive ? Color.green : Color.secondary.opacity(0.3))
+                    .frame(width: 7, height: 7)
+                    .scaleEffect(isPulsing && activityModel.isAgentActive ? 1.3 : 1.0)
+                    .animation(
+                        activityModel.isAgentActive
+                            ? .easeInOut(duration: 0.8).repeatForever(autoreverses: true)
+                            : .default,
+                        value: isPulsing
+                    )
+                    .onChange(of: activityModel.isAgentActive) { _, active in
+                        isPulsing = active
+                    }
+
+                VStack(alignment: .leading, spacing: 0) {
+                    if activityModel.isAgentActive, let change = activityModel.latestFileChange {
+                        Text(change.url.lastPathComponent)
+                            .font(.system(size: 10))
+                            .lineLimit(1)
+                            .foregroundStyle(.primary)
+                    } else {
+                        Text(summaryText)
+                            .font(.system(size: 10))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(activityModel.isAgentActive
+                          ? Color.green.opacity(0.08)
+                          : Color.clear)
+            )
+            .help(activityModel.isAgentActive ? "Agent is actively making changes" : "Agent idle — \(activityModel.sessionStats.totalFilesTouched) files touched this session")
+        }
+    }
+
+    private var summaryText: String {
+        let stats = activityModel.sessionStats
+        var parts: [String] = []
+        parts.append("\(stats.totalFilesTouched) file\(stats.totalFilesTouched == 1 ? "" : "s")")
+        if stats.commitCount > 0 {
+            parts.append("\(stats.commitCount) commit\(stats.commitCount == 1 ? "" : "s")")
+        }
+        return parts.joined(separator: " · ")
     }
 }

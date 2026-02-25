@@ -17,6 +17,12 @@ final class ActivityFeedModel: ObservableObject {
     @Published private(set) var latestFileChange: LatestFileChange?
     /// Aggregate session stats, updated as events arrive.
     @Published private(set) var sessionStats = SessionStats()
+    /// True when file changes were detected within the last 10 seconds.
+    @Published private(set) var isAgentActive = false
+    /// Timestamp of the last detected activity event.
+    private(set) var lastActivityTime: Date?
+    /// Timer that clears the active state after a quiet period.
+    private var activityCooldownTimer: Timer?
 
     /// Tracks aggregate statistics for the current activity session.
     struct SessionStats {
@@ -67,6 +73,7 @@ final class ActivityFeedModel: ObservableObject {
     deinit {
         fileWatcher?.stop()
         gitPollTimer?.invalidate()
+        activityCooldownTimer?.invalidate()
     }
 
     func start(rootURL: URL) {
@@ -106,12 +113,16 @@ final class ActivityFeedModel: ObservableObject {
         fileWatcher = nil
         gitPollTimer?.invalidate()
         gitPollTimer = nil
+        activityCooldownTimer?.invalidate()
+        activityCooldownTimer = nil
         rootURL = nil
         knownFiles = [:]
         lastHeadSHA = nil
         events.removeAll()
         groups.removeAll()
         latestFileChange = nil
+        isAgentActive = false
+        lastActivityTime = nil
         sessionStats = SessionStats()
     }
 
@@ -265,6 +276,14 @@ final class ActivityFeedModel: ObservableObject {
             .filter({ $0.fileURL != nil && $0.kind != .fileDeleted })
             .max(by: { $0.timestamp < $1.timestamp }) {
             latestFileChange = LatestFileChange(id: UUID(), url: latest.fileURL!)
+        }
+
+        // Mark agent as active and schedule cooldown
+        lastActivityTime = Date()
+        isAgentActive = true
+        activityCooldownTimer?.invalidate()
+        activityCooldownTimer = Timer.scheduledTimer(withTimeInterval: 10.0, repeats: false) { [weak self] _ in
+            self?.isAgentActive = false
         }
     }
 

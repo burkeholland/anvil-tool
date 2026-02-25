@@ -9,6 +9,7 @@ struct ChangesListView: View {
     var onReviewAll: (() -> Void)?
     @EnvironmentObject var terminalProxy: TerminalInputProxy
     @State private var fileToDiscard: ChangedFile?
+    @State private var showDiscardAllConfirm = false
 
     var body: some View {
         if model.isLoading && model.changedFiles.isEmpty && model.recentCommits.isEmpty {
@@ -126,6 +127,15 @@ struct ChangesListView: View {
                                     .foregroundStyle(.red)
                             }
                             Button {
+                                showDiscardAllConfirm = true
+                            } label: {
+                                Text("Discard All")
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(.red.opacity(0.8))
+                            }
+                            .buttonStyle(.plain)
+                            .help("Discard all uncommitted changes (stashes first for recovery)")
+                            Button {
                                 model.stageAll()
                             } label: {
                                 Text("Stage All")
@@ -198,6 +208,21 @@ struct ChangesListView: View {
                     Text("This will permanently discard all uncommitted changes to \"\(file.fileName)\". This cannot be undone.")
                 }
             }
+            .alert("Discard All Changes?", isPresented: $showDiscardAllConfirm) {
+                Button("Discard All", role: .destructive) {
+                    model.discardAll()
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("This will discard all \(model.changedFiles.count) uncommitted changed file\(model.changedFiles.count == 1 ? "" : "s"). Changes are stashed so you can recover them.")
+            }
+            .overlay(alignment: .bottom) {
+                if model.lastDiscardStashRef != nil {
+                    DiscardRecoveryBanner(model: model)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+            }
+            .animation(.easeInOut(duration: 0.2), value: model.lastDiscardStashRef != nil)
         }
     }
 
@@ -607,5 +632,46 @@ struct ChangedFileRow: View {
         case .renamed:    return "R"
         case .conflicted: return "!"
         }
+    }
+}
+
+/// Banner shown after "Discard All" with a button to recover stashed changes.
+struct DiscardRecoveryBanner: View {
+    @ObservedObject var model: ChangesModel
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "arrow.uturn.backward.circle")
+                .font(.system(size: 12))
+                .foregroundStyle(.orange)
+
+            Text("Changes stashed.")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+
+            Spacer()
+
+            Button {
+                model.recoverDiscarded()
+            } label: {
+                Text("Undo")
+                    .font(.system(size: 11, weight: .medium))
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+
+            Button {
+                model.lastDiscardStashRef = nil
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .buttonStyle(.borderless)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(.ultraThinMaterial)
+        .overlay(alignment: .top) { Divider() }
     }
 }

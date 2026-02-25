@@ -30,6 +30,9 @@ final class ChangesModel: ObservableObject {
     @Published var commitMessage: String = ""
     @Published private(set) var isCommitting = false
     @Published private(set) var lastCommitError: String?
+    @Published private(set) var isDiscardingAll = false
+    /// The stash reference after a "Discard All" so the user can recover.
+    @Published var lastDiscardStashRef: String?
 
     private(set) var rootDirectory: URL?
     private var refreshGeneration: UInt64 = 0
@@ -85,6 +88,8 @@ final class ChangesModel: ObservableObject {
         commitMessage = ""
         isCommitting = false
         lastCommitError = nil
+        isDiscardingAll = false
+        lastDiscardStashRef = nil
     }
 
     func refresh() {
@@ -272,6 +277,92 @@ final class ChangesModel: ObservableObject {
                 self.refreshCommits()
             }
         }
+    }
+
+    /// Discard all uncommitted changes. Stashes first so the user can recover.
+    func discardAll() {
+        guard let rootURL = rootDirectory, !changedFiles.isEmpty else { return }
+        isDiscardingAll = true
+        lastDiscardStashRef = nil
+        refreshGeneration &+= 1
+        let generation = refreshGeneration
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            // Count stashes before push to verify a new one was created
+            let countBefore = Self.runGitOutput(args: ["stash", "list"], at: rootURL)?
+                .components(separatedBy: "\n").filter { !$0.isEmpty }.count ?? 0
+
+            // Stash everything (including untracked) for recovery
+            _ = Self.runGitOutput(args: ["stash", "push", "--include-untracked", "-m", "Anvil: discard all changes"], at: rootURL)
+
+            let countAfter = Self.runGitOutput(args: ["stash", "list"], at: rootURL)?
+                .components(separatedBy: "\n").filter { !$0.isEmpty }.count ?? 0
+
+            // Resolve stash@{0} to an immutable SHA so index drift doesn't matter
+            let stashRef: String?
+            if countAfter > countBefore {
+                stashRef = Self.runGitOutput(args: ["rev-parse", "stash@{0}"], at: rootURL)
+            } else {
+                stashRef = nil
+            }
+
+            DispatchQueue.main.async {
+                guard let self = self, self.refreshGeneration == generation else { return }
+                self.lastDiscardStashRef = stashRef
+                self.isDiscardingAll = false
+                self.refresh()
+            }
+        }
+    }
+
+    /// Recover changes from the last discard-all stash.
+    func recoverDiscarded() {
+        guard let rootURL = rootDirectory, let sha = lastDiscardStashRef else { return }
+        refreshGeneration &+= 1
+        let generation = refreshGeneration
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let success = Self.runGitWithStatus(args: ["stash", "apply", sha], at: rootURL)
+            if success {
+                // Drop the stash entry only after successful apply
+                Self.runGitSync(args: ["stash", "drop", sha], at: rootURL)
+            }
+            DispatchQueue.main.async {
+                guard let self = self, self.refreshGeneration == generation else { return }
+                if success {
+                    self.lastDiscardStashRef = nil
+                }
+                // Always refresh to reflect current state
+                self.refresh()
+            }
+        }
+    }
+
+    private static func runGitOutput(args: [String], at directory: URL) -> String? {
+        let process = Process()
+        let pipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+        process.arguments = args
+        process.currentDirectoryURL = directory
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+        try? process.run()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else { return nil }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        return String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func runGitWithStatus(args: [String], at directory: URL) -> Bool {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+        process.arguments = args
+        process.currentDirectoryURL = directory
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try? process.run()
+        process.waitUntilExit()
+        return process.terminationStatus == 0
     }
 
     private static func runGitSync(args: [String], at directory: URL) {
