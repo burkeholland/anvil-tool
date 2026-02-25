@@ -11,12 +11,58 @@ struct ContentView: View {
     @StateObject private var filePreview = FilePreviewModel()
     @StateObject private var changesModel = ChangesModel()
     @StateObject private var activityModel = ActivityFeedModel()
+    @StateObject private var recentProjects = RecentProjectsModel()
     @State private var sidebarWidth: CGFloat = 240
     @State private var previewWidth: CGFloat = 400
     @State private var showSidebar = true
     @State private var sidebarTab: SidebarTab = .files
 
     var body: some View {
+        Group {
+            if workingDirectory.directoryURL != nil {
+                projectView
+            } else {
+                WelcomeView(
+                    recentProjects: recentProjects,
+                    onOpen: { url in openDirectory(url) },
+                    onBrowse: { browseForDirectory() }
+                )
+            }
+        }
+        .frame(minWidth: 800, minHeight: 500)
+        .background(Color(nsColor: .windowBackgroundColor))
+        .navigationTitle(workingDirectory.projectName)
+        .focusedSceneValue(\.sidebarVisible, $showSidebar)
+        .focusedSceneValue(\.sidebarTab, $sidebarTab)
+        .focusedSceneValue(\.previewOpen, filePreview.selectedURL != nil)
+        .focusedSceneValue(\.closePreview, { [weak filePreview] in filePreview?.close() })
+        .focusedSceneValue(\.openDirectory, {
+            browseForDirectory()
+        })
+        .focusedSceneValue(\.refresh, { [weak changesModel, weak workingDirectory] in
+            if let url = workingDirectory?.directoryURL {
+                changesModel?.start(rootURL: url)
+            }
+        })
+        .onChange(of: workingDirectory.directoryURL) { _, newURL in
+            filePreview.close()
+            filePreview.rootDirectory = newURL
+            if let url = newURL {
+                recentProjects.recordOpen(url)
+                changesModel.start(rootURL: url)
+                activityModel.start(rootURL: url)
+            }
+        }
+        .onAppear {
+            filePreview.rootDirectory = workingDirectory.directoryURL
+            if let url = workingDirectory.directoryURL {
+                changesModel.start(rootURL: url)
+                activityModel.start(rootURL: url)
+            }
+        }
+    }
+
+    private var projectView: some View {
         HStack(spacing: 0) {
             if showSidebar {
                 SidebarView(
@@ -40,13 +86,11 @@ struct ContentView: View {
                 ToolbarView(
                     workingDirectory: workingDirectory,
                     showSidebar: $showSidebar,
-                    onOpenDirectory: { [weak workingDirectory] in
-                        chooseDirectory(for: workingDirectory)
-                    }
+                    onOpenDirectory: { browseForDirectory() }
                 )
 
                 EmbeddedTerminalView(workingDirectory: workingDirectory)
-                    .id(workingDirectory.directoryURL) // Respawn shell on directory change
+                    .id(workingDirectory.directoryURL)
             }
 
             if filePreview.selectedURL != nil {
@@ -61,46 +105,29 @@ struct ContentView: View {
                     .frame(width: max(previewWidth, 0))
             }
         }
-        .frame(minWidth: 800, minHeight: 500)
-        .background(Color(nsColor: .windowBackgroundColor))
-        .navigationTitle(workingDirectory.projectName)
-        .focusedSceneValue(\.sidebarVisible, $showSidebar)
-        .focusedSceneValue(\.sidebarTab, $sidebarTab)
-        .focusedSceneValue(\.previewOpen, filePreview.selectedURL != nil)
-        .focusedSceneValue(\.closePreview, { [weak filePreview] in filePreview?.close() })
-        .focusedSceneValue(\.openDirectory, { [weak workingDirectory] in
-            chooseDirectory(for: workingDirectory)
-        })
-        .focusedSceneValue(\.refresh, { [weak changesModel, weak workingDirectory] in
-            if let url = workingDirectory?.directoryURL {
-                changesModel?.start(rootURL: url)
-            }
-        })
-        .onChange(of: workingDirectory.directoryURL) { _, newURL in
-            filePreview.close()
-            filePreview.rootDirectory = newURL
-            if let url = newURL {
-                changesModel.start(rootURL: url)
-                activityModel.start(rootURL: url)
-            }
-        }
-        .onAppear {
-            filePreview.rootDirectory = workingDirectory.directoryURL
-            if let url = workingDirectory.directoryURL {
-                changesModel.start(rootURL: url)
-                activityModel.start(rootURL: url)
-            }
-        }
     }
 
-    private func chooseDirectory(for model: WorkingDirectoryModel?) {
+    private func openDirectory(_ url: URL) {
+        // Validate directory still exists before switching
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir),
+              isDir.boolValue else {
+            recentProjects.remove(
+                RecentProjectsModel.RecentProject(path: url.standardizedFileURL.path, name: url.lastPathComponent, lastOpened: Date())
+            )
+            return
+        }
+        workingDirectory.setDirectory(url)
+    }
+
+    private func browseForDirectory() {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
         panel.message = "Choose a working directory for the Copilot CLI"
         if panel.runModal() == .OK, let url = panel.url {
-            model?.setDirectory(url)
+            openDirectory(url)
         }
     }
 }

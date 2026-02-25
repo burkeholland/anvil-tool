@@ -23,8 +23,8 @@ final class WorkingDirectoryModel: ObservableObject {
     }
 
     init() {
-        // Default to home directory
-        self.directoryURL = FileManager.default.homeDirectoryForCurrentUser
+        // Start with no directory — the welcome screen handles first open
+        self.directoryURL = nil
     }
 
     func setDirectory(_ url: URL) {
