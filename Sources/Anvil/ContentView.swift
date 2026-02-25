@@ -35,6 +35,7 @@ struct ContentView: View {
     @State private var showTaskBanner = false
     @State private var showKeyboardShortcuts = false
     @State private var showInstructions = false
+    @State private var showCopilotActions = false
 
     var body: some View {
         ZStack {
@@ -220,6 +221,7 @@ struct ContentView: View {
                         autoFollow: $autoFollow,
                         showBranchPicker: $showBranchPicker,
                         showInstructions: $showInstructions,
+                        showCopilotActions: $showCopilotActions,
                         onOpenDirectory: { browseForDirectory() }
                     )
 
@@ -593,6 +595,51 @@ struct ContentView: View {
             } action: {
                 showInstructions = true
             },
+
+            // Copilot CLI
+            PaletteCommand(id: "copilot-actions", title: "Copilot Actions…", icon: "terminal", shortcut: nil, category: "Copilot") {
+                hasProject
+            } action: {
+                showCopilotActions = true
+            },
+            PaletteCommand(id: "copilot-compact", title: "Copilot: Compact History", icon: "arrow.triangle.2.circlepath", shortcut: nil, category: "Copilot") {
+                hasProject
+            } action: { [weak terminalProxy] in
+                terminalProxy?.send("/compact\n")
+            },
+            PaletteCommand(id: "copilot-diff", title: "Copilot: Show Diff", icon: "doc.text", shortcut: nil, category: "Copilot") {
+                hasProject
+            } action: { [weak terminalProxy] in
+                terminalProxy?.send("/diff\n")
+            },
+            PaletteCommand(id: "copilot-model", title: "Copilot: Switch Model", icon: "brain", shortcut: nil, category: "Copilot") {
+                hasProject
+            } action: { [weak terminalProxy] in
+                terminalProxy?.send("/model\n")
+            },
+            PaletteCommand(id: "copilot-help", title: "Copilot: Help", icon: "questionmark.circle", shortcut: nil, category: "Copilot") {
+                hasProject
+            } action: { [weak terminalProxy] in
+                terminalProxy?.send("/help\n")
+            },
+            PaletteCommand(id: "copilot-cycle-mode", title: "Copilot: Cycle Mode", icon: "arrow.left.arrow.right", shortcut: nil, category: "Copilot") {
+                hasProject
+            } action: { [weak terminalProxy] in
+                terminalProxy?.sendEscape("[Z")
+            },
+            PaletteCommand(id: "copilot-restart", title: "Copilot: Restart Session", icon: "arrow.counterclockwise", shortcut: nil, category: "Copilot") {
+                hasProject
+            } action: { [weak terminalProxy] in
+                terminalProxy?.sendControl(0x04)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                    terminalProxy?.send("copilot\n")
+                }
+            },
+            PaletteCommand(id: "copilot-clear", title: "Copilot: Clear Screen", icon: "clear", shortcut: nil, category: "Copilot") {
+                hasProject
+            } action: { [weak terminalProxy] in
+                terminalProxy?.sendControl(0x0C)
+            },
         ])
     }
 
@@ -705,6 +752,7 @@ struct ToolbarView: View {
     @Binding var autoFollow: Bool
     @Binding var showBranchPicker: Bool
     @Binding var showInstructions: Bool
+    @Binding var showCopilotActions: Bool
     var onOpenDirectory: () -> Void
 
     var body: some View {
@@ -768,6 +816,18 @@ struct ToolbarView: View {
             Spacer()
 
             AgentActivityIndicator(activityModel: activityModel)
+
+            Button {
+                showCopilotActions.toggle()
+            } label: {
+                Image(systemName: "terminal")
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.borderless)
+            .help("Copilot Actions")
+            .popover(isPresented: $showCopilotActions, arrowEdge: .bottom) {
+                CopilotActionsView(onDismiss: { showCopilotActions = false })
+            }
 
             Button {
                 autoFollow.toggle()

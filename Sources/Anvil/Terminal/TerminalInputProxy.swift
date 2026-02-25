@@ -11,6 +11,16 @@ final class TerminalInputProxy: ObservableObject {
         terminalView?.send(txt: text)
     }
 
+    /// Sends a single control character (e.g. Ctrl+C = 0x03, Ctrl+D = 0x04).
+    func sendControl(_ byte: UInt8) {
+        send(String(UnicodeScalar(byte)))
+    }
+
+    /// Sends an escape sequence (e.g. Shift+Tab = ESC [ Z).
+    func sendEscape(_ sequence: String) {
+        send("\u{1B}\(sequence)")
+    }
+
     /// Sends @relativePath to the terminal for Copilot CLI file mentions.
     /// Strips control characters to prevent terminal injection.
     func mentionFile(relativePath: String) {
