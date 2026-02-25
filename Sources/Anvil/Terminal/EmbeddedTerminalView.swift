@@ -15,6 +15,7 @@ struct EmbeddedTerminalView: View {
     var onTitleChange: ((String) -> Void)?
     @AppStorage("autoLaunchCopilot") private var autoLaunchCopilot = true
     @AppStorage("terminalFontSize") private var fontSize: Double = 14
+    @AppStorage("terminalThemeID") private var themeID: String = TerminalTheme.defaultDark.id
     @State private var processRunning = true
     @State private var lastExitCode: Int32?
     @State private var terminalID = UUID()
@@ -50,6 +51,7 @@ struct EmbeddedTerminalView: View {
                 terminalProxy: isActiveTab ? terminalProxy : nil,
                 autoLaunchCopilot: shouldLaunchCopilot,
                 fontSize: fontSize,
+                theme: TerminalTheme.theme(forID: themeID),
                 onProcessExit: { code in
                     lastExitCode = code
                     processRunning = false
@@ -112,6 +114,7 @@ private struct TerminalNSView: NSViewRepresentable {
     var terminalProxy: TerminalInputProxy?
     var autoLaunchCopilot: Bool
     var fontSize: Double
+    var theme: TerminalTheme
     var onProcessExit: (Int32?) -> Void
     var onTitleChange: ((String) -> Void)?
 
@@ -123,8 +126,7 @@ private struct TerminalNSView: NSViewRepresentable {
         }
 
         terminalView.font = NSFont.monospacedSystemFont(ofSize: CGFloat(fontSize), weight: .regular)
-        terminalView.nativeBackgroundColor = NSColor(red: 0.1, green: 0.1, blue: 0.12, alpha: 1.0)
-        terminalView.nativeForegroundColor = NSColor(red: 0.9, green: 0.9, blue: 0.9, alpha: 1.0)
+        applyTheme(theme, to: terminalView)
 
         let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
         let env = Terminal.getEnvironmentVariables(termName: "xterm-256color")
@@ -141,6 +143,7 @@ private struct TerminalNSView: NSViewRepresentable {
         }
 
         context.coordinator.lastFontSize = fontSize
+        context.coordinator.lastThemeID = theme.id
 
         return terminalView
     }
@@ -150,10 +153,22 @@ private struct TerminalNSView: NSViewRepresentable {
             context.coordinator.lastFontSize = fontSize
             nsView.font = NSFont.monospacedSystemFont(ofSize: CGFloat(fontSize), weight: .regular)
         }
+        if context.coordinator.lastThemeID != theme.id {
+            context.coordinator.lastThemeID = theme.id
+            applyTheme(theme, to: nsView)
+        }
         // Reconnect proxy when this tab becomes active
         if let proxy = terminalProxy, proxy.terminalView !== nsView {
             proxy.terminalView = nsView
         }
+    }
+
+    private func applyTheme(_ theme: TerminalTheme, to view: LocalProcessTerminalView) {
+        view.nativeBackgroundColor = theme.background
+        view.nativeForegroundColor = theme.foreground
+        view.caretColor = theme.cursor
+        view.selectedTextBackgroundColor = theme.selection
+        view.installColors(theme.swiftTermColors)
     }
 
     func makeCoordinator() -> Coordinator {
@@ -164,6 +179,7 @@ private struct TerminalNSView: NSViewRepresentable {
         let onProcessExit: (Int32?) -> Void
         let onTitleChange: ((String) -> Void)?
         var lastFontSize: Double = 14
+        var lastThemeID: String = TerminalTheme.defaultDark.id
 
         init(onProcessExit: @escaping (Int32?) -> Void, onTitleChange: ((String) -> Void)?) {
             self.onProcessExit = onProcessExit

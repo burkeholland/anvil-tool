@@ -24,7 +24,7 @@ struct SettingsView: View {
                     Label("Notifications", systemImage: "bell")
                 }
         }
-        .frame(width: 450, height: 200)
+        .frame(width: 450, height: 250)
     }
 }
 
@@ -54,9 +54,24 @@ private struct GeneralSettingsTab: View {
 
 private struct TerminalSettingsTab: View {
     @AppStorage("terminalFontSize") private var fontSize: Double = EmbeddedTerminalView.defaultFontSize
+    @AppStorage("terminalThemeID") private var themeID: String = TerminalTheme.defaultDark.id
 
     var body: some View {
         Form {
+            Picker("Color theme", selection: $themeID) {
+                ForEach(TerminalTheme.builtIn) { theme in
+                    HStack(spacing: 8) {
+                        ThemePreviewSwatch(theme: theme)
+                        Text(theme.name)
+                    }
+                    .tag(theme.id as String)
+                }
+            }
+            Text("Choose the color scheme for the terminal.")
+                .settingsDescription()
+
+            Spacer().frame(height: 8)
+
             LabeledContent("Font size") {
                 HStack(spacing: 8) {
                     Slider(
@@ -76,6 +91,27 @@ private struct TerminalSettingsTab: View {
                 .settingsDescription()
         }
         .padding(20)
+    }
+}
+
+/// A small swatch showing the theme's background, foreground, and a few ANSI colors.
+private struct ThemePreviewSwatch: View {
+    let theme: TerminalTheme
+
+    var body: some View {
+        HStack(spacing: 1) {
+            Rectangle().fill(Color(nsColor: theme.background))
+            Rectangle().fill(Color(nsColor: theme.ansiColors[1])) // red
+            Rectangle().fill(Color(nsColor: theme.ansiColors[2])) // green
+            Rectangle().fill(Color(nsColor: theme.ansiColors[4])) // blue
+            Rectangle().fill(Color(nsColor: theme.ansiColors[5])) // magenta
+        }
+        .frame(width: 40, height: 14)
+        .clipShape(RoundedRectangle(cornerRadius: 2))
+        .overlay(
+            RoundedRectangle(cornerRadius: 2)
+                .strokeBorder(Color.primary.opacity(0.15), lineWidth: 0.5)
+        )
     }
 }
 
