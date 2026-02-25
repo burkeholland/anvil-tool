@@ -31,6 +31,12 @@ enum GitFileStatus: Equatable {
     }
 }
 
+/// Addition and deletion line counts from `git diff --numstat`.
+struct DiffStat: Equatable {
+    let additions: Int
+    let deletions: Int
+}
+
 /// Whether a file's changes are staged (in the index), unstaged, or both.
 enum StagingState: Equatable {
     case staged
@@ -60,6 +66,41 @@ enum GitStatusProvider {
         guard let gitRoot = findGitRoot(for: directory) else { return nil }
         guard let output = runGitStatus(at: directory) else { return nil }
         return (gitRoot, parseDetailed(output: output, gitRoot: gitRoot))
+    }
+
+    /// Returns a map of absolute file paths to their addition/deletion counts vs HEAD.
+    /// Combines staged and unstaged changes (`git diff --numstat HEAD`).
+    static func numstat(for directory: URL) -> [String: DiffStat] {
+        guard let gitRoot = findGitRoot(for: directory) else { return [:] }
+        let process = Process()
+        let pipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+        process.arguments = ["-c", "core.quotePath=false", "diff", "--numstat", "HEAD"]
+        process.currentDirectoryURL = directory
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            return [:]
+        }
+
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        guard let output = String(data: data, encoding: .utf8) else { return [:] }
+
+        var result: [String: DiffStat] = [:]
+        for line in output.components(separatedBy: "\n") where !line.isEmpty {
+            let parts = line.split(separator: "\t", maxSplits: 2)
+            guard parts.count == 3 else { continue }
+            let adds = Int(parts[0]) ?? 0
+            let dels = Int(parts[1]) ?? 0
+            let relativePath = String(parts[2])
+            let absolutePath = gitRoot.appendingPathComponent(relativePath).standardizedFileURL.path
+            result[absolutePath] = DiffStat(additions: adds, deletions: dels)
+        }
+        return result
     }
 
     /// Parse porcelain v1 output into status map. Exposed for testing.

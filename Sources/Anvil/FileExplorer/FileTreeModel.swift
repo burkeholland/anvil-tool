@@ -4,6 +4,8 @@ import SwiftUI
 final class FileTreeModel: ObservableObject {
     @Published private(set) var entries: [FileEntry] = []
     @Published private(set) var gitStatuses: [String: GitFileStatus] = [:]
+    /// Diff line-count stats (additions + deletions vs HEAD) per absolute file path.
+    @Published private(set) var diffStats: [String: DiffStat] = [:]
     /// Number of changed files contained (recursively) in each directory.
     @Published private(set) var dirChangeCounts: [String: Int] = [:]
     /// Precomputed count of leaf-level changed files (excludes propagated directory statuses).
@@ -247,11 +249,13 @@ final class FileTreeModel: ObservableObject {
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let statuses = GitStatusProvider.status(for: rootURL)
             let counts = Self.computeDirChangeCounts(statuses: statuses, rootPath: rootPath)
+            let stats = GitStatusProvider.numstat(for: rootURL)
             DispatchQueue.main.async {
                 guard let self = self, self.refreshGeneration == generation else { return }
                 self.gitStatuses = statuses
                 self.dirChangeCounts = counts
                 self.changedFileCount = Self.countLeafPaths(statuses: statuses, rootPath: rootPath)
+                self.diffStats = stats
                 if self.showChangedOnly {
                     self.rebuildEntries()
                 }

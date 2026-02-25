@@ -145,6 +145,7 @@ struct FileTreeView: View {
                                 isSelected: filePreview.selectedURL == entry.url,
                                 gitStatus: model.gitStatuses[entry.url.path],
                                 dirChangeCount: entry.isDirectory ? model.dirChangeCounts[entry.url.path] : nil,
+                                diffStat: entry.isDirectory ? nil : model.diffStats[entry.url.path],
                                 onToggle: { handleTap(entry) }
                             )
                             .id(entry.url)
@@ -421,6 +422,7 @@ struct FileRowView: View {
     let isSelected: Bool
     var gitStatus: GitFileStatus? = nil
     var dirChangeCount: Int? = nil
+    var diffStat: DiffStat? = nil
     let onToggle: () -> Void
 
     var body: some View {
@@ -458,6 +460,21 @@ struct FileRowView: View {
                     .background(
                         Capsule().fill(Color.orange.opacity(0.12))
                     )
+            }
+
+            if let stat = diffStat, stat.additions > 0 || stat.deletions > 0 {
+                HStack(spacing: 3) {
+                    if stat.additions > 0 {
+                        Text("+\(stat.additions)")
+                            .font(.system(size: 10, weight: .medium, design: .monospaced))
+                            .foregroundStyle(.green)
+                    }
+                    if stat.deletions > 0 {
+                        Text("-\(stat.deletions)")
+                            .font(.system(size: 10, weight: .medium, design: .monospaced))
+                            .foregroundStyle(.red)
+                    }
+                }
             }
 
             if let status = gitStatus {
