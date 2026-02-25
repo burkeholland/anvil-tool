@@ -88,7 +88,7 @@ struct FileTreeView: View {
         }
         .onAppear { model.start(rootURL: rootURL) }
         .onChange(of: model.gitStatuses) { _, _ in
-            filePreview.refreshDiff()
+            filePreview.refresh()
         }
     }
 

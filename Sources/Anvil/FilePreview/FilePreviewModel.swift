@@ -14,7 +14,15 @@ final class FilePreviewModel: ObservableObject {
     @Published var activeTab: PreviewTab = .source
 
     /// The root directory for running git commands.
-    var rootDirectory: URL?
+    var rootDirectory: URL? {
+        didSet { setupWatcher() }
+    }
+
+    private var fileWatcher: FileWatcher?
+
+    deinit {
+        fileWatcher?.stop()
+    }
 
     var fileName: String {
         selectedURL?.lastPathComponent ?? ""
@@ -52,15 +60,35 @@ final class FilePreviewModel: ObservableObject {
         activeTab = .source
     }
 
-    /// Refresh diff for the current file (called on file system changes).
-    func refreshDiff() {
+    /// Refresh both source content and diff for the current file.
+    /// Called automatically by the internal FileWatcher when files change on disk.
+    func refresh() {
         guard let url = selectedURL, let root = rootDirectory else { return }
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let content: String?
+            if let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+               let size = attrs[.size] as? Int, size <= 1_048_576 {
+                content = try? String(contentsOf: url, encoding: .utf8)
+            } else {
+                content = nil
+            }
             let diff = DiffProvider.diff(for: url, in: root)
             DispatchQueue.main.async {
                 guard self?.selectedURL == url else { return }
+                if content != self?.fileContent {
+                    self?.fileContent = content
+                }
                 self?.fileDiff = diff
             }
+        }
+    }
+
+    private func setupWatcher() {
+        fileWatcher?.stop()
+        fileWatcher = nil
+        guard let root = rootDirectory else { return }
+        fileWatcher = FileWatcher(directory: root) { [weak self] in
+            self?.refresh()
         }
     }
 
