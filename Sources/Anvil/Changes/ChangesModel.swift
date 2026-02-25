@@ -97,6 +97,10 @@ final class ChangesModel: ObservableObject {
         changedFiles.filter { $0.staging == .unstaged || $0.staging == .partial }
     }
 
+    var conflictedFiles: [ChangedFile] {
+        changedFiles.filter { $0.status == .conflicted }
+    }
+
     var canCommit: Bool {
         !stagedFiles.isEmpty && !commitMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !isCommitting
     }
