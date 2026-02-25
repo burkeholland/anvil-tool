@@ -37,6 +37,7 @@ struct ContentView: View {
     @State private var showKeyboardShortcuts = false
     @State private var showInstructions = false
     @State private var showCopilotActions = false
+    @State private var showProjectSwitcher = false
 
     var body: some View {
         ZStack {
@@ -225,12 +226,15 @@ struct ContentView: View {
                         changesModel: changesModel,
                         activityModel: activityModel,
                         filePreview: filePreview,
+                        recentProjects: recentProjects,
                         showSidebar: $showSidebar,
                         autoFollow: $autoFollow,
                         showBranchPicker: $showBranchPicker,
                         showInstructions: $showInstructions,
                         showCopilotActions: $showCopilotActions,
-                        onOpenDirectory: { browseForDirectory() }
+                        showProjectSwitcher: $showProjectSwitcher,
+                        onOpenDirectory: { browseForDirectory() },
+                        onSwitchProject: { url in openDirectory(url) }
                     )
 
                     if terminalTabs.tabs.count > 1 {
@@ -557,6 +561,11 @@ struct ContentView: View {
             } action: {
                 browseForDirectory()
             },
+            PaletteCommand(id: "switch-project", title: "Switch Project…", icon: "arrow.triangle.swap", shortcut: nil, category: "File") {
+                true
+            } action: {
+                showProjectSwitcher = true
+            },
             PaletteCommand(id: "close-tab", title: "Close Preview Tab", icon: "xmark", shortcut: "⌘W", category: "File") {
                 filePreview.selectedURL != nil
             } action: { [weak filePreview] in
@@ -804,12 +813,15 @@ struct ToolbarView: View {
     @ObservedObject var changesModel: ChangesModel
     @ObservedObject var activityModel: ActivityFeedModel
     @ObservedObject var filePreview: FilePreviewModel
+    @ObservedObject var recentProjects: RecentProjectsModel
     @Binding var showSidebar: Bool
     @Binding var autoFollow: Bool
     @Binding var showBranchPicker: Bool
     @Binding var showInstructions: Bool
     @Binding var showCopilotActions: Bool
+    @Binding var showProjectSwitcher: Bool
     var onOpenDirectory: () -> Void
+    var onSwitchProject: (URL) -> Void
 
     var body: some View {
         HStack(spacing: 12) {
@@ -912,11 +924,28 @@ struct ToolbarView: View {
                 }
             }
 
-            Button("Open…") {
-                onOpenDirectory()
+            Button {
+                showProjectSwitcher.toggle()
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "arrow.triangle.swap")
+                        .font(.system(size: 10))
+                    Text("Switch")
+                        .font(.system(size: 12))
+                }
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
+            .help("Switch Project")
+            .popover(isPresented: $showProjectSwitcher, arrowEdge: .bottom) {
+                ProjectSwitcherView(
+                    recentProjects: recentProjects,
+                    currentPath: workingDirectory.directoryURL?.standardizedFileURL.path,
+                    onSelect: { url in onSwitchProject(url) },
+                    onBrowse: { onOpenDirectory() },
+                    onDismiss: { showProjectSwitcher = false }
+                )
+            }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)

@@ -43,7 +43,10 @@ struct WelcomeView: View {
 
                     VStack(spacing: 2) {
                         ForEach(recentProjects.recentProjects) { project in
-                            RecentProjectRow(project: project) {
+                            RecentProjectRow(
+                                project: project,
+                                gitInfo: recentProjects.gitInfo[project.path]
+                            ) {
                                 onOpen(project.url)
                             }
                         }
@@ -85,6 +88,7 @@ struct WelcomeView: View {
         }
         .onAppear {
             checkCopilotAvailability()
+            recentProjects.refreshGitInfo()
         }
     }
 
@@ -143,6 +147,7 @@ struct WelcomeView: View {
 
 struct RecentProjectRow: View {
     let project: RecentProjectsModel.RecentProject
+    var gitInfo: GitProjectInfo?
     let onOpen: () -> Void
 
     var body: some View {
@@ -153,16 +158,41 @@ struct RecentProjectRow: View {
                     .foregroundStyle(Color.accentColor)
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(project.name)
-                        .font(.system(size: 13, weight: .medium))
-                        .lineLimit(1)
-                        .truncationMode(.middle)
+                    HStack(spacing: 6) {
+                        Text(project.name)
+                            .font(.system(size: 13, weight: .medium))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
 
-                    Text(displayPath(project.path))
-                        .font(.system(size: 11))
-                        .foregroundStyle(.tertiary)
-                        .lineLimit(1)
-                        .truncationMode(.head)
+                        if let info = gitInfo {
+                            if info.isDirty {
+                                Circle()
+                                    .fill(.orange)
+                                    .frame(width: 6, height: 6)
+                                    .help("\(info.changedFileCount) uncommitted change\(info.changedFileCount == 1 ? "" : "s")")
+                            }
+                        }
+                    }
+
+                    HStack(spacing: 6) {
+                        Text(displayPath(project.path))
+                            .font(.system(size: 11))
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(1)
+                            .truncationMode(.head)
+
+                        if let info = gitInfo, let branch = info.branch {
+                            HStack(spacing: 3) {
+                                Image(systemName: "arrow.triangle.branch")
+                                    .font(.system(size: 8))
+                                Text(branch)
+                                    .font(.system(size: 10))
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                            }
+                            .foregroundStyle(.secondary)
+                        }
+                    }
                 }
 
                 Spacer()
