@@ -4,6 +4,7 @@ enum SidebarTab {
     case files
     case changes
     case activity
+    case search
 }
 
 struct ContentView: View {
@@ -14,6 +15,7 @@ struct ContentView: View {
     @StateObject private var recentProjects = RecentProjectsModel()
     @StateObject private var terminalProxy = TerminalInputProxy()
     @StateObject private var quickOpenModel = QuickOpenModel()
+    @StateObject private var searchModel = SearchModel()
     @State private var sidebarWidth: CGFloat = 240
     @State private var previewWidth: CGFloat = 400
     @State private var showSidebar = true
@@ -55,6 +57,10 @@ struct ContentView: View {
         })
         .focusedSceneValue(\.quickOpen, workingDirectory.directoryURL != nil ? { showQuickOpen = true } : nil)
         .focusedSceneValue(\.autoFollow, $autoFollow)
+        .focusedSceneValue(\.findInProject, workingDirectory.directoryURL != nil ? {
+            showSidebar = true
+            sidebarTab = .search
+        } : nil)
         .onChange(of: workingDirectory.directoryURL) { _, newURL in
             filePreview.close()
             filePreview.rootDirectory = newURL
@@ -62,18 +68,20 @@ struct ContentView: View {
                 recentProjects.recordOpen(url)
                 changesModel.start(rootURL: url)
                 activityModel.start(rootURL: url)
+                searchModel.setRoot(url)
             }
+        }
+        .onChange(of: activityModel.latestFileChange) { _, change in
+            guard autoFollow, let change = change else { return }
+            filePreview.select(change.url)
         }
         .onAppear {
             filePreview.rootDirectory = workingDirectory.directoryURL
             if let url = workingDirectory.directoryURL {
                 changesModel.start(rootURL: url)
                 activityModel.start(rootURL: url)
+                searchModel.setRoot(url)
             }
-        }
-        .onChange(of: activityModel.latestFileChange) { _, change in
-            guard autoFollow, let change = change else { return }
-            filePreview.select(change.url)
         }
     }
 
@@ -86,6 +94,7 @@ struct ContentView: View {
                         filePreview: filePreview,
                         changesModel: changesModel,
                         activityModel: activityModel,
+                        searchModel: searchModel,
                         activeTab: $sidebarTab
                     )
                         .frame(width: max(sidebarWidth, 0))
@@ -253,6 +262,7 @@ struct SidebarView: View {
     @ObservedObject var filePreview: FilePreviewModel
     @ObservedObject var changesModel: ChangesModel
     @ObservedObject var activityModel: ActivityFeedModel
+    @ObservedObject var searchModel: SearchModel
     @Binding var activeTab: SidebarTab
 
     var body: some View {
@@ -283,6 +293,14 @@ struct SidebarView: View {
                     badge: activityModel.events.isEmpty ? nil : activityModel.events.count
                 ) {
                     activeTab = .activity
+                }
+
+                SidebarTabButton(
+                    title: "Search",
+                    systemImage: "magnifyingglass",
+                    isActive: activeTab == .search
+                ) {
+                    activeTab = .search
                 }
 
                 Spacer()
@@ -321,6 +339,9 @@ struct SidebarView: View {
 
             case .activity:
                 ActivityFeedView(model: activityModel, filePreview: filePreview)
+
+            case .search:
+                SearchView(model: searchModel, filePreview: filePreview)
             }
         }
         .background(Color(nsColor: .controlBackgroundColor))

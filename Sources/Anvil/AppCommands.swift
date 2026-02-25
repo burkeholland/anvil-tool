@@ -35,6 +35,10 @@ struct AutoFollowKey: FocusedValueKey {
     typealias Value = Binding<Bool>
 }
 
+struct FindInProjectKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
 extension FocusedValues {
     var sidebarVisible: Binding<Bool>? {
         get { self[SidebarVisibleKey.self] }
@@ -75,6 +79,11 @@ extension FocusedValues {
         get { self[AutoFollowKey.self] }
         set { self[AutoFollowKey.self] = newValue }
     }
+
+    var findInProject: (() -> Void)? {
+        get { self[FindInProjectKey.self] }
+        set { self[FindInProjectKey.self] = newValue }
+    }
 }
 
 // MARK: - View Menu Commands
@@ -87,6 +96,7 @@ struct ViewCommands: Commands {
     @FocusedValue(\.refresh) var refresh
     @FocusedValue(\.quickOpen) var quickOpen
     @FocusedValue(\.autoFollow) var autoFollow
+    @FocusedValue(\.findInProject) var findInProject
     @AppStorage("autoLaunchCopilot") private var autoLaunchCopilot = true
 
     var body: some Commands {
@@ -96,6 +106,12 @@ struct ViewCommands: Commands {
             }
             .keyboardShortcut("o", modifiers: [.command, .shift])
             .disabled(quickOpen == nil)
+
+            Button("Find in Project…") {
+                findInProject?()
+            }
+            .keyboardShortcut("f", modifiers: [.command, .shift])
+            .disabled(findInProject == nil)
 
             Divider()
 
@@ -134,6 +150,13 @@ struct ViewCommands: Commands {
                 sidebarTab?.wrappedValue = .activity
             }
             .keyboardShortcut("3", modifiers: .command)
+            .disabled(sidebarTab == nil)
+
+            Button("Search") {
+                sidebarVisible?.wrappedValue = true
+                sidebarTab?.wrappedValue = .search
+            }
+            .keyboardShortcut("4", modifiers: .command)
             .disabled(sidebarTab == nil)
 
             Divider()
