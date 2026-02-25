@@ -32,6 +32,7 @@ struct ContentView: View {
     @AppStorage("terminalFontSize") private var terminalFontSize: Double = 14
     @State private var isDroppingFileToTerminal = false
     @State private var showTaskBanner = false
+    @State private var showKeyboardShortcuts = false
 
     var body: some View {
         ZStack {
@@ -64,6 +65,15 @@ struct ContentView: View {
 
                     Spacer()
                 }
+            }
+
+            // Keyboard shortcuts overlay
+            if showKeyboardShortcuts {
+                Color.black.opacity(0.2)
+                    .ignoresSafeArea()
+                    .onTapGesture { showKeyboardShortcuts = false }
+
+                KeyboardShortcutsView(onDismiss: { showKeyboardShortcuts = false })
             }
         }
         .dropDestination(for: URL.self) { urls, _ in
@@ -110,7 +120,8 @@ struct ContentView: View {
             },
             onNextChange: hasChangesToNavigate ? { navigateToNextChange() } : nil,
             onPreviousChange: hasChangesToNavigate ? { navigateToPreviousChange() } : nil,
-            onReviewAllChanges: hasChangesToNavigate ? { showDiffSummary = true } : nil
+            onReviewAllChanges: hasChangesToNavigate ? { showDiffSummary = true } : nil,
+            onShowKeyboardShortcuts: { showKeyboardShortcuts = true }
         ))
         .onChange(of: workingDirectory.directoryURL) { _, newURL in
             showTaskBanner = false
@@ -514,6 +525,12 @@ struct ContentView: View {
             } action: { [weak workingDirectory] in
                 workingDirectory?.fetch()
             },
+
+            PaletteCommand(id: "keyboard-shortcuts", title: "Keyboard Shortcuts", icon: "keyboard", shortcut: "⌘/", category: "Help") {
+                true
+            } action: {
+                showKeyboardShortcuts = true
+            },
         ])
     }
 
@@ -859,6 +876,7 @@ private struct FocusedSceneModifier: ViewModifier {
     var onNextChange: (() -> Void)?
     var onPreviousChange: (() -> Void)?
     var onReviewAllChanges: (() -> Void)?
+    var onShowKeyboardShortcuts: () -> Void
 
     func body(content: Content) -> some View {
         content
@@ -885,7 +903,8 @@ private struct FocusedSceneModifier: ViewModifier {
                 onShowCommandPalette: onShowCommandPalette,
                 onNextChange: onNextChange,
                 onPreviousChange: onPreviousChange,
-                onReviewAllChanges: onReviewAllChanges
+                onReviewAllChanges: onReviewAllChanges,
+                onShowKeyboardShortcuts: onShowKeyboardShortcuts
             ))
     }
 }
@@ -936,6 +955,7 @@ private struct FocusedSceneModifierB: ViewModifier {
     var onNextChange: (() -> Void)?
     var onPreviousChange: (() -> Void)?
     var onReviewAllChanges: (() -> Void)?
+    var onShowKeyboardShortcuts: () -> Void
 
     func body(content: Content) -> some View {
         content
@@ -949,6 +969,7 @@ private struct FocusedSceneModifierB: ViewModifier {
             .focusedSceneValue(\.nextChange, onNextChange)
             .focusedSceneValue(\.previousChange, onPreviousChange)
             .focusedSceneValue(\.reviewAllChanges, onReviewAllChanges)
+            .focusedSceneValue(\.showKeyboardShortcuts, onShowKeyboardShortcuts)
     }
 }
 

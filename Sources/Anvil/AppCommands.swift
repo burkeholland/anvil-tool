@@ -79,6 +79,10 @@ struct ReviewAllChangesKey: FocusedValueKey {
     typealias Value = () -> Void
 }
 
+struct ShowKeyboardShortcutsKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
 extension FocusedValues {
     var sidebarVisible: Binding<Bool>? {
         get { self[SidebarVisibleKey.self] }
@@ -173,6 +177,11 @@ extension FocusedValues {
     var reviewAllChanges: (() -> Void)? {
         get { self[ReviewAllChangesKey.self] }
         set { self[ReviewAllChangesKey.self] = newValue }
+    }
+
+    var showKeyboardShortcuts: (() -> Void)? {
+        get { self[ShowKeyboardShortcutsKey.self] }
+        set { self[ShowKeyboardShortcutsKey.self] = newValue }
     }
 }
 
@@ -361,6 +370,21 @@ struct FileCommands: Commands {
             }
             .keyboardShortcut("w", modifiers: [.command, .shift])
             .disabled(closeProject == nil)
+        }
+    }
+}
+
+// MARK: - Help Menu Commands
+
+struct HelpCommands: Commands {
+    @FocusedValue(\.showKeyboardShortcuts) var showKeyboardShortcuts
+
+    var body: some Commands {
+        CommandGroup(after: .help) {
+            Button("Keyboard Shortcuts") {
+                showKeyboardShortcuts?()
+            }
+            .keyboardShortcut("/", modifiers: .command)
         }
     }
 }

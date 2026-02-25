@@ -13,6 +13,7 @@ struct AnvilApp: App {
         .commands {
             ViewCommands()
             FileCommands()
+            HelpCommands()
         }
 
         Settings {
