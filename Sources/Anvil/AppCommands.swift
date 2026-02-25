@@ -55,6 +55,10 @@ struct ResetFontSizeKey: FocusedValueKey {
     typealias Value = () -> Void
 }
 
+struct NewTerminalTabKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
 extension FocusedValues {
     var sidebarVisible: Binding<Bool>? {
         get { self[SidebarVisibleKey.self] }
@@ -120,6 +124,11 @@ extension FocusedValues {
         get { self[ResetFontSizeKey.self] }
         set { self[ResetFontSizeKey.self] = newValue }
     }
+
+    var newTerminalTab: (() -> Void)? {
+        get { self[NewTerminalTabKey.self] }
+        set { self[NewTerminalTabKey.self] = newValue }
+    }
 }
 
 // MARK: - View Menu Commands
@@ -136,6 +145,7 @@ struct ViewCommands: Commands {
     @FocusedValue(\.increaseFontSize) var increaseFontSize
     @FocusedValue(\.decreaseFontSize) var decreaseFontSize
     @FocusedValue(\.resetFontSize) var resetFontSize
+    @FocusedValue(\.newTerminalTab) var newTerminalTab
     @AppStorage("autoLaunchCopilot") private var autoLaunchCopilot = true
     @AppStorage("notificationsEnabled") private var notificationsEnabled = true
 
@@ -236,6 +246,14 @@ struct ViewCommands: Commands {
             }
             .keyboardShortcut("0", modifiers: .command)
             .disabled(resetFontSize == nil)
+
+            Divider()
+
+            Button("New Terminal Tab") {
+                newTerminalTab?()
+            }
+            .keyboardShortcut("t", modifiers: .command)
+            .disabled(newTerminalTab == nil)
         }
     }
 }

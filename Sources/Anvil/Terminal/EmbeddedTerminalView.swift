@@ -7,11 +7,23 @@ import SwiftTerm
 struct EmbeddedTerminalView: View {
     @ObservedObject var workingDirectory: WorkingDirectoryModel
     @EnvironmentObject var terminalProxy: TerminalInputProxy
+    /// When non-nil, overrides the AppStorage setting for this instance.
+    var launchCopilotOverride: Bool?
+    /// When true, this tab's terminal is connected to the TerminalInputProxy.
+    var isActiveTab: Bool = true
     @AppStorage("autoLaunchCopilot") private var autoLaunchCopilot = true
     @AppStorage("terminalFontSize") private var fontSize: Double = 14
     @State private var processRunning = true
     @State private var lastExitCode: Int32?
     @State private var terminalID = UUID()
+
+    private var shouldLaunchCopilot: Bool {
+        // Only launch Copilot if the tab allows it AND the global setting is on
+        if let override = launchCopilotOverride {
+            return override && autoLaunchCopilot
+        }
+        return autoLaunchCopilot
+    }
 
     static let minFontSize: Double = 9
     static let maxFontSize: Double = 32
@@ -33,8 +45,8 @@ struct EmbeddedTerminalView: View {
         ZStack {
             TerminalNSView(
                 workingDirectory: workingDirectory,
-                terminalProxy: terminalProxy,
-                autoLaunchCopilot: autoLaunchCopilot,
+                terminalProxy: isActiveTab ? terminalProxy : nil,
+                autoLaunchCopilot: shouldLaunchCopilot,
                 fontSize: fontSize,
                 onProcessExit: { code in
                     lastExitCode = code
@@ -94,7 +106,7 @@ struct EmbeddedTerminalView: View {
 /// NSViewRepresentable that wraps SwiftTerm's LocalProcessTerminalView.
 private struct TerminalNSView: NSViewRepresentable {
     @ObservedObject var workingDirectory: WorkingDirectoryModel
-    var terminalProxy: TerminalInputProxy
+    var terminalProxy: TerminalInputProxy?
     var autoLaunchCopilot: Bool
     var fontSize: Double
     var onProcessExit: (Int32?) -> Void
@@ -102,7 +114,9 @@ private struct TerminalNSView: NSViewRepresentable {
     func makeNSView(context: Context) -> LocalProcessTerminalView {
         let terminalView = LocalProcessTerminalView(frame: .zero)
         terminalView.processDelegate = context.coordinator
-        terminalProxy.terminalView = terminalView
+        if let proxy = terminalProxy {
+            proxy.terminalView = terminalView
+        }
 
         terminalView.font = NSFont.monospacedSystemFont(ofSize: CGFloat(fontSize), weight: .regular)
         terminalView.nativeBackgroundColor = NSColor(red: 0.1, green: 0.1, blue: 0.12, alpha: 1.0)
@@ -131,6 +145,10 @@ private struct TerminalNSView: NSViewRepresentable {
         if context.coordinator.lastFontSize != fontSize {
             context.coordinator.lastFontSize = fontSize
             nsView.font = NSFont.monospacedSystemFont(ofSize: CGFloat(fontSize), weight: .regular)
+        }
+        // Reconnect proxy when this tab becomes active
+        if let proxy = terminalProxy, proxy.terminalView !== nsView {
+            proxy.terminalView = nsView
         }
     }
 

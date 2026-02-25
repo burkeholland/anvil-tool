@@ -16,6 +16,7 @@ struct ContentView: View {
     @StateObject private var terminalProxy = TerminalInputProxy()
     @StateObject private var quickOpenModel = QuickOpenModel()
     @StateObject private var searchModel = SearchModel()
+    @StateObject private var terminalTabs = TerminalTabsModel()
     @State private var notificationManager = AgentNotificationManager()
     @State private var sidebarWidth: CGFloat = 240
     @State private var previewWidth: CGFloat = 400
@@ -71,11 +72,15 @@ struct ContentView: View {
             },
             onResetFontSize: {
                 terminalFontSize = EmbeddedTerminalView.defaultFontSize
+            },
+            onNewTerminalTab: {
+                terminalTabs.addTab()
             }
         ))
         .onChange(of: workingDirectory.directoryURL) { _, newURL in
             filePreview.close()
             filePreview.rootDirectory = newURL
+            terminalTabs.reset()
             if let url = newURL {
                 recentProjects.recordOpen(url)
                 changesModel.start(rootURL: url)
@@ -129,8 +134,24 @@ struct ContentView: View {
                         onOpenDirectory: { browseForDirectory() }
                     )
 
-                    EmbeddedTerminalView(workingDirectory: workingDirectory)
-                        .id(workingDirectory.directoryURL)
+                    if terminalTabs.tabs.count > 1 {
+                        TerminalTabBar(model: terminalTabs) {
+                            terminalTabs.addTab()
+                        }
+                    }
+
+                    ZStack {
+                        ForEach(terminalTabs.tabs) { tab in
+                            EmbeddedTerminalView(
+                                workingDirectory: workingDirectory,
+                                launchCopilotOverride: tab.launchCopilot,
+                                isActiveTab: tab.id == terminalTabs.activeTabID
+                            )
+                            .opacity(tab.id == terminalTabs.activeTabID ? 1 : 0)
+                            .allowsHitTesting(tab.id == terminalTabs.activeTabID)
+                        }
+                    }
+                    .id(workingDirectory.directoryURL)
 
                     StatusBarView(
                         workingDirectory: workingDirectory,
@@ -220,6 +241,7 @@ struct ContentView: View {
         changesModel.stop()
         activityModel.stop()
         searchModel.clear()
+        terminalTabs.reset()
         workingDirectory.closeProject()
     }
 
@@ -453,6 +475,7 @@ private struct FocusedSceneModifier: ViewModifier {
     var onIncreaseFontSize: () -> Void
     var onDecreaseFontSize: () -> Void
     var onResetFontSize: () -> Void
+    var onNewTerminalTab: () -> Void
 
     func body(content: Content) -> some View {
         content
@@ -477,5 +500,6 @@ private struct FocusedSceneModifier: ViewModifier {
             .focusedSceneValue(\.increaseFontSize, onIncreaseFontSize)
             .focusedSceneValue(\.decreaseFontSize, onDecreaseFontSize)
             .focusedSceneValue(\.resetFontSize, onResetFontSize)
+            .focusedSceneValue(\.newTerminalTab, hasProject ? onNewTerminalTab : nil)
     }
 }
