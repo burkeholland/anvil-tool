@@ -91,6 +91,10 @@ struct RevealInTreeKey: FocusedValueKey {
     typealias Value = () -> Void
 }
 
+struct MentionInTerminalKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
 extension FocusedValues {
     var sidebarVisible: Binding<Bool>? {
         get { self[SidebarVisibleKey.self] }
@@ -201,6 +205,11 @@ extension FocusedValues {
         get { self[RevealInTreeKey.self] }
         set { self[RevealInTreeKey.self] = newValue }
     }
+
+    var mentionInTerminal: (() -> Void)? {
+        get { self[MentionInTerminalKey.self] }
+        set { self[MentionInTerminalKey.self] = newValue }
+    }
 }
 
 // MARK: - View Menu Commands
@@ -221,6 +230,7 @@ struct ViewCommands: Commands {
     @FocusedValue(\.newTerminalTab) var newTerminalTab
     @FocusedValue(\.showCommandPalette) var showCommandPalette
     @FocusedValue(\.revealInTree) var revealInTree
+    @FocusedValue(\.mentionInTerminal) var mentionInTerminal
     @FocusedValue(\.nextChange) var nextChange
     @FocusedValue(\.previousChange) var previousChange
     @FocusedValue(\.reviewAllChanges) var reviewAllChanges
@@ -267,6 +277,12 @@ struct ViewCommands: Commands {
             }
             .keyboardShortcut("j", modifiers: [.command, .shift])
             .disabled(revealInTree == nil)
+
+            Button("Mention File in Terminal…") {
+                mentionInTerminal?()
+            }
+            .keyboardShortcut("m", modifiers: [.command, .shift])
+            .disabled(mentionInTerminal == nil)
 
             Divider()
 

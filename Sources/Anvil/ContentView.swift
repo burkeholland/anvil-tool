@@ -25,6 +25,7 @@ struct ContentView: View {
     @State private var showSidebar = true
     @State private var sidebarTab: SidebarTab = .files
     @State private var showQuickOpen = false
+    @State private var showMentionPicker = false
     @State private var showCommandPalette = false
     @State private var showBranchPicker = false
     @State private var showDiffSummary = false
@@ -95,7 +96,10 @@ struct ContentView: View {
             changesModel: changesModel,
             workingDirectory: workingDirectory,
             hasProject: workingDirectory.directoryURL != nil,
-            onShowQuickOpen: { showQuickOpen = true },
+            onShowQuickOpen: {
+                showMentionPicker = false
+                showQuickOpen = true
+            },
             onFindInProject: {
                 showSidebar = true
                 sidebarTab = .search
@@ -132,6 +136,10 @@ struct ContentView: View {
                 if let url = filePreview.selectedURL {
                     revealInFileTree(url)
                 }
+            } : nil,
+            onMentionInTerminal: workingDirectory.directoryURL != nil ? {
+                showQuickOpen = false
+                showMentionPicker = true
             } : nil
         ))
         .onChange(of: workingDirectory.directoryURL) { _, newURL in
@@ -349,6 +357,27 @@ struct ContentView: View {
                 }
             }
 
+            // Mention file picker overlay (⌘M)
+            if showMentionPicker {
+                Color.black.opacity(0.2)
+                    .ignoresSafeArea()
+                    .onTapGesture { dismissMentionPicker() }
+
+                VStack {
+                    QuickOpenView(
+                        model: quickOpenModel,
+                        filePreview: filePreview,
+                        onDismiss: { dismissMentionPicker() },
+                        onMentionSelect: { result in
+                            terminalProxy.mentionFile(relativePath: result.relativePath)
+                        }
+                    )
+                    .padding(.top, 60)
+
+                    Spacer()
+                }
+            }
+
             // Drop overlay
             if isDroppingFolder {
                 RoundedRectangle(cornerRadius: 8)
@@ -359,6 +388,11 @@ struct ContentView: View {
             }
         }
         .onChange(of: showQuickOpen) { _, isShowing in
+            if isShowing, let url = workingDirectory.directoryURL {
+                quickOpenModel.index(rootURL: url)
+            }
+        }
+        .onChange(of: showMentionPicker) { _, isShowing in
             if isShowing, let url = workingDirectory.directoryURL {
                 quickOpenModel.index(rootURL: url)
             }
@@ -394,6 +428,11 @@ struct ContentView: View {
         quickOpenModel.reset()
     }
 
+    private func dismissMentionPicker() {
+        showMentionPicker = false
+        quickOpenModel.reset()
+    }
+
     private func dismissCommandPalette() {
         showCommandPalette = false
         commandPalette.reset()
@@ -416,7 +455,17 @@ struct ContentView: View {
                 if let url = workingDirectory.directoryURL {
                     quickOpenModel?.index(rootURL: url)
                 }
+                showMentionPicker = false
                 showQuickOpen = true
+            },
+            PaletteCommand(id: "mention-file", title: "Mention File in Terminal…", icon: "at", shortcut: "⌘⇧M", category: "Terminal") {
+                hasProject
+            } action: { [weak quickOpenModel] in
+                if let url = workingDirectory.directoryURL {
+                    quickOpenModel?.index(rootURL: url)
+                }
+                showQuickOpen = false
+                showMentionPicker = true
             },
             PaletteCommand(id: "find-in-project", title: "Find in Project…", icon: "magnifyingglass", shortcut: "⌘⇧F", category: "Navigation") {
                 hasProject
@@ -1159,6 +1208,7 @@ private struct FocusedSceneModifier: ViewModifier {
     var onShowKeyboardShortcuts: () -> Void
     var onGoToLine: (() -> Void)?
     var onRevealInTree: (() -> Void)?
+    var onMentionInTerminal: (() -> Void)?
 
     func body(content: Content) -> some View {
         content
@@ -1190,7 +1240,8 @@ private struct FocusedSceneModifier: ViewModifier {
                 onGoToLine: onGoToLine
             ))
             .modifier(FocusedSceneModifierC(
-                onRevealInTree: onRevealInTree
+                onRevealInTree: onRevealInTree,
+                onMentionInTerminal: onMentionInTerminal
             ))
     }
 }
@@ -1263,10 +1314,12 @@ private struct FocusedSceneModifierB: ViewModifier {
 
 private struct FocusedSceneModifierC: ViewModifier {
     var onRevealInTree: (() -> Void)?
+    var onMentionInTerminal: (() -> Void)?
 
     func body(content: Content) -> some View {
         content
             .focusedSceneValue(\.revealInTree, onRevealInTree)
+            .focusedSceneValue(\.mentionInTerminal, onMentionInTerminal)
     }
 }
 

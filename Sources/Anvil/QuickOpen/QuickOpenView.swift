@@ -2,11 +2,17 @@ import SwiftUI
 import AppKit
 
 /// A floating palette for quickly opening files by fuzzy name search.
-/// Activated via ⌘⇧O. Renders as a centered overlay above the main content.
+/// Activated via ⌘⇧O. When `onMentionSelect` is provided, acts as a
+/// file mention picker (⌘M) that inserts @path into the terminal instead.
 struct QuickOpenView: View {
     @ObservedObject var model: QuickOpenModel
     @ObservedObject var filePreview: FilePreviewModel
     var onDismiss: () -> Void
+    /// When set, the picker is in "mention" mode: selecting a file calls this
+    /// closure with the result instead of opening it in the preview.
+    var onMentionSelect: ((QuickOpenResult) -> Void)? = nil
+
+    private var isMentionMode: Bool { onMentionSelect != nil }
 
     @FocusState private var isSearchFocused: Bool
 
@@ -14,11 +20,11 @@ struct QuickOpenView: View {
         VStack(spacing: 0) {
             // Search field
             HStack(spacing: 8) {
-                Image(systemName: "magnifyingglass")
+                Image(systemName: isMentionMode ? "at" : "magnifyingglass")
                     .font(.system(size: 14))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(isMentionMode ? .orange : .secondary)
 
-                TextField("Open file by name…", text: $model.query)
+                TextField(isMentionMode ? "Mention file in terminal…" : "Open file by name…", text: $model.query)
                     .textFieldStyle(.plain)
                     .font(.system(size: 16))
                     .focused($isSearchFocused)
@@ -84,7 +90,7 @@ struct QuickOpenView: View {
             // Footer hint
             HStack(spacing: 16) {
                 KeyHint(keys: ["↑", "↓"], label: "navigate")
-                KeyHint(keys: ["↩"], label: "open")
+                KeyHint(keys: ["↩"], label: isMentionMode ? "mention" : "open")
                 KeyHint(keys: ["esc"], label: "dismiss")
             }
             .padding(.horizontal, 14)
@@ -120,7 +126,11 @@ struct QuickOpenView: View {
 
     private func openSelected() {
         guard let result = model.selectedResult else { return }
-        filePreview.select(result.url)
+        if let onMentionSelect {
+            onMentionSelect(result)
+        } else {
+            filePreview.select(result.url)
+        }
         onDismiss()
     }
 }
