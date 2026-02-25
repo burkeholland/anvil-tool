@@ -6,6 +6,7 @@ struct BranchPickerView: View {
     let currentBranch: String?
     let onDismiss: () -> Void
     let onBranchChanged: () -> Void
+    @ObservedObject var workingDirectory: WorkingDirectoryModel
 
     @State private var branches: [GitBranch] = []
     @State private var filterText = ""
@@ -126,6 +127,122 @@ struct BranchPickerView: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+            }
+
+            // Remote sync toolbar
+            if workingDirectory.hasRemotes {
+                Divider()
+                HStack(spacing: 4) {
+                    // Ahead/behind badge
+                    if workingDirectory.aheadCount > 0 || workingDirectory.behindCount > 0 {
+                        HStack(spacing: 3) {
+                            if workingDirectory.aheadCount > 0 {
+                                HStack(spacing: 2) {
+                                    Image(systemName: "arrow.up")
+                                        .font(.system(size: 8, weight: .bold))
+                                    Text("\(workingDirectory.aheadCount)")
+                                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                                }
+                                .foregroundStyle(.orange)
+                                .help("\(workingDirectory.aheadCount) commit\(workingDirectory.aheadCount == 1 ? "" : "s") ahead of remote")
+                            }
+                            if workingDirectory.behindCount > 0 {
+                                HStack(spacing: 2) {
+                                    Image(systemName: "arrow.down")
+                                        .font(.system(size: 8, weight: .bold))
+                                    Text("\(workingDirectory.behindCount)")
+                                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                                }
+                                .foregroundStyle(.cyan)
+                                .help("\(workingDirectory.behindCount) commit\(workingDirectory.behindCount == 1 ? "" : "s") behind remote")
+                            }
+                        }
+                    } else if workingDirectory.hasUpstream {
+                        HStack(spacing: 2) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.system(size: 9))
+                                .foregroundStyle(.green.opacity(0.7))
+                            Text("In sync")
+                                .font(.system(size: 10))
+                                .foregroundStyle(.secondary)
+                        }
+                        .help("In sync with remote")
+                    }
+
+                    Spacer()
+
+                    if workingDirectory.isSyncing {
+                        ProgressView()
+                            .controlSize(.mini)
+                            .frame(width: 22, height: 20)
+                    } else {
+                        // Push
+                        Button {
+                            workingDirectory.push()
+                        } label: {
+                            Image(systemName: "arrow.up")
+                                .font(.system(size: 10, weight: .semibold))
+                                .frame(width: 22, height: 20)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.borderless)
+                        .disabled(workingDirectory.aheadCount == 0 && workingDirectory.hasUpstream)
+                        .help(workingDirectory.hasUpstream
+                              ? "Push \(workingDirectory.aheadCount) commit\(workingDirectory.aheadCount == 1 ? "" : "s")"
+                              : "Push and set upstream")
+
+                        // Pull
+                        Button {
+                            workingDirectory.pull()
+                        } label: {
+                            Image(systemName: "arrow.down")
+                                .font(.system(size: 10, weight: .semibold))
+                                .frame(width: 22, height: 20)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.borderless)
+                        .disabled(!workingDirectory.hasUpstream)
+                        .help(workingDirectory.hasUpstream ? "Pull" : "No upstream configured")
+
+                        // Fetch
+                        Button {
+                            workingDirectory.fetch()
+                        } label: {
+                            Image(systemName: "arrow.triangle.2.circlepath")
+                                .font(.system(size: 10, weight: .semibold))
+                                .frame(width: 22, height: 20)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.borderless)
+                        .help("Fetch from remote")
+                    }
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+
+                // Sync error
+                if let syncError = workingDirectory.lastSyncError {
+                    HStack(spacing: 4) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.yellow)
+                        Text(syncError)
+                            .font(.system(size: 10))
+                            .foregroundStyle(.red)
+                            .lineLimit(2)
+                        Spacer()
+                        Button {
+                            workingDirectory.lastSyncError = nil
+                        } label: {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 8, weight: .bold))
+                                .foregroundStyle(.tertiary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                }
             }
 
             // Error message
