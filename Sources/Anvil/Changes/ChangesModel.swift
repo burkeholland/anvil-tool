@@ -127,17 +127,75 @@ final class ChangesModel: ObservableObject {
         // Build subject line
         let subject = buildSubject(added: added, modified: modified, deleted: deleted, renamed: renamed)
 
-        // Build body with per-file stats
+        // Build body with per-directory grouping, per-file stats, and extracted symbols
         var bodyLines: [String] = []
         if files.count > 1 {
             bodyLines.append("")
-            for file in files {
-                let stats = fileStatsLabel(file)
-                bodyLines.append("- \(file.relativePath)\(stats)")
+            let groups = Dictionary(grouping: files) { $0.directoryPath }
+            let sortedDirs = groups.keys.sorted()
+            if sortedDirs.count > 1 {
+                // Multiple directories: group files under their parent directory
+                for dir in sortedDirs {
+                    let dirLabel = dir.isEmpty ? "(root)" : "\(dir)/"
+                    bodyLines.append(dirLabel)
+                    for file in groups[dir]! {
+                        let stats = fileStatsLabel(file)
+                        let symbols = extractedSymbols(file)
+                        let symbolSuffix = symbols.isEmpty ? "" : ": \(symbols)"
+                        bodyLines.append("  - \(file.fileName)\(stats)\(symbolSuffix)")
+                    }
+                }
+            } else {
+                // Single directory: flat list with optional symbol annotation
+                for file in files {
+                    let stats = fileStatsLabel(file)
+                    let symbols = extractedSymbols(file)
+                    let symbolSuffix = symbols.isEmpty ? "" : ": \(symbols)"
+                    bodyLines.append("- \(file.relativePath)\(stats)\(symbolSuffix)")
+                }
             }
         }
 
         return subject + bodyLines.joined(separator: "\n")
+    }
+
+    /// Extracts up to three top-level symbol names (functions, types, etc.) from
+    /// the addition lines of a file's diff, using `SymbolParser`.
+    private func extractedSymbols(_ file: ChangedFile) -> String {
+        guard let diff = file.diff, !diff.hunks.isEmpty else { return "" }
+        let ext = (file.relativePath as NSString).pathExtension.lowercased()
+        let language = languageFromExtension(ext)
+        guard !language.isEmpty else { return "" }
+        let addedLines = diff.hunks.flatMap(\.lines)
+            .filter { $0.kind == .addition }
+            .compactMap { $0.text.hasPrefix("+") ? String($0.text.dropFirst()) : nil }
+        guard !addedLines.isEmpty else { return "" }
+        let source = addedLines.joined(separator: "\n")
+        let symbols = SymbolParser.parse(source: source, language: language)
+        let topLevel = symbols.filter { $0.depth == 0 }.prefix(3).map(\.name)
+        guard !topLevel.isEmpty else { return "" }
+        return topLevel.joined(separator: ", ")
+    }
+
+    /// Maps a file extension to the Highlightr language identifier used by `SymbolParser`.
+    private func languageFromExtension(_ ext: String) -> String {
+        switch ext {
+        case "swift":             return "swift"
+        case "ts", "tsx":        return "typescript"
+        case "js", "jsx":        return "javascript"
+        case "py":               return "python"
+        case "go":               return "go"
+        case "rs":               return "rust"
+        case "java":             return "java"
+        case "kt", "kts":        return "kotlin"
+        case "cs":               return "csharp"
+        case "c", "h":           return "c"
+        case "cpp", "cc", "cxx", "hpp": return "cpp"
+        case "m", "mm":          return "objectivec"
+        case "rb":               return "ruby"
+        case "php":              return "php"
+        default:                 return ""
+        }
     }
 
     private func buildSubject(added: [ChangedFile], modified: [ChangedFile], deleted: [ChangedFile], renamed: [ChangedFile]) -> String {
