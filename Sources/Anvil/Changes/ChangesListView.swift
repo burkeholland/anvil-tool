@@ -11,6 +11,7 @@ struct ChangesListView: View {
     @EnvironmentObject var terminalProxy: TerminalInputProxy
     @State private var fileToDiscard: ChangedFile?
     @State private var showDiscardAllConfirm = false
+    @State private var showUndoCommitConfirm = false
 
     var body: some View {
         if model.isLoading && model.changedFiles.isEmpty && model.recentCommits.isEmpty {
@@ -179,11 +180,13 @@ struct ChangesListView: View {
                 // Commit history section
                 if !model.recentCommits.isEmpty {
                     Section {
-                        ForEach(model.recentCommits) { commit in
+                        ForEach(Array(model.recentCommits.enumerated()), id: \.element.id) { index, commit in
                             CommitRow(
                                 commit: commit,
+                                isLatest: index == 0,
                                 model: model,
-                                filePreview: filePreview
+                                filePreview: filePreview,
+                                onUndoCommit: index == 0 ? { showUndoCommitConfirm = true } : nil
                             )
                         }
                     } header: {
@@ -224,13 +227,30 @@ struct ChangesListView: View {
             } message: {
                 Text("This will discard all \(model.changedFiles.count) uncommitted changed file\(model.changedFiles.count == 1 ? "" : "s"). Changes are stashed so you can recover them.")
             }
+            .alert("Undo Last Commit?", isPresented: $showUndoCommitConfirm) {
+                Button("Undo Commit", role: .destructive) {
+                    model.undoLastCommit()
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                if let commit = model.recentCommits.first {
+                    Text("This will undo \"\(commit.message)\" (\(commit.shortSHA)). The changes will be moved back to the staging area — no work is lost.")
+                }
+            }
             .overlay(alignment: .bottom) {
-                if model.lastDiscardStashRef != nil {
-                    DiscardRecoveryBanner(model: model)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                VStack(spacing: 0) {
+                    if model.lastUndoneCommitSHA != nil {
+                        UndoCommitBanner(model: model)
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
+                    if model.lastDiscardStashRef != nil {
+                        DiscardRecoveryBanner(model: model)
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
                 }
             }
             .animation(.easeInOut(duration: 0.2), value: model.lastDiscardStashRef != nil)
+            .animation(.easeInOut(duration: 0.2), value: model.lastUndoneCommitSHA != nil)
         }
     }
 
@@ -391,8 +411,10 @@ struct CommitFormView: View {
 
 struct CommitRow: View {
     let commit: GitCommit
+    var isLatest: Bool = false
     @ObservedObject var model: ChangesModel
     @ObservedObject var filePreview: FilePreviewModel
+    var onUndoCommit: (() -> Void)?
     @State private var isExpanded = false
 
     var body: some View {
@@ -441,6 +463,17 @@ struct CommitRow: View {
             }
             .buttonStyle(.plain)
             .contextMenu {
+                if isLatest, let onUndoCommit {
+                    Button {
+                        onUndoCommit()
+                    } label: {
+                        Label("Undo Commit…", systemImage: "arrow.uturn.backward")
+                    }
+                    .disabled(!model.canUndoCommit)
+
+                    Divider()
+                }
+
                 Button {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(commit.sha, forType: .string)
@@ -670,6 +703,41 @@ struct DiscardRecoveryBanner: View {
 
             Button {
                 model.lastDiscardStashRef = nil
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .buttonStyle(.borderless)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(.ultraThinMaterial)
+        .overlay(alignment: .top) { Divider() }
+    }
+}
+
+/// Banner shown after "Undo Commit" confirming the action.
+struct UndoCommitBanner: View {
+    @ObservedObject var model: ChangesModel
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "arrow.uturn.backward.circle")
+                .font(.system(size: 12))
+                .foregroundStyle(.blue)
+
+            if let sha = model.lastUndoneCommitSHA {
+                Text("Commit \(sha) undone. Changes are staged.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+
+            Button {
+                model.lastUndoneCommitSHA = nil
             } label: {
                 Image(systemName: "xmark")
                     .font(.system(size: 9, weight: .semibold))

@@ -33,6 +33,9 @@ final class ChangesModel: ObservableObject {
     @Published private(set) var isDiscardingAll = false
     /// The stash reference after a "Discard All" so the user can recover.
     @Published var lastDiscardStashRef: String?
+    @Published private(set) var isUndoingCommit = false
+    /// The SHA of the commit that was undone, so the user can see what was reverted.
+    @Published var lastUndoneCommitSHA: String?
 
     private(set) var rootDirectory: URL?
     private var refreshGeneration: UInt64 = 0
@@ -90,6 +93,8 @@ final class ChangesModel: ObservableObject {
         lastCommitError = nil
         isDiscardingAll = false
         lastDiscardStashRef = nil
+        isUndoingCommit = false
+        lastUndoneCommitSHA = nil
     }
 
     func refresh() {
@@ -334,6 +339,51 @@ final class ChangesModel: ObservableObject {
                 }
                 // Always refresh to reflect current state
                 self.refresh()
+            }
+        }
+    }
+
+    // MARK: - Undo Commit
+
+    /// Whether the most recent commit can be undone (soft reset).
+    /// Returns false if there's only one commit (no parent), or an undo is already in progress.
+    var canUndoCommit: Bool {
+        guard !recentCommits.isEmpty && !isUndoingCommit else { return false }
+        // Need at least 2 commits so HEAD~1 exists
+        return recentCommits.count >= 2
+    }
+
+    /// Undo the most recent commit via `git reset --soft HEAD~1`.
+    /// Changes from the undone commit become staged, preserving all work.
+    func undoLastCommit() {
+        guard let rootURL = rootDirectory, let commit = recentCommits.first else { return }
+        isUndoingCommit = true
+        lastUndoneCommitSHA = nil
+        refreshGeneration &+= 1
+        let generation = refreshGeneration
+        let sha = commit.shortSHA
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            // Verify HEAD~1 exists before attempting reset
+            let parentExists = Self.runGitWithStatus(args: ["rev-parse", "--verify", "HEAD~1"], at: rootURL)
+            let success: Bool
+            if parentExists {
+                success = Self.runGitWithStatus(args: ["reset", "--soft", "HEAD~1"], at: rootURL)
+            } else {
+                success = false
+            }
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                // Always clear the loading flag regardless of generation
+                self.isUndoingCommit = false
+                guard self.refreshGeneration == generation else { return }
+                if success {
+                    self.lastUndoneCommitSHA = sha
+                } else {
+                    self.lastCommitError = "Failed to undo commit"
+                }
+                self.refresh()
+                self.refreshCommits()
             }
         }
     }
