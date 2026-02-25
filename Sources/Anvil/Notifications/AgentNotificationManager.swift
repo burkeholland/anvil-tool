@@ -53,6 +53,7 @@ final class AgentNotificationManager {
     }
 
     static func requestAuthorization() {
+        guard Bundle.main.bundleIdentifier != nil else { return }
         UNUserNotificationCenter.current().requestAuthorization(
             options: [.alert, .sound]
         ) { _, _ in }

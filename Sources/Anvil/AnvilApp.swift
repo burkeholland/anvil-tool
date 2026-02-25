@@ -27,6 +27,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     static let openDirectoryNotification = Notification.Name("dev.anvil.openDirectory")
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApp.setActivationPolicy(.regular)
+        NSApp.activate(ignoringOtherApps: true)
         AgentNotificationManager.requestAuthorization()
     }
 
