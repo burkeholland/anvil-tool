@@ -331,7 +331,9 @@ Output ONLY a JSON array. No markdown, no explanation, no code fences. Just the 
 [
   {
     \"title\": \"Short descriptive title\",
-    \"description\": \"Detailed description of what to build and why. Include which files/modules to modify. Be specific enough that an engineer can implement this without asking questions.\",
+    \"problem\": \"What is the current problem or gap (1-2 sentences)\",
+    \"solution\": \"What to build and how it should work (2-4 sentences)\",
+    \"files\": [\"path/to/file1.swift\", \"path/to/file2.swift\"],
     \"module\": \"The primary directory under Sources/Anvil/ this touches\"
   }
 ]"
@@ -374,24 +376,52 @@ Output ONLY a JSON array. No markdown, no explanation, no code fences. Just the 
 
   local i=0
   while [ "$i" -lt "$count" ]; do
-    local title description module
+    local title problem solution files_json module
     title="$(echo "$json_output" | jq -r ".[$i].title")"
-    description="$(echo "$json_output" | jq -r ".[$i].description")"
+    problem="$(echo "$json_output" | jq -r ".[$i].problem // .[$i].description // empty")"
+    solution="$(echo "$json_output" | jq -r ".[$i].solution // empty")"
+    files_json="$(echo "$json_output" | jq -r ".[$i].files // [] | .[]")"
     module="$(echo "$json_output" | jq -r ".[$i].module // empty")"
 
-    local full_body="$description"
+    # Build a file list as markdown
+    local files_md=""
+    if [ -n "$files_json" ]; then
+      while IFS= read -r f; do
+        files_md="$files_md
+- \`$f\`"
+      done <<< "$files_json"
+    fi
+
+    # Compose structured issue body
+    local full_body="## Problem
+
+$problem"
+
+    if [ -n "$solution" ]; then
+      full_body="$full_body
+
+## Solution
+
+$solution"
+    fi
+
+    if [ -n "$files_md" ]; then
+      full_body="$full_body
+
+## Files to modify
+$files_md"
+    fi
+
+    full_body="$full_body
+
+---"
     if [ -n "$module" ]; then
       full_body="$full_body
-
----
-*Primary module: \`Sources/Anvil/$module/\`*
-*Filed by ralph-team.sh*"
-    else
-      full_body="$full_body
-
----
-*Filed by ralph-team.sh*"
+📁 **Module**: \`Sources/Anvil/$module/\`
+"
     fi
+    full_body="$full_body
+🤖 *Filed by ralph-team.sh*"
 
     log "   📋 Creating issue: $title"
     gh issue create --repo "$REPO" \
