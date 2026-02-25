@@ -117,7 +117,7 @@ phase_merge() {
   fi
 
   # Make sure we're on main with latest
-  git checkout main --quiet 2>/dev/null || true
+  git checkout main --force --quiet 2>/dev/null || true
   git pull --quiet origin main 2>/dev/null || true
 
   local merged_count=0
@@ -145,16 +145,34 @@ phase_merge() {
       continue
     fi
 
-    # Checkout PR locally and build
-    gh pr checkout "$pr_num" --force --quiet 2>/dev/null || {
-      log "   ❌ Could not checkout PR #$pr_num. Skipping."
+    # Fetch PR head and test-merge into a temp branch (keeps main clean)
+    local pr_head
+    pr_head="$(gh pr view "$pr_num" --repo "$REPO" --json headRefOid -q '.headRefOid')" || {
+      log "   ⚠️  Could not get head SHA for PR #$pr_num. Skipping."
       continue
     }
+    git fetch --quiet origin "$pr_head" 2>/dev/null || {
+      log "   ❌ Could not fetch PR #$pr_num head. Skipping."
+      continue
+    }
+
+    git checkout -B "ralph-team/test-merge" main --quiet 2>/dev/null || {
+      log "   ❌ Could not create test branch for PR #$pr_num. Skipping."
+      git checkout main --force --quiet 2>/dev/null || true
+      continue
+    }
+
+    if ! git merge --no-edit --quiet "$pr_head" 2>/dev/null; then
+      log "   ⚠️  PR #$pr_num merge conflicts locally. Skipping."
+      git merge --abort 2>/dev/null || true
+      git checkout main --force --quiet 2>/dev/null || true
+      continue
+    fi
 
     log "   🔨 Building PR #$pr_num..."
     if swift build 2>&1 | tail -3; then
       log "   ✅ Build passed for PR #$pr_num. Marking ready and merging..."
-      git checkout main --quiet 2>/dev/null || true
+      git checkout main --force --quiet 2>/dev/null || true
       # Mark as ready (PRs from Copilot arrive as drafts)
       gh pr ready "$pr_num" --repo "$REPO" 2>/dev/null || true
       gh pr merge "$pr_num" --repo "$REPO" --squash --delete-branch \
@@ -168,7 +186,7 @@ phase_merge() {
       break
     else
       log "   ❌ Build failed for PR #$pr_num. Commenting and labeling."
-      git checkout main --quiet 2>/dev/null || true
+      git checkout main --force --quiet 2>/dev/null || true
       gh pr comment "$pr_num" --repo "$REPO" \
         --body "❌ ralph-team: Build failed locally (\`swift build\`). Please fix compilation errors." \
         2>/dev/null || true
@@ -176,6 +194,10 @@ phase_merge() {
       gh pr edit "$pr_num" --repo "$REPO" --add-label "build-failed" 2>/dev/null || true
     fi
   done <<< "$pr_numbers"
+
+  # Clean up test branch
+  git checkout main --force --quiet 2>/dev/null || true
+  git branch -D "ralph-team/test-merge" 2>/dev/null || true
 
   log "   Merged $merged_count PR(s) this cycle."
 }
