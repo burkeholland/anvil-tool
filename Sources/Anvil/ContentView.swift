@@ -890,6 +890,24 @@ struct ContentView: View {
                 showBranchPicker = true
             },
 
+            PaletteCommand(id: "git-commit", title: "Commit", icon: "checkmark.circle", shortcut: "⌘↩", category: "Git") {
+                hasProject && changesModel.canCommit
+            } action: { [weak changesModel] in
+                changesModel?.commit()
+            },
+
+            PaletteCommand(id: "git-commit-push", title: "Commit & Push", icon: "arrow.up.circle", shortcut: nil, category: "Git") {
+                hasProject && changesModel.canCommit && workingDirectory.hasRemotes && !workingDirectory.isPushing
+            } action: { [weak changesModel, weak workingDirectory] in
+                changesModel?.commitAndPush { workingDirectory?.push() }
+            },
+
+            PaletteCommand(id: "git-stage-all-commit", title: "Stage All & Commit", icon: "checkmark.circle.badge.plus", shortcut: nil, category: "Git") {
+                hasProject && !changesModel.changedFiles.isEmpty && !changesModel.commitMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            } action: { [weak changesModel] in
+                changesModel?.stageAllAndCommit()
+            },
+
             PaletteCommand(id: "discard-all", title: "Discard All Changes", icon: "arrow.uturn.backward", shortcut: nil, category: "Git") {
                 hasProject && !changesModel.changedFiles.isEmpty
             } action: { [weak changesModel] in
