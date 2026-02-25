@@ -121,6 +121,20 @@ final class FilePreviewModel: ObservableObject {
         loadFile(url)
     }
 
+    /// Switches the preview to the given file as part of auto-follow mode.
+    /// If the file is already displayed, refreshes it and switches to the Changes tab
+    /// so the latest diff is visible. If it is a different file, behaves like select().
+    func autoFollowChange(to url: URL) {
+        guard !url.hasDirectoryPath else { return }
+        if selectedURL == url && commitDiffContext == nil {
+            // Same file already open — refresh the diff and show the Changes tab
+            refresh()
+            activeTab = .changes
+        } else {
+            select(url)
+        }
+    }
+
     /// Line to scroll to after the file finishes loading.
     private var pendingScrollLine: Int?
 

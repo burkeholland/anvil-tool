@@ -175,8 +175,8 @@ struct ContentView: View {
             }
         }
         .onChange(of: activityModel.latestFileChange) { _, change in
-            guard autoFollow, let change = change else { return }
-            filePreview.select(change.url)
+            guard autoFollow, activityModel.isAgentActive, let change = change else { return }
+            filePreview.autoFollowChange(to: change.url)
             revealInFileTree(change.url)
         }
         .onChange(of: filePreview.selectedURL) { _, newURL in
