@@ -14,6 +14,10 @@ final class WorkingDirectoryModel: ObservableObject {
         return path
     }
 
+    var projectName: String {
+        directoryURL?.lastPathComponent ?? "Anvil"
+    }
+
     var path: String? {
         directoryURL?.path
     }
