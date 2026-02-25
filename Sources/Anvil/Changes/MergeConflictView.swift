@@ -224,7 +224,7 @@ private struct ConflictBlockView: View {
             Button("Change") { onUnresolve() }
                 .font(.system(size: 10))
                 .buttonStyle(.plain)
-                .foregroundStyle(.accentColor)
+                .foregroundStyle(Color.accentColor)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
