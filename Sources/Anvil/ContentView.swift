@@ -4,15 +4,21 @@ struct ContentView: View {
     @StateObject private var workingDirectory = WorkingDirectoryModel()
     @StateObject private var filePreview = FilePreviewModel()
     @State private var sidebarWidth: CGFloat = 240
+    @State private var previewWidth: CGFloat = 400
     @State private var showSidebar = true
 
     var body: some View {
         HStack(spacing: 0) {
             if showSidebar {
                 SidebarView(model: workingDirectory, filePreview: filePreview)
-                    .frame(width: sidebarWidth)
+                    .frame(width: max(sidebarWidth, 0))
 
-                Divider()
+                PanelDivider(
+                    width: $sidebarWidth,
+                    minWidth: 140,
+                    maxWidth: 500,
+                    edge: .leading
+                )
             }
 
             VStack(spacing: 0) {
@@ -26,10 +32,15 @@ struct ContentView: View {
             }
 
             if filePreview.selectedURL != nil {
-                Divider()
+                PanelDivider(
+                    width: $previewWidth,
+                    minWidth: 200,
+                    maxWidth: 800,
+                    edge: .trailing
+                )
 
                 FilePreviewView(model: filePreview)
-                    .frame(minWidth: 300, idealWidth: 400)
+                    .frame(width: max(previewWidth, 0))
             }
         }
         .frame(minWidth: 800, minHeight: 500)
