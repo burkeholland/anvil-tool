@@ -35,6 +35,7 @@ struct UnifiedDiffView: View {
     var onDiscardHunk: ((DiffHunk) -> Void)?
 
     var body: some View {
+        let highlights = DiffSyntaxHighlighter.highlight(diff: diff)
         ScrollView([.horizontal, .vertical]) {
             VStack(alignment: .leading, spacing: 0) {
                 DiffStatsBar(diff: diff, mode: $mode)
@@ -45,6 +46,7 @@ struct UnifiedDiffView: View {
                 ForEach(diff.hunks) { hunk in
                     DiffHunkView(
                         hunk: hunk,
+                        syntaxHighlights: highlights,
                         onStage: onStageHunk.map { handler in { handler(hunk) } },
                         onDiscard: onDiscardHunk.map { handler in { handler(hunk) } }
                     )
@@ -86,6 +88,7 @@ struct DiffStatsBar: View {
 
 struct DiffHunkView: View {
     let hunk: DiffHunk
+    var syntaxHighlights: [Int: AttributedString] = [:]
     var onStage: (() -> Void)?
     var onDiscard: (() -> Void)?
     @State private var isHovered = false
@@ -98,7 +101,7 @@ struct DiffHunkView: View {
         VStack(alignment: .leading, spacing: 0) {
             ForEach(hunk.lines) { line in
                 if line.kind == .hunkHeader && hasActions {
-                    DiffLineView(line: line)
+                    DiffLineView(line: line, syntaxHighlight: syntaxHighlights[line.id])
                         .overlay(alignment: .trailing) {
                             hunkActions
                                 .opacity(isHovered ? 1 : 0)
@@ -107,7 +110,7 @@ struct DiffHunkView: View {
                             isHovered = hovering
                         }
                 } else {
-                    DiffLineView(line: line)
+                    DiffLineView(line: line, syntaxHighlight: syntaxHighlights[line.id])
                 }
             }
         }
@@ -150,6 +153,7 @@ struct DiffHunkView: View {
 
 struct DiffLineView: View {
     let line: DiffLine
+    var syntaxHighlight: AttributedString?
 
     var body: some View {
         HStack(spacing: 0) {
@@ -171,24 +175,48 @@ struct DiffLineView: View {
                 .foregroundStyle(gutterColor)
                 .font(.system(size: 12, design: .monospaced))
 
-            // Content — with inline highlights when available
-            if let highlights = line.inlineHighlights, !highlights.isEmpty {
-                Text(highlightedContent(highlights))
-                    .lineLimit(1)
-                    .fixedSize(horizontal: true, vertical: false)
-            } else {
-                Text(line.text)
-                    .font(.system(size: 12, design: .monospaced))
-                    .foregroundStyle(textColor)
-                    .lineLimit(1)
-                    .fixedSize(horizontal: true, vertical: false)
-            }
+            // Content — syntax highlighted with optional inline highlights
+            contentView
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
 
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 4)
         .frame(height: 20)
         .background(backgroundColor)
+    }
+
+    @ViewBuilder
+    private var contentView: some View {
+        if let syntax = syntaxHighlight {
+            if let highlights = line.inlineHighlights, !highlights.isEmpty {
+                Text(applyInlineHighlights(to: syntax, highlights: highlights))
+            } else {
+                Text(syntax)
+            }
+        } else if let highlights = line.inlineHighlights, !highlights.isEmpty {
+            Text(highlightedContent(highlights))
+        } else {
+            Text(line.text)
+                .font(.system(size: 12, design: .monospaced))
+                .foregroundStyle(textColor)
+        }
+    }
+
+    private func applyInlineHighlights(to syntax: AttributedString, highlights: [Range<Int>]) -> AttributedString {
+        var result = syntax
+        let charCount = result.characters.count
+        for range in highlights {
+            let clampedStart = max(0, range.lowerBound)
+            let clampedEnd = min(charCount, range.upperBound)
+            guard clampedStart < clampedEnd else { continue }
+
+            let startIdx = result.index(result.startIndex, offsetByCharacters: clampedStart)
+            let endIdx = result.index(result.startIndex, offsetByCharacters: clampedEnd)
+            result[startIdx..<endIdx].backgroundColor = inlineHighlightColor
+        }
+        return result
     }
 
     private func highlightedContent(_ highlights: [Range<Int>]) -> AttributedString {

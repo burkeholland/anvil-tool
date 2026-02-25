@@ -262,10 +262,11 @@ struct DiffSummaryView: View {
             if !isCollapsed {
                 if let diff = file.diff {
                     let viewMode = DiffViewMode(rawValue: diffMode) ?? .unified
+                    let highlights = DiffSyntaxHighlighter.highlight(diff: diff)
                     if viewMode == .sideBySide {
                         VStack(alignment: .leading, spacing: 0) {
                             ForEach(DiffRowPairer.pairLines(from: diff.hunks)) { row in
-                                SideBySideRowView(row: row)
+                                SideBySideRowView(row: row, syntaxHighlights: highlights)
                             }
                         }
                     } else {
@@ -273,6 +274,7 @@ struct DiffSummaryView: View {
                             ForEach(diff.hunks) { hunk in
                                 DiffHunkView(
                                     hunk: hunk,
+                                    syntaxHighlights: highlights,
                                     onStage: {
                                         changesModel.stageHunk(patch: DiffParser.reconstructPatch(fileDiff: diff, hunk: hunk))
                                     },

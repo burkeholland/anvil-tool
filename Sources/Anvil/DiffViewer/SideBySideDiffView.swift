@@ -79,6 +79,7 @@ struct SideBySideDiffView: View {
     }
 
     var body: some View {
+        let highlights = DiffSyntaxHighlighter.highlight(diff: diff)
         ScrollView([.horizontal, .vertical]) {
             VStack(alignment: .leading, spacing: 0) {
                 DiffStatsBar(diff: diff, mode: $mode)
@@ -110,7 +111,7 @@ struct SideBySideDiffView: View {
 
                 // Rows
                 ForEach(rows) { row in
-                    SideBySideRowView(row: row)
+                    SideBySideRowView(row: row, syntaxHighlights: highlights)
                 }
             }
         }
@@ -120,6 +121,7 @@ struct SideBySideDiffView: View {
 
 struct SideBySideRowView: View {
     let row: DiffRowPair
+    var syntaxHighlights: [Int: AttributedString] = [:]
 
     var body: some View {
         if row.left?.kind == .hunkHeader {
@@ -138,7 +140,11 @@ struct SideBySideRowView: View {
         } else {
             HStack(spacing: 0) {
                 // Left (old) side
-                SideBySideCellView(line: row.left, side: .old)
+                SideBySideCellView(
+                    line: row.left,
+                    side: .old,
+                    syntaxHighlight: row.left.flatMap { syntaxHighlights[$0.id] }
+                )
 
                 // Center divider
                 Rectangle()
@@ -146,7 +152,11 @@ struct SideBySideRowView: View {
                     .frame(width: 1)
 
                 // Right (new) side
-                SideBySideCellView(line: row.right, side: .new)
+                SideBySideCellView(
+                    line: row.right,
+                    side: .new,
+                    syntaxHighlight: row.right.flatMap { syntaxHighlights[$0.id] }
+                )
             }
             .frame(height: 20)
         }
@@ -160,6 +170,7 @@ enum DiffSide {
 struct SideBySideCellView: View {
     let line: DiffLine?
     let side: DiffSide
+    var syntaxHighlight: AttributedString?
 
     var body: some View {
         HStack(spacing: 0) {
@@ -176,22 +187,14 @@ struct SideBySideCellView: View {
                     .foregroundStyle(gutterColor(line))
                     .font(.system(size: 12, design: .monospaced))
 
-                // Content with inline highlights
-                if let highlights = line.inlineHighlights, !highlights.isEmpty {
-                    Text(highlightedContent(line, highlights: highlights))
-                        .lineLimit(1)
-                        .fixedSize(horizontal: true, vertical: false)
-                } else {
-                    Text(line.text)
-                        .font(.system(size: 12, design: .monospaced))
-                        .foregroundStyle(textColor(line))
-                        .lineLimit(1)
-                        .fixedSize(horizontal: true, vertical: false)
-                }
+                // Content with syntax + inline highlights
+                contentView(for: line)
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
             } else {
                 // Empty placeholder for missing side
                 Spacer()
-                    .frame(minWidth: 56) // line number + gutter width
+                    .frame(minWidth: 56)
             }
 
             Spacer(minLength: 0)
@@ -199,6 +202,42 @@ struct SideBySideCellView: View {
         .padding(.horizontal, 4)
         .frame(maxWidth: .infinity)
         .background(backgroundColor(line))
+    }
+
+    @ViewBuilder
+    private func contentView(for line: DiffLine) -> some View {
+        if let syntax = syntaxHighlight {
+            if let highlights = line.inlineHighlights, !highlights.isEmpty {
+                Text(applyInlineHighlights(to: syntax, line: line, highlights: highlights))
+            } else {
+                Text(syntax)
+            }
+        } else if let highlights = line.inlineHighlights, !highlights.isEmpty {
+            Text(highlightedContent(line, highlights: highlights))
+        } else {
+            Text(line.text)
+                .font(.system(size: 12, design: .monospaced))
+                .foregroundStyle(textColor(line))
+        }
+    }
+
+    private func applyInlineHighlights(
+        to syntax: AttributedString,
+        line: DiffLine,
+        highlights: [Range<Int>]
+    ) -> AttributedString {
+        var result = syntax
+        let charCount = result.characters.count
+        for range in highlights {
+            let clampedStart = max(0, range.lowerBound)
+            let clampedEnd = min(charCount, range.upperBound)
+            guard clampedStart < clampedEnd else { continue }
+
+            let startIdx = result.index(result.startIndex, offsetByCharacters: clampedStart)
+            let endIdx = result.index(result.startIndex, offsetByCharacters: clampedEnd)
+            result[startIdx..<endIdx].backgroundColor = inlineHighlightColor(line)
+        }
+        return result
     }
 
     private func lineNumber(_ line: DiffLine) -> String {
