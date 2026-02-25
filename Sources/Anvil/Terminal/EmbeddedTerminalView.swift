@@ -13,6 +13,8 @@ struct EmbeddedTerminalView: View {
     var isActiveTab: Bool = true
     /// Called when the terminal reports a title change via OSC sequences.
     var onTitleChange: ((String) -> Void)?
+    /// Called when the user ⌘-clicks a file path in the terminal output.
+    var onOpenFile: ((URL) -> Void)?
     @AppStorage("autoLaunchCopilot") private var autoLaunchCopilot = true
     @AppStorage("terminalFontSize") private var fontSize: Double = 14
     @AppStorage("terminalThemeID") private var themeID: String = TerminalTheme.defaultDark.id
@@ -56,7 +58,8 @@ struct EmbeddedTerminalView: View {
                     lastExitCode = code
                     processRunning = false
                 },
-                onTitleChange: onTitleChange
+                onTitleChange: onTitleChange,
+                onOpenFile: onOpenFile
             )
             .id(terminalID)
 
@@ -109,6 +112,7 @@ struct EmbeddedTerminalView: View {
 }
 
 /// NSViewRepresentable that wraps SwiftTerm's LocalProcessTerminalView.
+/// Includes ⌘-click file path detection via TerminalFilePathDetector.
 private struct TerminalNSView: NSViewRepresentable {
     @ObservedObject var workingDirectory: WorkingDirectoryModel
     var terminalProxy: TerminalInputProxy?
@@ -117,6 +121,7 @@ private struct TerminalNSView: NSViewRepresentable {
     var theme: TerminalTheme
     var onProcessExit: (Int32?) -> Void
     var onTitleChange: ((String) -> Void)?
+    var onOpenFile: ((URL) -> Void)?
 
     func makeNSView(context: Context) -> LocalProcessTerminalView {
         let terminalView = LocalProcessTerminalView(frame: .zero)
@@ -142,6 +147,11 @@ private struct TerminalNSView: NSViewRepresentable {
             context.coordinator.scheduleAutoLaunch(terminalView)
         }
 
+        // Attach ⌘-click file path detector
+        let detector = context.coordinator.filePathDetector
+        detector.onOpenFile = onOpenFile
+        detector.attach(to: terminalView, rootURL: workingDirectory.directoryURL)
+
         context.coordinator.lastFontSize = fontSize
         context.coordinator.lastThemeID = theme.id
 
@@ -157,6 +167,10 @@ private struct TerminalNSView: NSViewRepresentable {
             context.coordinator.lastThemeID = theme.id
             applyTheme(theme, to: nsView)
         }
+        // Keep detector in sync with current state
+        let detector = context.coordinator.filePathDetector
+        detector.updateRoot(workingDirectory.directoryURL)
+        detector.onOpenFile = onOpenFile
         // Reconnect proxy when this tab becomes active
         if let proxy = terminalProxy, proxy.terminalView !== nsView {
             proxy.terminalView = nsView
@@ -178,12 +192,17 @@ private struct TerminalNSView: NSViewRepresentable {
     final class Coordinator: NSObject, LocalProcessTerminalViewDelegate {
         let onProcessExit: (Int32?) -> Void
         let onTitleChange: ((String) -> Void)?
+        let filePathDetector = TerminalFilePathDetector()
         var lastFontSize: Double = 14
         var lastThemeID: String = TerminalTheme.defaultDark.id
 
         init(onProcessExit: @escaping (Int32?) -> Void, onTitleChange: ((String) -> Void)?) {
             self.onProcessExit = onProcessExit
             self.onTitleChange = onTitleChange
+        }
+
+        deinit {
+            filePathDetector.detach()
         }
 
         /// Detects whether the Copilot CLI is installed, then sends the launch

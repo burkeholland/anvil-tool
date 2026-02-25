@@ -234,6 +234,9 @@ struct ContentView: View {
                                 isActiveTab: tab.id == terminalTabs.activeTabID,
                                 onTitleChange: { title in
                                     terminalTabs.updateTitle(for: tab.id, to: title)
+                                },
+                                onOpenFile: { url in
+                                    filePreview.select(url)
                                 }
                             )
                             .opacity(tab.id == terminalTabs.activeTabID ? 1 : 0)

@@ -64,6 +64,7 @@ struct KeyboardShortcutsView: View {
                             ("⌘+", "Increase Font Size"),
                             ("⌘−", "Decrease Font Size"),
                             ("⌘0", "Reset Font Size"),
+                            ("⌘ click", "Open file path in preview"),
                         ])
 
                         shortcutSection("File", shortcuts: [
