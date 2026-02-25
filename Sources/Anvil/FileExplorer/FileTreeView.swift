@@ -110,6 +110,7 @@ struct FileTreeView: View {
                                 isExpanded: model.isExpanded(entry.url),
                                 isSelected: filePreview.selectedURL == entry.url,
                                 gitStatus: model.gitStatuses[entry.url.path],
+                                dirChangeCount: entry.isDirectory ? model.dirChangeCounts[entry.url.path] : nil,
                                 onToggle: { handleTap(entry) }
                             )
                             .id(entry.url)
@@ -385,6 +386,7 @@ struct FileRowView: View {
     let isExpanded: Bool
     let isSelected: Bool
     var gitStatus: GitFileStatus? = nil
+    var dirChangeCount: Int? = nil
     let onToggle: () -> Void
 
     var body: some View {
@@ -412,6 +414,17 @@ struct FileRowView: View {
                 .truncationMode(.middle)
 
             Spacer()
+
+            if let count = dirChangeCount, count > 0 {
+                Text("\(count)")
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .foregroundStyle(.orange)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 1)
+                    .background(
+                        Capsule().fill(Color.orange.opacity(0.12))
+                    )
+            }
 
             if let status = gitStatus {
                 Circle()

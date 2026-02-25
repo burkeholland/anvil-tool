@@ -4,6 +4,8 @@ import SwiftUI
 final class FileTreeModel: ObservableObject {
     @Published private(set) var entries: [FileEntry] = []
     @Published private(set) var gitStatuses: [String: GitFileStatus] = [:]
+    /// Number of changed files contained (recursively) in each directory.
+    @Published private(set) var dirChangeCounts: [String: Int] = [:]
     @Published var searchText: String = "" {
         didSet { rebuildEntries() }
     }
@@ -220,13 +222,37 @@ final class FileTreeModel: ObservableObject {
         guard let rootURL = rootURL else { return }
         refreshGeneration &+= 1
         let generation = refreshGeneration
+        let rootPath = rootURL.standardizedFileURL.path
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let statuses = GitStatusProvider.status(for: rootURL)
+            let counts = Self.computeDirChangeCounts(statuses: statuses, rootPath: rootPath)
             DispatchQueue.main.async {
                 guard let self = self, self.refreshGeneration == generation else { return }
                 self.gitStatuses = statuses
+                self.dirChangeCounts = counts
             }
         }
+    }
+
+    /// Counts changed files per directory by walking ancestor paths of each changed file.
+    /// Filters out propagated directory entries from the git status map to avoid double-counting.
+    static func computeDirChangeCounts(statuses: [String: GitFileStatus], rootPath: String) -> [String: Int] {
+        var counts: [String: Int] = [:]
+        let allPaths = Set(statuses.keys)
+        // Only count leaf paths (actual files), not propagated directory statuses.
+        let filePaths = allPaths.filter { path in
+            !allPaths.contains(where: { $0.hasPrefix(path + "/") })
+        }
+        for filePath in filePaths {
+            var dir = (filePath as NSString).deletingLastPathComponent
+            while dir.count >= rootPath.count {
+                counts[dir, default: 0] += 1
+                let parent = (dir as NSString).deletingLastPathComponent
+                if parent == dir { break }
+                dir = parent
+            }
+        }
+        return counts
     }
 
     /// Recursively indexes all non-hidden files for search. Runs on a background thread.
