@@ -5,6 +5,7 @@ import Combine
 enum PreviewTab {
     case source
     case changes
+    case rendered
 }
 
 final class FilePreviewModel: ObservableObject {
@@ -38,6 +39,12 @@ final class FilePreviewModel: ObservableObject {
 
     var fileExtension: String {
         selectedURL?.pathExtension.lowercased() ?? ""
+    }
+
+    /// Whether the selected file is a markdown file.
+    var isMarkdownFile: Bool {
+        guard let ext = selectedURL?.pathExtension.lowercased() else { return false }
+        return ext == "md" || ext == "markdown" || ext == "mdown" || ext == "mkd"
     }
 
     /// Whether the selected file is an image.
@@ -144,6 +151,13 @@ final class FilePreviewModel: ObservableObject {
                         self?.lineCount = content?.components(separatedBy: "\n").count ?? 0
                     }
                     self?.fileDiff = diff
+                    // Reconcile active tab if current selection is no longer valid
+                    if let current = self?.activeTab {
+                        if current == .changes && diff == nil {
+                            let isMD = Self.markdownExtensions.contains(url.pathExtension.lowercased())
+                            self?.activeTab = isMD ? .rendered : .source
+                        }
+                    }
                 }
             }
         }
@@ -228,9 +242,11 @@ final class FilePreviewModel: ObservableObject {
                     self?.imageSize = nil
                     self?.imageFileSize = nil
                     self?.isLoading = false
-                    // Auto-switch to changes tab if file has a diff
+                    // Auto-switch to changes tab if file has a diff, rendered for markdown
                     if diff != nil {
                         self?.activeTab = .changes
+                    } else if Self.markdownExtensions.contains(url.pathExtension.lowercased()) {
+                        self?.activeTab = .rendered
                     } else {
                         self?.activeTab = .source
                     }
@@ -288,5 +304,9 @@ final class FilePreviewModel: ObservableObject {
     static let imageExtensions: Set<String> = [
         "png", "jpg", "jpeg", "gif", "bmp", "tiff", "tif",
         "webp", "heic", "heif", "ico", "icns", "svg",
+    ]
+
+    static let markdownExtensions: Set<String> = [
+        "md", "markdown", "mdown", "mkd",
     ]
 }

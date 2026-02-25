@@ -34,21 +34,26 @@ struct FilePreviewView: View {
 
                 Spacer()
 
-                // Source / Changes tab picker (only when diff is available)
-                if model.hasDiff {
+                // Source / Changes / Preview tab picker
+                if model.hasDiff || model.isMarkdownFile {
                     Picker("", selection: $model.activeTab) {
                         Text("Source").tag(PreviewTab.source)
-                        HStack(spacing: 4) {
-                            Text("Changes")
-                            if let diff = model.fileDiff {
-                                Text("+\(diff.additionCount)/-\(diff.deletionCount)")
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }.tag(PreviewTab.changes)
+                        if model.hasDiff {
+                            HStack(spacing: 4) {
+                                Text("Changes")
+                                if let diff = model.fileDiff {
+                                    Text("+\(diff.additionCount)/-\(diff.deletionCount)")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }.tag(PreviewTab.changes)
+                        }
+                        if model.isMarkdownFile {
+                            Text("Preview").tag(PreviewTab.rendered)
+                        }
                     }
                     .pickerStyle(.segmented)
-                    .frame(width: 200)
+                    .frame(width: model.hasDiff && model.isMarkdownFile ? 280 : 200)
                 }
 
                 Button {
@@ -83,6 +88,8 @@ struct FilePreviewView: View {
                 )
             } else if model.activeTab == .changes, let diff = model.fileDiff {
                 DiffView(diff: diff)
+            } else if model.activeTab == .rendered, model.isMarkdownFile, let content = model.fileContent {
+                MarkdownPreviewView(content: content)
             } else if let content = model.fileContent {
                 HighlightedTextView(
                     content: content,
