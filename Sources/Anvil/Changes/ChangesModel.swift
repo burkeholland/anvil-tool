@@ -26,6 +26,9 @@ final class ChangesModel: ObservableObject {
     @Published private(set) var isLoading = false
     @Published private(set) var recentCommits: [GitCommit] = []
     @Published private(set) var isLoadingCommits = false
+    @Published private(set) var stashes: [StashEntry] = []
+    @Published private(set) var isLoadingStashes = false
+    @Published var lastStashError: String?
 
     @Published var commitMessage: String = ""
     @Published private(set) var isCommitting = false
@@ -42,6 +45,7 @@ final class ChangesModel: ObservableObject {
     private(set) var rootDirectory: URL?
     private var refreshGeneration: UInt64 = 0
     private var commitGeneration: UInt64 = 0
+    private var stashGeneration: UInt64 = 0
     private var fileWatcher: FileWatcher?
 
     deinit {
@@ -74,9 +78,11 @@ final class ChangesModel: ObservableObject {
         fileWatcher = FileWatcher(directory: rootURL) { [weak self] in
             self?.refresh()
             self?.refreshCommits()
+            self?.refreshStashes()
         }
         refresh()
         refreshCommits()
+        refreshStashes()
     }
 
     func stop() {
@@ -86,10 +92,13 @@ final class ChangesModel: ObservableObject {
         // Advance generations so any in-flight refresh is discarded
         refreshGeneration &+= 1
         commitGeneration &+= 1
+        stashGeneration &+= 1
         changedFiles = []
         recentCommits = []
+        stashes = []
         isLoading = false
         isLoadingCommits = false
+        isLoadingStashes = false
         commitMessage = ""
         isCommitting = false
         lastCommitError = nil
@@ -98,6 +107,7 @@ final class ChangesModel: ObservableObject {
         isUndoingCommit = false
         lastUndoneCommitSHA = nil
         lastHunkError = nil
+        lastStashError = nil
     }
 
     func refresh() {
@@ -456,6 +466,93 @@ final class ChangesModel: ObservableObject {
                 }
                 self.refresh()
                 self.refreshCommits()
+            }
+        }
+    }
+
+    // MARK: - Stash Management
+
+    func refreshStashes() {
+        guard let rootURL = rootDirectory else { return }
+        isLoadingStashes = true
+        stashGeneration &+= 1
+        let generation = stashGeneration
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let entries = GitStashProvider.list(in: rootURL)
+            DispatchQueue.main.async {
+                guard let self = self, self.stashGeneration == generation else { return }
+                self.stashes = entries
+                self.isLoadingStashes = false
+            }
+        }
+    }
+
+    /// Load the file list for a stash entry (lazy-loaded on expand).
+    func loadStashFiles(for sha: String) {
+        guard let rootURL = rootDirectory else { return }
+        guard let index = stashes.firstIndex(where: { $0.sha == sha }),
+              stashes[index].files == nil else { return }
+        let stashIndex = stashes[index].index
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let files = GitStashProvider.stashFiles(index: stashIndex, in: rootURL)
+            DispatchQueue.main.async {
+                guard let self = self,
+                      let idx = self.stashes.firstIndex(where: { $0.sha == sha }) else { return }
+                self.stashes[idx].files = files
+            }
+        }
+    }
+
+    /// Apply a stash without removing it.
+    func applyStash(sha: String) {
+        guard let rootURL = rootDirectory else { return }
+        lastStashError = nil
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let (success, error) = GitStashProvider.apply(sha: sha, in: rootURL)
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                if !success {
+                    self.lastStashError = error ?? "Failed to apply stash"
+                }
+                self.refresh()
+            }
+        }
+    }
+
+    /// Pop a stash (apply and remove). Uses SHA to prevent index drift.
+    func popStash(sha: String) {
+        guard let rootURL = rootDirectory else { return }
+        lastStashError = nil
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let (success, error) = GitStashProvider.pop(sha: sha, in: rootURL)
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                if !success {
+                    self.lastStashError = error ?? "Failed to pop stash"
+                }
+                self.refresh()
+                self.refreshStashes()
+            }
+        }
+    }
+
+    /// Drop a stash without applying it. Uses SHA to prevent index drift.
+    func dropStash(sha: String) {
+        guard let rootURL = rootDirectory else { return }
+        lastStashError = nil
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let (success, error) = GitStashProvider.drop(sha: sha, in: rootURL)
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                if !success {
+                    self.lastStashError = error ?? "Failed to drop stash"
+                }
+                self.refreshStashes()
             }
         }
     }

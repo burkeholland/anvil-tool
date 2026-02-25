@@ -12,6 +12,7 @@ struct ChangesListView: View {
     @State private var fileToDiscard: ChangedFile?
     @State private var showDiscardAllConfirm = false
     @State private var showUndoCommitConfirm = false
+    @State private var stashToDrop: StashEntry?
 
     var body: some View {
         if model.isLoading && model.changedFiles.isEmpty && model.recentCommits.isEmpty {
@@ -196,6 +197,34 @@ struct ChangesListView: View {
                             .textCase(nil)
                     }
                 }
+
+                // Stashes section
+                if !model.stashes.isEmpty {
+                    Section {
+                        ForEach(model.stashes) { stash in
+                            StashRow(
+                                stash: stash,
+                                model: model,
+                                filePreview: filePreview,
+                                onDropStash: { stashToDrop = stash }
+                            )
+                        }
+                    } header: {
+                        HStack {
+                            Text("Stashes")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(.secondary)
+                                .textCase(nil)
+                            Spacer()
+                            Text("\(model.stashes.count)")
+                                .font(.system(size: 10, weight: .medium))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 1)
+                                .background(Capsule().fill(Color.secondary.opacity(0.4)))
+                        }
+                    }
+                }
             }
             .listStyle(.sidebar)
             .alert("Discard Changes?", isPresented: Binding(
@@ -237,8 +266,30 @@ struct ChangesListView: View {
                     Text("This will undo \"\(commit.message)\" (\(commit.shortSHA)). The changes will be moved back to the staging area — no work is lost.")
                 }
             }
+            .alert("Drop Stash?", isPresented: Binding(
+                get: { stashToDrop != nil },
+                set: { if !$0 { stashToDrop = nil } }
+            )) {
+                Button("Drop", role: .destructive) {
+                    if let stash = stashToDrop {
+                        model.dropStash(sha: stash.sha)
+                    }
+                    stashToDrop = nil
+                }
+                Button("Cancel", role: .cancel) {
+                    stashToDrop = nil
+                }
+            } message: {
+                if let stash = stashToDrop {
+                    Text("This will permanently delete stash@{\(stash.index)} (\(stash.cleanMessage)). This cannot be undone.")
+                }
+            }
             .overlay(alignment: .bottom) {
                 VStack(spacing: 0) {
+                    if model.lastStashError != nil {
+                        StashErrorBanner(model: model)
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
                     if model.lastUndoneCommitSHA != nil {
                         UndoCommitBanner(model: model)
                             .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -251,6 +302,7 @@ struct ChangesListView: View {
             }
             .animation(.easeInOut(duration: 0.2), value: model.lastDiscardStashRef != nil)
             .animation(.easeInOut(duration: 0.2), value: model.lastUndoneCommitSHA != nil)
+            .animation(.easeInOut(duration: 0.2), value: model.lastStashError != nil)
         }
     }
 
@@ -510,6 +562,251 @@ struct CommitRow: View {
                 }
             }
         }
+    }
+}
+
+// MARK: - Stash Row
+
+struct StashRow: View {
+    let stash: StashEntry
+    @ObservedObject var model: ChangesModel
+    @ObservedObject var filePreview: FilePreviewModel
+    var onDropStash: () -> Void
+    @State private var isExpanded = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Stash header
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    isExpanded.toggle()
+                }
+                if isExpanded && stash.files == nil {
+                    model.loadStashFiles(for: stash.sha)
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(.tertiary)
+                        .frame(width: 12)
+
+                    Image(systemName: "tray.and.arrow.down")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.teal)
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(stash.cleanMessage)
+                            .font(.system(size: 12))
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                            .foregroundStyle(.primary)
+
+                        HStack(spacing: 6) {
+                            Text(stash.displayName)
+                                .font(.system(size: 10, design: .monospaced))
+                                .foregroundStyle(.teal.opacity(0.8))
+
+                            Spacer()
+
+                            Text(stash.relativeDate)
+                                .font(.system(size: 10))
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+                }
+                .padding(.vertical, 3)
+            }
+            .buttonStyle(.plain)
+            .contextMenu {
+                Button {
+                    model.applyStash(sha: stash.sha)
+                } label: {
+                    Label("Apply", systemImage: "arrow.uturn.forward")
+                }
+
+                Button {
+                    model.popStash(sha: stash.sha)
+                } label: {
+                    Label("Pop (Apply & Remove)", systemImage: "tray.and.arrow.up")
+                }
+
+                Divider()
+
+                Button {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(stash.sha, forType: .string)
+                } label: {
+                    Label("Copy SHA", systemImage: "doc.on.doc")
+                }
+
+                Divider()
+
+                Button(role: .destructive) {
+                    onDropStash()
+                } label: {
+                    Label("Drop Stash…", systemImage: "trash")
+                }
+            }
+
+            // Expanded file list
+            if isExpanded {
+                if let files = stash.files {
+                    VStack(alignment: .leading, spacing: 0) {
+                        // Action buttons
+                        HStack(spacing: 8) {
+                            Button {
+                                model.applyStash(sha: stash.sha)
+                            } label: {
+                                Label("Apply", systemImage: "arrow.uturn.forward")
+                                    .font(.system(size: 11))
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+
+                            Button {
+                                model.popStash(sha: stash.sha)
+                            } label: {
+                                Label("Pop", systemImage: "tray.and.arrow.up")
+                                    .font(.system(size: 11))
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+
+                            Spacer()
+
+                            Button(role: .destructive) {
+                                onDropStash()
+                            } label: {
+                                Image(systemName: "trash")
+                                    .font(.system(size: 10))
+                            }
+                            .buttonStyle(.borderless)
+                            .foregroundStyle(.red.opacity(0.7))
+                            .help("Drop stash")
+                        }
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 6)
+
+                        ForEach(files) { file in
+                            StashFileRow(file: file)
+                        }
+                    }
+                    .padding(.leading, 18)
+                } else {
+                    HStack {
+                        Spacer()
+                        ProgressView()
+                            .controlSize(.mini)
+                        Spacer()
+                    }
+                    .padding(.vertical, 4)
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Stash File Row
+
+struct StashFileRow: View {
+    let file: CommitFile
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text(file.status)
+                .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                .foregroundStyle(.white)
+                .frame(width: 14, height: 14)
+                .background(
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(statusColor)
+                )
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(file.fileName)
+                    .font(.system(size: 11))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+
+                if !file.directoryPath.isEmpty {
+                    Text(file.directoryPath)
+                        .font(.system(size: 9))
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                        .truncationMode(.head)
+                }
+            }
+
+            Spacer()
+
+            HStack(spacing: 3) {
+                if file.additions > 0 {
+                    Text("+\(file.additions)")
+                        .font(.system(size: 10).monospacedDigit())
+                        .foregroundStyle(.green)
+                }
+                if file.deletions > 0 {
+                    Text("-\(file.deletions)")
+                        .font(.system(size: 10).monospacedDigit())
+                        .foregroundStyle(.red)
+                }
+            }
+        }
+        .padding(.vertical, 3)
+        .padding(.horizontal, 4)
+        .contextMenu {
+            Button {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(file.path, forType: .string)
+            } label: {
+                Label("Copy Path", systemImage: "doc.on.doc")
+            }
+        }
+    }
+
+    private var statusColor: Color {
+        switch file.status {
+        case "A": return .green
+        case "D": return .red
+        case "R": return .blue
+        default:  return .orange
+        }
+    }
+}
+
+/// Banner shown when a stash operation fails.
+struct StashErrorBanner: View {
+    @ObservedObject var model: ChangesModel
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "exclamationmark.triangle")
+                .font(.system(size: 12))
+                .foregroundStyle(.red)
+
+            if let error = model.lastStashError {
+                Text(error)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+
+            Spacer()
+
+            Button {
+                model.lastStashError = nil
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .buttonStyle(.borderless)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(.ultraThinMaterial)
+        .overlay(alignment: .top) { Divider() }
     }
 }
 
