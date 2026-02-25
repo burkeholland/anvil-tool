@@ -36,6 +36,8 @@ final class ChangesModel: ObservableObject {
     @Published private(set) var isUndoingCommit = false
     /// The SHA of the commit that was undone, so the user can see what was reverted.
     @Published var lastUndoneCommitSHA: String?
+    /// Error message from the most recent hunk-level operation.
+    @Published var lastHunkError: String?
 
     private(set) var rootDirectory: URL?
     private var refreshGeneration: UInt64 = 0
@@ -95,6 +97,7 @@ final class ChangesModel: ObservableObject {
         lastDiscardStashRef = nil
         isUndoingCommit = false
         lastUndoneCommitSHA = nil
+        lastHunkError = nil
     }
 
     func refresh() {
@@ -253,6 +256,47 @@ final class ChangesModel: ObservableObject {
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             Self.runGitSync(args: ["reset", "HEAD"], at: rootURL)
             DispatchQueue.main.async {
+                self?.refresh()
+            }
+        }
+    }
+
+    // MARK: - Hunk-level Staging
+
+    /// Stage a single hunk by applying a patch to the index.
+    func stageHunk(patch: String) {
+        guard let rootURL = rootDirectory else { return }
+        lastHunkError = nil
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let (success, error) = Self.runGitApply(patch: patch, args: ["apply", "--cached"], at: rootURL)
+            DispatchQueue.main.async {
+                if !success { self?.lastHunkError = error ?? "Failed to stage hunk" }
+                self?.refresh()
+            }
+        }
+    }
+
+    /// Unstage a single hunk by reverse-applying the patch from the index.
+    func unstageHunk(patch: String) {
+        guard let rootURL = rootDirectory else { return }
+        lastHunkError = nil
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let (success, error) = Self.runGitApply(patch: patch, args: ["apply", "--cached", "--reverse"], at: rootURL)
+            DispatchQueue.main.async {
+                if !success { self?.lastHunkError = error ?? "Failed to unstage hunk" }
+                self?.refresh()
+            }
+        }
+    }
+
+    /// Discard a single hunk by reverse-applying the patch to the working tree.
+    func discardHunk(patch: String) {
+        guard let rootURL = rootDirectory else { return }
+        lastHunkError = nil
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let (success, error) = Self.runGitApply(patch: patch, args: ["apply", "--reverse"], at: rootURL)
+            DispatchQueue.main.async {
+                if !success { self?.lastHunkError = error ?? "Failed to discard hunk" }
                 self?.refresh()
             }
         }
@@ -452,6 +496,37 @@ final class ChangesModel: ObservableObject {
         process.standardError = FileHandle.nullDevice
         try? process.run()
         process.waitUntilExit()
+    }
+
+    /// Applies a patch via stdin to `git apply` with the given arguments.
+    private static func runGitApply(patch: String, args: [String], at directory: URL) -> (success: Bool, error: String?) {
+        let process = Process()
+        let inputPipe = Pipe()
+        let errorPipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+        process.arguments = args
+        process.currentDirectoryURL = directory
+        process.standardInput = inputPipe
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = errorPipe
+
+        do {
+            try process.run()
+            if let data = patch.data(using: .utf8) {
+                inputPipe.fileHandleForWriting.write(data)
+            }
+            inputPipe.fileHandleForWriting.closeFile()
+            process.waitUntilExit()
+        } catch {
+            return (false, error.localizedDescription)
+        }
+
+        if process.terminationStatus == 0 {
+            return (true, nil)
+        }
+        let data = errorPipe.fileHandleForReading.readDataToEndOfFile()
+        let msg = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return (false, msg)
     }
 
     private static func runGitCommit(message: String, at directory: URL) -> (success: Bool, error: String?) {

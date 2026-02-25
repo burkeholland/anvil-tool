@@ -281,6 +281,34 @@ enum DiffParser {
         return (oldRanges, newRanges)
     }
 
+    // MARK: - Patch Reconstruction
+
+    /// Reconstructs a valid unified diff patch for a single hunk, suitable for `git apply`.
+    /// Uses standard `--- a/` and `+++ b/` headers which are correct for modified files.
+    /// New-file and deleted-file diffs are not candidates for hunk-level staging.
+    static func reconstructPatch(fileDiff: FileDiff, hunk: DiffHunk) -> String {
+        var lines: [String] = []
+        lines.append("diff --git a/\(fileDiff.oldPath) b/\(fileDiff.newPath)")
+        lines.append("--- a/\(fileDiff.oldPath)")
+        lines.append("+++ b/\(fileDiff.newPath)")
+        lines.append(hunk.header)
+
+        for line in hunk.lines {
+            switch line.kind {
+            case .hunkHeader:
+                continue
+            case .context:
+                lines.append(" \(line.text)")
+            case .addition:
+                lines.append("+\(line.text)")
+            case .deletion:
+                lines.append("-\(line.text)")
+            }
+        }
+
+        return lines.joined(separator: "\n") + "\n"
+    }
+
     // MARK: - Gutter Change Map
 
     /// Computes a mapping from new-file line numbers to gutter indicators.

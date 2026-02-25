@@ -9,6 +9,8 @@ enum DiffViewMode: String, CaseIterable {
 /// Renders a diff with a toggle between unified and side-by-side modes.
 struct DiffView: View {
     let diff: FileDiff
+    var onStageHunk: ((DiffHunk) -> Void)?
+    var onDiscardHunk: ((DiffHunk) -> Void)?
     @AppStorage("diffViewMode") private var mode: String = DiffViewMode.unified.rawValue
 
     private var viewMode: DiffViewMode {
@@ -18,7 +20,7 @@ struct DiffView: View {
     var body: some View {
         switch viewMode {
         case .unified:
-            UnifiedDiffView(diff: diff, mode: $mode)
+            UnifiedDiffView(diff: diff, mode: $mode, onStageHunk: onStageHunk, onDiscardHunk: onDiscardHunk)
         case .sideBySide:
             SideBySideDiffView(diff: diff, mode: $mode)
         }
@@ -29,6 +31,8 @@ struct DiffView: View {
 struct UnifiedDiffView: View {
     let diff: FileDiff
     @Binding var mode: String
+    var onStageHunk: ((DiffHunk) -> Void)?
+    var onDiscardHunk: ((DiffHunk) -> Void)?
 
     var body: some View {
         ScrollView([.horizontal, .vertical]) {
@@ -39,7 +43,11 @@ struct UnifiedDiffView: View {
 
                 // Hunks
                 ForEach(diff.hunks) { hunk in
-                    DiffHunkView(hunk: hunk)
+                    DiffHunkView(
+                        hunk: hunk,
+                        onStage: onStageHunk.map { handler in { handler(hunk) } },
+                        onDiscard: onDiscardHunk.map { handler in { handler(hunk) } }
+                    )
                 }
             }
         }
@@ -78,13 +86,65 @@ struct DiffStatsBar: View {
 
 struct DiffHunkView: View {
     let hunk: DiffHunk
+    var onStage: (() -> Void)?
+    var onDiscard: (() -> Void)?
+    @State private var isHovered = false
+
+    private var hasActions: Bool {
+        onStage != nil || onDiscard != nil
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             ForEach(hunk.lines) { line in
-                DiffLineView(line: line)
+                if line.kind == .hunkHeader && hasActions {
+                    DiffLineView(line: line)
+                        .overlay(alignment: .trailing) {
+                            hunkActions
+                                .opacity(isHovered ? 1 : 0)
+                        }
+                        .onHover { hovering in
+                            isHovered = hovering
+                        }
+                } else {
+                    DiffLineView(line: line)
+                }
             }
         }
+        .onHover { hovering in
+            if hasActions { isHovered = hovering }
+        }
+    }
+
+    @ViewBuilder
+    private var hunkActions: some View {
+        HStack(spacing: 2) {
+            if let onStage {
+                Button { onStage() } label: {
+                    Image(systemName: "plus.circle.fill")
+                        .font(.system(size: 14))
+                        .foregroundStyle(.green)
+                }
+                .buttonStyle(.borderless)
+                .help("Stage this hunk")
+            }
+            if let onDiscard {
+                Button { onDiscard() } label: {
+                    Image(systemName: "arrow.uturn.backward.circle.fill")
+                        .font(.system(size: 14))
+                        .foregroundStyle(.red.opacity(0.8))
+                }
+                .buttonStyle(.borderless)
+                .help("Discard this hunk")
+            }
+        }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 2)
+        .background(
+            RoundedRectangle(cornerRadius: 4)
+                .fill(.ultraThinMaterial)
+        )
+        .padding(.trailing, 8)
     }
 }
 

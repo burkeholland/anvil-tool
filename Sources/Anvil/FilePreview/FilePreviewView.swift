@@ -4,6 +4,7 @@ import Highlightr
 
 struct FilePreviewView: View {
     @ObservedObject var model: FilePreviewModel
+    var changesModel: ChangesModel?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -97,7 +98,17 @@ struct FilePreviewView: View {
                     fileSize: model.imageFileSize
                 )
             } else if model.activeTab == .changes, let diff = model.fileDiff {
-                DiffView(diff: diff)
+                // Only show hunk actions for working tree diffs, not commit history
+                let isLiveDiff = model.commitDiffContext == nil
+                DiffView(
+                    diff: diff,
+                    onStageHunk: isLiveDiff ? changesModel.map { cm in
+                        { hunk in cm.stageHunk(patch: DiffParser.reconstructPatch(fileDiff: diff, hunk: hunk)) }
+                    } : nil,
+                    onDiscardHunk: isLiveDiff ? changesModel.map { cm in
+                        { hunk in cm.discardHunk(patch: DiffParser.reconstructPatch(fileDiff: diff, hunk: hunk)) }
+                    } : nil
+                )
             } else if model.activeTab == .rendered, model.isMarkdownFile, let content = model.fileContent {
                 MarkdownPreviewView(content: content)
             } else if let content = model.fileContent {

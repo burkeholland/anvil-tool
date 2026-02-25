@@ -281,7 +281,7 @@ struct ContentView: View {
                                 )
                             }
 
-                            FilePreviewView(model: filePreview)
+                            FilePreviewView(model: filePreview, changesModel: changesModel)
                         }
                     }
                     .frame(width: max(previewWidth, 0))

@@ -354,4 +354,72 @@ final class DiffParserTests: XCTestCase {
         XCTAssertEqual(rows[0].left?.kind, .hunkHeader)
         XCTAssertEqual(rows[0].right?.kind, .hunkHeader)
     }
+
+    // MARK: - Patch Reconstruction
+
+    func testReconstructPatch() {
+        let diffOutput = """
+        diff --git a/hello.txt b/hello.txt
+        index abc1234..def5678 100644
+        --- a/hello.txt
+        +++ b/hello.txt
+        @@ -1,3 +1,4 @@
+         line one
+        -line two
+        +line two modified
+        +line three new
+         line four
+        """
+
+        let diffs = DiffParser.parse(diffOutput)
+        let patch = DiffParser.reconstructPatch(fileDiff: diffs[0], hunk: diffs[0].hunks[0])
+
+        // Verify the patch has the required git diff headers
+        XCTAssertTrue(patch.hasPrefix("diff --git a/hello.txt b/hello.txt\n"))
+        XCTAssertTrue(patch.contains("--- a/hello.txt\n"))
+        XCTAssertTrue(patch.contains("+++ b/hello.txt\n"))
+        XCTAssertTrue(patch.contains("@@ -1,3 +1,4 @@\n"))
+
+        // Verify content lines are properly prefixed
+        XCTAssertTrue(patch.contains(" line one\n"))
+        XCTAssertTrue(patch.contains("-line two\n"))
+        XCTAssertTrue(patch.contains("+line two modified\n"))
+        XCTAssertTrue(patch.contains("+line three new\n"))
+        XCTAssertTrue(patch.contains(" line four\n"))
+
+        // Verify trailing newline
+        XCTAssertTrue(patch.hasSuffix("\n"))
+    }
+
+    func testReconstructPatchSelectsOneHunk() {
+        let diffOutput = """
+        diff --git a/big.txt b/big.txt
+        index 1234567..abcdefg 100644
+        --- a/big.txt
+        +++ b/big.txt
+        @@ -1,3 +1,3 @@
+         top
+        -old top
+        +new top
+         mid
+        @@ -10,3 +10,3 @@
+         bottom
+        -old bottom
+        +new bottom
+         end
+        """
+
+        let diffs = DiffParser.parse(diffOutput)
+        XCTAssertEqual(diffs[0].hunks.count, 2)
+
+        // Reconstruct patch for second hunk only
+        let patch = DiffParser.reconstructPatch(fileDiff: diffs[0], hunk: diffs[0].hunks[1])
+
+        // Should contain second hunk header, not first
+        XCTAssertTrue(patch.contains("@@ -10,3 +10,3 @@"))
+        XCTAssertFalse(patch.contains("@@ -1,3 +1,3 @@"))
+        XCTAssertTrue(patch.contains("-old bottom\n"))
+        XCTAssertTrue(patch.contains("+new bottom\n"))
+        XCTAssertFalse(patch.contains("old top"))
+    }
 }

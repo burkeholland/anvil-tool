@@ -271,7 +271,15 @@ struct DiffSummaryView: View {
                     } else {
                         VStack(alignment: .leading, spacing: 0) {
                             ForEach(diff.hunks) { hunk in
-                                DiffHunkView(hunk: hunk)
+                                DiffHunkView(
+                                    hunk: hunk,
+                                    onStage: {
+                                        changesModel.stageHunk(patch: DiffParser.reconstructPatch(fileDiff: diff, hunk: hunk))
+                                    },
+                                    onDiscard: {
+                                        changesModel.discardHunk(patch: DiffParser.reconstructPatch(fileDiff: diff, hunk: hunk))
+                                    }
+                                )
                             }
                         }
                     }
