@@ -135,6 +135,14 @@ struct OpenFocusedFileKey: FocusedValueKey {
     typealias Value = () -> Void
 }
 
+struct SplitTerminalHKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
+struct SplitTerminalVKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
 extension FocusedValues {
     var sidebarVisible: Binding<Bool>? {
         get { self[SidebarVisibleKey.self] }
@@ -300,6 +308,16 @@ extension FocusedValues {
         get { self[OpenFocusedFileKey.self] }
         set { self[OpenFocusedFileKey.self] = newValue }
     }
+
+    var splitTerminalH: (() -> Void)? {
+        get { self[SplitTerminalHKey.self] }
+        set { self[SplitTerminalHKey.self] = newValue }
+    }
+
+    var splitTerminalV: (() -> Void)? {
+        get { self[SplitTerminalVKey.self] }
+        set { self[SplitTerminalVKey.self] = newValue }
+    }
 }
 
 // MARK: - View Menu Commands
@@ -319,6 +337,8 @@ struct ViewCommands: Commands {
     @FocusedValue(\.resetFontSize) var resetFontSize
     @FocusedValue(\.newTerminalTab) var newTerminalTab
     @FocusedValue(\.newCopilotTab) var newCopilotTab
+    @FocusedValue(\.splitTerminalH) var splitTerminalH
+    @FocusedValue(\.splitTerminalV) var splitTerminalV
     @FocusedValue(\.showCommandPalette) var showCommandPalette
     @FocusedValue(\.revealInTree) var revealInTree
     @FocusedValue(\.mentionInTerminal) var mentionInTerminal
@@ -550,6 +570,20 @@ struct ViewCommands: Commands {
             }
             .keyboardShortcut("t", modifiers: [.command, .shift])
             .disabled(newCopilotTab == nil)
+
+            Divider()
+
+            Button("Split Terminal Right") {
+                splitTerminalH?()
+            }
+            .keyboardShortcut("d", modifiers: .command)
+            .disabled(splitTerminalH == nil)
+
+            Button("Split Terminal Down") {
+                splitTerminalV?()
+            }
+            .keyboardShortcut("d", modifiers: [.command, .shift])
+            .disabled(splitTerminalV == nil)
         }
     }
 }

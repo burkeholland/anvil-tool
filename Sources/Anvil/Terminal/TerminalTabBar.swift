@@ -6,6 +6,9 @@ struct TerminalTabBar: View {
     @ObservedObject var model: TerminalTabsModel
     var onNewShellTab: () -> Void
     var onNewCopilotTab: () -> Void
+    var onSplitHorizontally: () -> Void
+    var onSplitVertically: () -> Void
+    var onCloseSplit: () -> Void
 
     var body: some View {
         HStack(spacing: 0) {
@@ -26,6 +29,44 @@ struct TerminalTabBar: View {
             }
 
             Spacer()
+
+            // Split pane buttons
+            if model.isSplit {
+                Button {
+                    onCloseSplit()
+                } label: {
+                    Image(systemName: "rectangle")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 28, height: 28)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Close Split")
+            } else {
+                Menu {
+                    Button {
+                        onSplitHorizontally()
+                    } label: {
+                        Label("Split Right", systemImage: "rectangle.split.2x1")
+                    }
+
+                    Button {
+                        onSplitVertically()
+                    } label: {
+                        Label("Split Down", systemImage: "rectangle.split.1x2")
+                    }
+                } label: {
+                    Image(systemName: "rectangle.split.2x1")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 28, height: 28)
+                        .contentShape(Rectangle())
+                }
+                .menuStyle(.borderlessButton)
+                .frame(width: 28)
+                .help("Split Terminal")
+            }
 
             Menu {
                 Button {
