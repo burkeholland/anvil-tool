@@ -13,6 +13,7 @@ final class FilePreviewModel: ObservableObject {
     @Published private(set) var fileDiff: FileDiff?
     @Published private(set) var isLoading = false
     @Published var activeTab: PreviewTab = .source
+    @Published private(set) var lineCount: Int = 0
 
     /// The root directory for running git commands.
     var rootDirectory: URL? {
@@ -74,6 +75,7 @@ final class FilePreviewModel: ObservableObject {
         openTabs.removeAll()
         fileContent = nil
         fileDiff = nil
+        lineCount = 0
         activeTab = .source
     }
 
@@ -94,6 +96,7 @@ final class FilePreviewModel: ObservableObject {
                 guard self?.selectedURL == url else { return }
                 if content != self?.fileContent {
                     self?.fileContent = content
+                    self?.lineCount = content?.components(separatedBy: "\n").count ?? 0
                 }
                 self?.fileDiff = diff
             }
@@ -125,6 +128,7 @@ final class FilePreviewModel: ObservableObject {
             DispatchQueue.main.async {
                 guard self?.selectedURL == url else { return }
                 self?.fileContent = content
+                self?.lineCount = content?.components(separatedBy: "\n").count ?? 0
                 self?.fileDiff = diff
                 self?.isLoading = false
                 // Auto-switch to changes tab if file has a diff

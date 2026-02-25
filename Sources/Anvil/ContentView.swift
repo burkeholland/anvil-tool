@@ -108,6 +108,12 @@ struct ContentView: View {
 
                     EmbeddedTerminalView(workingDirectory: workingDirectory)
                         .id(workingDirectory.directoryURL)
+
+                    StatusBarView(
+                        workingDirectory: workingDirectory,
+                        filePreview: filePreview,
+                        changesModel: changesModel
+                    )
                 }
 
                 if filePreview.selectedURL != nil {
@@ -203,6 +209,21 @@ struct ToolbarView: View {
                 .font(.system(.body, design: .monospaced))
                 .lineLimit(1)
                 .truncationMode(.head)
+
+            if let branch = workingDirectory.gitBranch {
+                Divider()
+                    .frame(height: 16)
+
+                HStack(spacing: 4) {
+                    Image(systemName: "arrow.triangle.branch")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                    Text(branch)
+                        .font(.system(.body, design: .monospaced))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+            }
 
             Spacer()
 
