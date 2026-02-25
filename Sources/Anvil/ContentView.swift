@@ -5,6 +5,7 @@ enum SidebarTab: String {
     case changes
     case activity
     case search
+    case history
 }
 
 struct ContentView: View {
@@ -20,6 +21,7 @@ struct ContentView: View {
     @StateObject private var commandPalette = CommandPaletteModel()
     @StateObject private var fileTreeModel = FileTreeModel()
     @StateObject private var branchDiffModel = BranchDiffModel()
+    @StateObject private var commitHistoryModel = CommitHistoryModel()
     @State private var notificationManager = AgentNotificationManager()
     @AppStorage("sidebarWidth") private var sidebarWidth: Double = 240
     @AppStorage("previewWidth") private var previewWidth: Double = 400
@@ -161,6 +163,7 @@ struct ContentView: View {
                 activityModel.start(rootURL: url)
                 searchModel.setRoot(url)
                 fileTreeModel.start(rootURL: url)
+                commitHistoryModel.start(rootURL: url)
             }
         }
         .onChange(of: activityModel.latestFileChange) { _, change in
@@ -194,6 +197,7 @@ struct ContentView: View {
                 activityModel.start(rootURL: url)
                 searchModel.setRoot(url)
                 fileTreeModel.start(rootURL: url)
+                commitHistoryModel.start(rootURL: url)
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: AppDelegate.openDirectoryNotification)) { notification in
@@ -220,6 +224,7 @@ struct ContentView: View {
                         activityModel: activityModel,
                         searchModel: searchModel,
                         fileTreeModel: fileTreeModel,
+                        commitHistoryModel: commitHistoryModel,
                         activeTab: $sidebarTab,
                         onReviewAll: { showDiffSummary = true },
                         onBranchDiff: {
@@ -545,6 +550,12 @@ struct ContentView: View {
             } action: {
                 showSidebar = true
                 sidebarTab = .search
+            },
+            PaletteCommand(id: "show-history", title: "Show Commit History", icon: "clock.arrow.circlepath", shortcut: "⌘5", category: "View") {
+                hasProject
+            } action: {
+                showSidebar = true
+                sidebarTab = .history
             },
             PaletteCommand(id: "toggle-auto-follow", title: autoFollow ? "Disable Auto-Follow" : "Enable Auto-Follow", icon: autoFollow ? "eye.slash" : "eye", shortcut: nil, category: "View") {
                 true
@@ -1204,6 +1215,7 @@ struct SidebarView: View {
     @ObservedObject var activityModel: ActivityFeedModel
     @ObservedObject var searchModel: SearchModel
     @ObservedObject var fileTreeModel: FileTreeModel
+    @ObservedObject var commitHistoryModel: CommitHistoryModel
     @Binding var activeTab: SidebarTab
     var onReviewAll: (() -> Void)?
     var onBranchDiff: (() -> Void)?
@@ -1246,6 +1258,14 @@ struct SidebarView: View {
                     activeTab = .search
                 }
 
+                SidebarTabButton(
+                    title: "History",
+                    systemImage: "clock.arrow.circlepath",
+                    isActive: activeTab == .history
+                ) {
+                    activeTab = .history
+                }
+
                 Spacer()
             }
             .padding(.horizontal, 8)
@@ -1285,6 +1305,27 @@ struct SidebarView: View {
 
             case .search:
                 SearchView(model: searchModel, filePreview: filePreview)
+
+            case .history:
+                if let rootURL = model.directoryURL {
+                    CommitHistoryView(
+                        model: commitHistoryModel,
+                        filePreview: filePreview,
+                        rootURL: rootURL
+                    )
+                } else {
+                    VStack(spacing: 12) {
+                        Spacer()
+                        Image(systemName: "clock.arrow.circlepath")
+                            .font(.system(size: 32))
+                            .foregroundStyle(.tertiary)
+                        Text("No directory selected")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                    }
+                    .frame(maxWidth: .infinity)
+                }
             }
         }
         .background(Color(nsColor: .controlBackgroundColor))
