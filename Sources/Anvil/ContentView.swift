@@ -163,6 +163,11 @@ struct ContentView: View {
                 searchModel.setRoot(url)
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: AppDelegate.openDirectoryNotification)) { notification in
+            if let url = notification.userInfo?["url"] as? URL {
+                openDirectory(url)
+            }
+        }
     }
 
     private var projectView: some View {

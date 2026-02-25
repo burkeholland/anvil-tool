@@ -40,6 +40,14 @@ final class WorkingDirectoryModel: ObservableObject {
     }
 
     init() {
+        // CLI argument takes priority: `Anvil /path/to/project` or `Anvil .`
+        if let cliURL = Self.directoryFromArguments() {
+            self.directoryURL = cliURL
+            UserDefaults.standard.set(cliURL.standardizedFileURL.path, forKey: Self.lastDirectoryKey)
+            startBranchTracking(cliURL)
+            return
+        }
+
         // Restore last opened directory if it still exists
         if let savedPath = UserDefaults.standard.string(forKey: Self.lastDirectoryKey) {
             var isDir: ObjCBool = false
@@ -51,6 +59,36 @@ final class WorkingDirectoryModel: ObservableObject {
             }
         }
         self.directoryURL = nil
+    }
+
+    /// Parses CLI arguments for a directory path (e.g. `Anvil .` or `Anvil /path/to/project`).
+    private static func directoryFromArguments() -> URL? {
+        let args = ProcessInfo.processInfo.arguments
+        guard args.count >= 2 else { return nil }
+        let pathArg = args[1]
+
+        // Skip flags (e.g. -NSDocumentRevisionsDebugMode, -AppleLanguages)
+        guard !pathArg.hasPrefix("-") else { return nil }
+
+        // Expand ~ to home directory
+        let expanded = NSString(string: pathArg).expandingTildeInPath
+
+        // Resolve relative paths against the current working directory
+        let resolved: String
+        if expanded.hasPrefix("/") {
+            resolved = expanded
+        } else {
+            let cwd = FileManager.default.currentDirectoryPath
+            resolved = (cwd as NSString).appendingPathComponent(expanded)
+        }
+
+        let url = URL(fileURLWithPath: resolved).standardizedFileURL
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir),
+              isDir.boolValue else {
+            return nil
+        }
+        return url
     }
 
     func setDirectory(_ url: URL) {
