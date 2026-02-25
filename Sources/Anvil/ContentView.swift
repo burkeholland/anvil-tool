@@ -19,6 +19,7 @@ struct ContentView: View {
     @State private var showSidebar = true
     @State private var sidebarTab: SidebarTab = .files
     @State private var showQuickOpen = false
+    @AppStorage("autoFollowChanges") private var autoFollow = true
 
     var body: some View {
         Group {
@@ -53,6 +54,7 @@ struct ContentView: View {
             }
         })
         .focusedSceneValue(\.quickOpen, workingDirectory.directoryURL != nil ? { showQuickOpen = true } : nil)
+        .focusedSceneValue(\.autoFollow, $autoFollow)
         .onChange(of: workingDirectory.directoryURL) { _, newURL in
             filePreview.close()
             filePreview.rootDirectory = newURL
@@ -68,6 +70,10 @@ struct ContentView: View {
                 changesModel.start(rootURL: url)
                 activityModel.start(rootURL: url)
             }
+        }
+        .onChange(of: activityModel.latestFileChange) { _, change in
+            guard autoFollow, let change = change else { return }
+            filePreview.select(change.url)
         }
     }
 
@@ -96,6 +102,7 @@ struct ContentView: View {
                     ToolbarView(
                         workingDirectory: workingDirectory,
                         showSidebar: $showSidebar,
+                        autoFollow: $autoFollow,
                         onOpenDirectory: { browseForDirectory() }
                     )
 
@@ -174,6 +181,7 @@ struct ContentView: View {
 struct ToolbarView: View {
     @ObservedObject var workingDirectory: WorkingDirectoryModel
     @Binding var showSidebar: Bool
+    @Binding var autoFollow: Bool
     var onOpenDirectory: () -> Void
 
     var body: some View {
@@ -197,6 +205,15 @@ struct ToolbarView: View {
                 .truncationMode(.head)
 
             Spacer()
+
+            Button {
+                autoFollow.toggle()
+            } label: {
+                Image(systemName: autoFollow ? "eye" : "eye.slash")
+                    .foregroundStyle(autoFollow ? .primary : .secondary)
+            }
+            .buttonStyle(.borderless)
+            .help(autoFollow ? "Auto-Follow Changes: On" : "Auto-Follow Changes: Off")
 
             Button("Open…") {
                 onOpenDirectory()

@@ -31,6 +31,10 @@ struct QuickOpenKey: FocusedValueKey {
     typealias Value = () -> Void
 }
 
+struct AutoFollowKey: FocusedValueKey {
+    typealias Value = Binding<Bool>
+}
+
 extension FocusedValues {
     var sidebarVisible: Binding<Bool>? {
         get { self[SidebarVisibleKey.self] }
@@ -66,6 +70,11 @@ extension FocusedValues {
         get { self[QuickOpenKey.self] }
         set { self[QuickOpenKey.self] = newValue }
     }
+
+    var autoFollow: Binding<Bool>? {
+        get { self[AutoFollowKey.self] }
+        set { self[AutoFollowKey.self] = newValue }
+    }
 }
 
 // MARK: - View Menu Commands
@@ -77,6 +86,7 @@ struct ViewCommands: Commands {
     @FocusedValue(\.closePreview) var closePreview
     @FocusedValue(\.refresh) var refresh
     @FocusedValue(\.quickOpen) var quickOpen
+    @FocusedValue(\.autoFollow) var autoFollow
     @AppStorage("autoLaunchCopilot") private var autoLaunchCopilot = true
 
     var body: some Commands {
@@ -90,6 +100,10 @@ struct ViewCommands: Commands {
             Divider()
 
             Toggle("Auto-Launch Copilot", isOn: $autoLaunchCopilot)
+
+            if let autoFollow = autoFollow {
+                Toggle("Auto-Follow Changes", isOn: autoFollow)
+            }
 
             Divider()
 

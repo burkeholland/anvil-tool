@@ -3,9 +3,18 @@ import Combine
 
 /// Monitors the project directory for file changes and git commits,
 /// building a live timeline of activity events.
+/// Identifies the most recent file change for auto-follow.
+struct LatestFileChange: Equatable {
+    let id: UUID
+    let url: URL
+}
+
 final class ActivityFeedModel: ObservableObject {
     @Published private(set) var groups: [ActivityGroup] = []
     @Published private(set) var events: [ActivityEvent] = []
+    /// The most recently changed file (non-deleted). Each mutation has a unique id
+    /// so `.onChange` fires even when the same file changes again.
+    @Published private(set) var latestFileChange: LatestFileChange?
 
     private var rootURL: URL?
     private var fileWatcher: FileWatcher?
@@ -84,14 +93,14 @@ final class ActivityFeedModel: ObservableObject {
                 if newDate > oldDate {
                     let relPath = Self.relativePath(path, root: rootPath)
                     events.append(ActivityEvent(
-                        id: UUID(), timestamp: now, kind: .fileModified,
+                        id: UUID(), timestamp: newDate, kind: .fileModified,
                         path: relPath, fileURL: URL(fileURLWithPath: path)
                     ))
                 }
             } else {
                 let relPath = Self.relativePath(path, root: rootPath)
                 events.append(ActivityEvent(
-                    id: UUID(), timestamp: now, kind: .fileCreated,
+                    id: UUID(), timestamp: newDate, kind: .fileCreated,
                     path: relPath, fileURL: URL(fileURLWithPath: path)
                 ))
             }
@@ -151,6 +160,13 @@ final class ActivityFeedModel: ObservableObject {
             events = Array(events.suffix(maxEvents))
         }
         rebuildGroups()
+
+        // Publish the most recently modified file for auto-follow
+        if let latest = newEvents
+            .filter({ $0.fileURL != nil && $0.kind != .fileDeleted })
+            .max(by: { $0.timestamp < $1.timestamp }) {
+            latestFileChange = LatestFileChange(id: UUID(), url: latest.fileURL!)
+        }
     }
 
     private func rebuildGroups() {
