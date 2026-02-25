@@ -1,5 +1,14 @@
 import Foundation
 
+/// Line-level diff statistics for a single file change.
+struct DiffStats: Equatable {
+    let additions: Int
+    let deletions: Int
+
+    var total: Int { additions + deletions }
+    var isEmpty: Bool { additions == 0 && deletions == 0 }
+}
+
 /// A single event in the activity feed — a file change or git commit observed while the agent works.
 struct ActivityEvent: Identifiable {
     enum Kind: Equatable {
@@ -17,6 +26,8 @@ struct ActivityEvent: Identifiable {
     let path: String
     /// Absolute URL for opening preview. Nil for deleted files.
     let fileURL: URL?
+    /// Line-level diff statistics (only for fileModified/fileCreated events).
+    var diffStats: DiffStats?
 
     var fileName: String {
         (path as NSString).lastPathComponent
@@ -64,6 +75,13 @@ struct ActivityGroup: Identifiable {
     let id: UUID
     let timestamp: Date
     let events: [ActivityEvent]
+
+    /// Aggregate diff stats across all events in this group.
+    var aggregateStats: DiffStats {
+        let adds = events.compactMap(\.diffStats).reduce(0) { $0 + $1.additions }
+        let dels = events.compactMap(\.diffStats).reduce(0) { $0 + $1.deletions }
+        return DiffStats(additions: adds, deletions: dels)
+    }
 
     var summary: String {
         if events.count == 1 {

@@ -15,6 +15,39 @@ final class ActivityFeedModel: ObservableObject {
     /// The most recently changed file (non-deleted). Each mutation has a unique id
     /// so `.onChange` fires even when the same file changes again.
     @Published private(set) var latestFileChange: LatestFileChange?
+    /// Aggregate session stats, updated as events arrive.
+    @Published private(set) var sessionStats = SessionStats()
+
+    /// Tracks aggregate statistics for the current activity session.
+    struct SessionStats {
+        var startTime: Date?
+        var totalAdditions: Int = 0
+        var totalDeletions: Int = 0
+        var filesCreated: Int = 0
+        var filesModified: Int = 0
+        var filesDeleted: Int = 0
+        var commitCount: Int = 0
+        /// Baseline numstat captured at session start, subtracted from current.
+        var baselineNumstat: [String: DiffStats] = [:]
+        /// Latest full numstat snapshot from `git diff --numstat HEAD`.
+        var currentNumstat: [String: DiffStats] = [:]
+
+        var totalFilesTouched: Int { filesCreated + filesModified + filesDeleted }
+        var isActive: Bool { startTime != nil && totalFilesTouched > 0 }
+
+        /// Recompute totals as (current - baseline) per path, floored at 0.
+        mutating func recomputeTotals() {
+            var adds = 0
+            var dels = 0
+            for (path, current) in currentNumstat {
+                let base = baselineNumstat[path] ?? DiffStats(additions: 0, deletions: 0)
+                adds += max(current.additions - base.additions, 0)
+                dels += max(current.deletions - base.deletions, 0)
+            }
+            totalAdditions = adds
+            totalDeletions = dels
+        }
+    }
 
     private var rootURL: URL?
     private var fileWatcher: FileWatcher?
@@ -40,10 +73,20 @@ final class ActivityFeedModel: ObservableObject {
         self.rootURL = rootURL
         events.removeAll()
         groups.removeAll()
+        sessionStats = SessionStats(startTime: Date())
 
         // Take initial snapshot so we only report *changes*, not the initial state
         takeSnapshot(rootURL: rootURL)
         lastHeadSHA = currentHeadSHA(at: rootURL)
+
+        // Capture baseline numstat so pre-existing dirty changes aren't counted
+        workQueue.async { [weak self] in
+            guard let self = self else { return }
+            let baseline = self.runNumstat(at: rootURL)
+            DispatchQueue.main.async {
+                self.sessionStats.baselineNumstat = baseline
+            }
+        }
 
         // Watch for file system events
         fileWatcher?.stop()
@@ -69,11 +112,13 @@ final class ActivityFeedModel: ObservableObject {
         events.removeAll()
         groups.removeAll()
         latestFileChange = nil
+        sessionStats = SessionStats()
     }
 
     func clear() {
         events.removeAll()
         groups.removeAll()
+        sessionStats = SessionStats(startTime: sessionStats.startTime)
     }
 
     // MARK: - File System Change Detection
@@ -84,12 +129,23 @@ final class ActivityFeedModel: ObservableObject {
         workQueue.async { [weak self] in
             guard let self = self else { return }
             let newSnapshot = Self.scanFiles(rootURL: rootURL)
-            let detectedEvents = self.diffSnapshots(old: self.knownFiles, new: newSnapshot, rootURL: rootURL)
+            var detectedEvents = self.diffSnapshots(old: self.knownFiles, new: newSnapshot, rootURL: rootURL)
             self.knownFiles = newSnapshot
 
             if !detectedEvents.isEmpty {
+                // Enrich modification/creation events with diff stats
+                let numStats = self.runNumstat(at: rootURL)
+                for i in 0..<detectedEvents.count {
+                    let event = detectedEvents[i]
+                    guard event.kind == .fileModified || event.kind == .fileCreated,
+                          !event.path.isEmpty else { continue }
+                    if let stats = numStats[event.path] {
+                        detectedEvents[i].diffStats = stats
+                    }
+                }
+
                 DispatchQueue.main.async {
-                    self.appendEvents(detectedEvents)
+                    self.appendEvents(detectedEvents, latestNumstat: numStats)
                 }
             }
         }
@@ -150,8 +206,11 @@ final class ActivityFeedModel: ObservableObject {
                 path: "", fileURL: nil
             )
 
+            // Recompute numstat after commit (HEAD moved, so diff vs HEAD changes)
+            let numStats = self.runNumstat(at: rootURL)
+
             DispatchQueue.main.async {
-                self.appendEvents([event])
+                self.appendEvents([event], latestNumstat: numStats)
             }
         }
     }
@@ -166,13 +225,40 @@ final class ActivityFeedModel: ObservableObject {
 
     // MARK: - Helpers
 
-    private func appendEvents(_ newEvents: [ActivityEvent]) {
+    private func appendEvents(_ newEvents: [ActivityEvent], latestNumstat: [String: DiffStats]) {
         events.append(contentsOf: newEvents)
         // Trim if needed
         if events.count > maxEvents {
             events = Array(events.suffix(maxEvents))
         }
         rebuildGroups()
+
+        // Update session stats with event counts
+        for event in newEvents {
+            switch event.kind {
+            case .fileCreated:
+                sessionStats.filesCreated += 1
+            case .fileModified:
+                sessionStats.filesModified += 1
+            case .fileDeleted:
+                sessionStats.filesDeleted += 1
+            case .fileRenamed:
+                sessionStats.filesModified += 1
+            case .gitCommit:
+                sessionStats.commitCount += 1
+            }
+        }
+
+        // Replace numstat snapshot (authoritative) and recompute totals.
+        // Full replacement ensures reverted files drop out of the tally.
+        if !latestNumstat.isEmpty {
+            sessionStats.currentNumstat = latestNumstat
+            sessionStats.recomputeTotals()
+        } else {
+            // Empty snapshot (e.g. after commit clears all diffs)
+            sessionStats.currentNumstat = [:]
+            sessionStats.recomputeTotals()
+        }
 
         // Publish the most recently modified file for auto-follow
         if let latest = newEvents
@@ -276,5 +362,23 @@ final class ActivityFeedModel: ObservableObject {
         guard process.terminationStatus == 0 else { return nil }
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
         return String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Runs `git diff --numstat HEAD` and returns a map of relative path → DiffStats.
+    private func runNumstat(at directory: URL) -> [String: DiffStats] {
+        guard let output = runGit(args: ["diff", "--numstat", "HEAD"], at: directory),
+              !output.isEmpty else {
+            return [:]
+        }
+        var result: [String: DiffStats] = [:]
+        for line in output.components(separatedBy: "\n") {
+            let parts = line.split(separator: "\t", maxSplits: 2)
+            guard parts.count == 3,
+                  let adds = Int(parts[0]),
+                  let dels = Int(parts[1]) else { continue }
+            let path = String(parts[2])
+            result[path] = DiffStats(additions: adds, deletions: dels)
+        }
+        return result
     }
 }

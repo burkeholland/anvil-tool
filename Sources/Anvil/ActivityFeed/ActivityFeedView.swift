@@ -25,6 +25,11 @@ struct ActivityFeedView: View {
             .frame(maxWidth: .infinity)
         } else {
             VStack(alignment: .leading, spacing: 0) {
+                // Session summary header
+                if model.sessionStats.isActive {
+                    SessionSummaryBar(stats: model.sessionStats)
+                }
+
                 // Header with count and clear button
                 HStack {
                     Text("\(model.events.count) event\(model.events.count == 1 ? "" : "s")")
@@ -95,7 +100,22 @@ struct ActivityGroupView: View {
                         .foregroundStyle(.tertiary)
                 }
 
-                Spacer()
+                let stats = group.aggregateStats
+                if !stats.isEmpty {
+                    Spacer()
+                    if stats.additions > 0 {
+                        Text("+\(stats.additions)")
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundStyle(.green)
+                    }
+                    if stats.deletions > 0 {
+                        Text("-\(stats.deletions)")
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundStyle(.red)
+                    }
+                } else {
+                    Spacer()
+                }
             }
             .padding(.horizontal, 12)
             .padding(.top, 8)
@@ -156,6 +176,21 @@ struct ActivityEventRow: View {
             }
 
             Spacer()
+
+            if let stats = event.diffStats, !stats.isEmpty {
+                HStack(spacing: 3) {
+                    if stats.additions > 0 {
+                        Text("+\(stats.additions)")
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundStyle(.green)
+                    }
+                    if stats.deletions > 0 {
+                        Text("-\(stats.deletions)")
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundStyle(.red)
+                    }
+                }
+            }
         }
         .padding(.vertical, 3)
         .padding(.trailing, 8)
@@ -227,5 +262,69 @@ struct ActivityEventRow: View {
         case .fileRenamed:  return .blue
         case .gitCommit:    return .purple
         }
+    }
+}
+
+/// Compact summary bar showing session-level statistics at the top of the activity feed.
+struct SessionSummaryBar: View {
+    let stats: ActivityFeedModel.SessionStats
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 10) {
+                // Session duration
+                if let start = stats.startTime {
+                    HStack(spacing: 4) {
+                        Image(systemName: "clock")
+                            .font(.system(size: 10))
+                        Text(start, style: .relative)
+                            .font(.system(size: 10))
+                    }
+                    .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                // Commit count
+                if stats.commitCount > 0 {
+                    HStack(spacing: 3) {
+                        Image(systemName: "arrow.triangle.branch")
+                            .font(.system(size: 9))
+                        Text("\(stats.commitCount)")
+                            .font(.system(size: 10, weight: .medium))
+                    }
+                    .foregroundStyle(.purple)
+                }
+            }
+
+            HStack(spacing: 12) {
+                // Files touched
+                HStack(spacing: 3) {
+                    Image(systemName: "doc")
+                        .font(.system(size: 9))
+                    Text("\(stats.totalFilesTouched) file\(stats.totalFilesTouched == 1 ? "" : "s") touched")
+                        .font(.system(size: 10))
+                }
+                .foregroundStyle(.secondary)
+
+                Spacer()
+
+                // Aggregate diff stats
+                if stats.totalAdditions > 0 {
+                    Text("+\(stats.totalAdditions)")
+                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                        .foregroundStyle(.green)
+                }
+                if stats.totalDeletions > 0 {
+                    Text("-\(stats.totalDeletions)")
+                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                        .foregroundStyle(.red)
+                }
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.3))
+        .overlay(alignment: .bottom) { Divider() }
     }
 }
