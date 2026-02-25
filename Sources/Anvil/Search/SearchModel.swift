@@ -29,9 +29,12 @@ struct SearchFileResult: Identifiable {
 final class SearchModel: ObservableObject {
     @Published var query: String = ""
     @Published var caseSensitive: Bool = false
+    @Published var useRegex: Bool = false
     @Published private(set) var results: [SearchFileResult] = []
     @Published private(set) var totalMatches: Int = 0
     @Published private(set) var isSearching = false
+    /// Non-nil when the regex pattern is invalid; displayed in the UI.
+    @Published private(set) var regexError: String?
 
     private var rootURL: URL?
     private var cancellables = Set<AnyCancellable>()
@@ -42,10 +45,10 @@ final class SearchModel: ObservableObject {
 
     init() {
         // Debounce query changes — wait 300ms after the user stops typing
-        Publishers.CombineLatest($query, $caseSensitive)
+        Publishers.CombineLatest3($query, $caseSensitive, $useRegex)
             .debounce(for: .milliseconds(300), scheduler: RunLoop.main)
-            .sink { [weak self] query, caseSensitive in
-                self?.performSearch(query: query, caseSensitive: caseSensitive)
+            .sink { [weak self] query, caseSensitive, useRegex in
+                self?.performSearch(query: query, caseSensitive: caseSensitive, useRegex: useRegex)
             }
             .store(in: &cancellables)
     }
@@ -53,7 +56,7 @@ final class SearchModel: ObservableObject {
     func setRoot(_ url: URL) {
         rootURL = url
         if !query.isEmpty {
-            performSearch(query: query, caseSensitive: caseSensitive)
+            performSearch(query: query, caseSensitive: caseSensitive, useRegex: useRegex)
         }
     }
 
@@ -61,22 +64,26 @@ final class SearchModel: ObservableObject {
         query = ""
         results = []
         totalMatches = 0
+        regexError = nil
     }
 
     // MARK: - Search Execution
 
-    private func performSearch(query: String, caseSensitive: Bool) {
+    private func performSearch(query: String, caseSensitive: Bool, useRegex: Bool) {
         let trimmed = query.trimmingCharacters(in: .whitespaces)
+        searchGeneration &+= 1
+        let generation = searchGeneration
+
         guard !trimmed.isEmpty, let rootURL = rootURL else {
             results = []
             totalMatches = 0
             isSearching = false
+            regexError = nil
             return
         }
 
+        regexError = nil
         isSearching = true
-        searchGeneration &+= 1
-        let generation = searchGeneration
         let maxResults = self.maxResults
 
         workQueue.async { [weak self] in
@@ -84,19 +91,28 @@ final class SearchModel: ObservableObject {
                 atPath: rootURL.appendingPathComponent(".git").path
             )
 
-            let output: String?
+            let result: ProcessResult
             if isGitRepo {
-                output = Self.runGitGrep(query: trimmed, caseSensitive: caseSensitive, at: rootURL, maxResults: maxResults)
+                result = Self.runGitGrep(query: trimmed, caseSensitive: caseSensitive, useRegex: useRegex, at: rootURL, maxResults: maxResults)
             } else {
-                output = Self.runGrep(query: trimmed, caseSensitive: caseSensitive, at: rootURL, maxResults: maxResults)
+                result = Self.runGrep(query: trimmed, caseSensitive: caseSensitive, useRegex: useRegex, at: rootURL, maxResults: maxResults)
             }
 
-            let parsed = Self.parseGrepOutput(output ?? "", rootURL: rootURL)
+            let parsed = Self.parseGrepOutput(result.stdout ?? "", rootURL: rootURL)
+
+            // Surface regex errors from grep/git-grep stderr
+            let errorMsg: String?
+            if useRegex, let stderr = result.stderr, !stderr.isEmpty, result.exitCode != 0 && result.exitCode != 1 {
+                errorMsg = stderr.components(separatedBy: "\n").first
+            } else {
+                errorMsg = nil
+            }
 
             DispatchQueue.main.async {
                 guard let self = self, self.searchGeneration == generation else { return }
-                self.results = parsed
-                self.totalMatches = parsed.reduce(0) { $0 + $1.matches.count }
+                self.regexError = errorMsg
+                self.results = errorMsg != nil ? [] : parsed
+                self.totalMatches = errorMsg != nil ? 0 : parsed.reduce(0) { $0 + $1.matches.count }
                 self.isSearching = false
             }
         }
@@ -104,12 +120,16 @@ final class SearchModel: ObservableObject {
 
     // MARK: - git grep
 
-    private static func runGitGrep(query: String, caseSensitive: Bool, at directory: URL, maxResults: Int) -> String? {
+    private static func runGitGrep(query: String, caseSensitive: Bool, useRegex: Bool, at directory: URL, maxResults: Int) -> ProcessResult {
         var args = ["grep", "-n", "--color=never", "-I", "--max-count=50"]
         if !caseSensitive {
             args.append("-i")
         }
-        args.append("--fixed-strings")
+        if useRegex {
+            args.append("-E")
+        } else {
+            args.append("--fixed-strings")
+        }
         args.append(query)
 
         return runProcess(
@@ -121,7 +141,7 @@ final class SearchModel: ObservableObject {
 
     // MARK: - grep fallback
 
-    private static func runGrep(query: String, caseSensitive: Bool, at directory: URL, maxResults: Int) -> String? {
+    private static func runGrep(query: String, caseSensitive: Bool, useRegex: Bool, at directory: URL, maxResults: Int) -> ProcessResult {
         var args = ["-rn", "--color=never", "-I", "--include=*"]
         if !caseSensitive {
             args.append("-i")
@@ -131,7 +151,11 @@ final class SearchModel: ObservableObject {
             "--exclude-dir=.git", "--exclude-dir=.build",
             "--exclude-dir=node_modules", "--exclude-dir=.swiftpm",
         ])
-        args.append("--fixed-strings")
+        if useRegex {
+            args.append("-E")
+        } else {
+            args.append("--fixed-strings")
+        }
         args.append(query)
         args.append(".")
 
@@ -191,25 +215,38 @@ final class SearchModel: ObservableObject {
         }
     }
 
-    private static func runProcess(executable: String, arguments: [String], at directory: URL) -> String? {
+    /// Result of running a subprocess, capturing stdout, stderr, and exit code.
+    private struct ProcessResult {
+        let stdout: String?
+        let stderr: String?
+        let exitCode: Int32
+    }
+
+    private static func runProcess(executable: String, arguments: [String], at directory: URL) -> ProcessResult {
         let process = Process()
-        let pipe = Pipe()
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
         process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = arguments
         process.currentDirectoryURL = directory
-        process.standardOutput = pipe
-        process.standardError = FileHandle.nullDevice
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
 
         do {
             try process.run()
         } catch {
-            return nil
+            return ProcessResult(stdout: nil, stderr: error.localizedDescription, exitCode: -1)
         }
 
-        // Read stdout BEFORE waitUntilExit to avoid deadlock when pipe buffer fills
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        // Read stdout and stderr BEFORE waitUntilExit to avoid deadlock when pipe buffer fills
+        let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+        let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
 
-        return String(data: data, encoding: .utf8)
+        return ProcessResult(
+            stdout: String(data: stdoutData, encoding: .utf8),
+            stderr: String(data: stderrData, encoding: .utf8),
+            exitCode: process.terminationStatus
+        )
     }
 }

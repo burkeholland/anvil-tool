@@ -1,6 +1,6 @@
 import SwiftUI
 
-enum SidebarTab {
+enum SidebarTab: String {
     case files
     case changes
     case activity
@@ -20,10 +20,10 @@ struct ContentView: View {
     @StateObject private var commandPalette = CommandPaletteModel()
     @StateObject private var fileTreeModel = FileTreeModel()
     @State private var notificationManager = AgentNotificationManager()
-    @State private var sidebarWidth: CGFloat = 240
-    @State private var previewWidth: CGFloat = 400
-    @State private var showSidebar = true
-    @State private var sidebarTab: SidebarTab = .files
+    @AppStorage("sidebarWidth") private var sidebarWidth: Double = 240
+    @AppStorage("previewWidth") private var previewWidth: Double = 400
+    @AppStorage("showSidebar") private var showSidebar = true
+    @AppStorage("sidebarTab") private var sidebarTab: SidebarTab = .files
     @State private var showQuickOpen = false
     @State private var showMentionPicker = false
     @State private var showCommandPalette = false

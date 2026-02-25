@@ -4,15 +4,15 @@ import SwiftUI
 ///
 /// Drag horizontally to resize. Double-click to collapse/restore.
 struct PanelDivider: View {
-    @Binding var width: CGFloat
+    @Binding var width: Double
     let minWidth: CGFloat
     let maxWidth: CGFloat
     let edge: Edge
 
     /// Width at the start of the current drag gesture.
-    @State private var dragStartWidth: CGFloat = 0
+    @State private var dragStartWidth: Double = 0
     /// Width to restore to after collapsing via double-click.
-    @State private var restoreWidth: CGFloat?
+    @State private var restoreWidth: Double?
     @State private var isDragging = false
     @State private var cursorPushed = false
 
@@ -55,7 +55,7 @@ struct PanelDivider: View {
                         case .trailing:
                             delta = -value.translation.width
                         }
-                        width = (dragStartWidth + delta).clamped(to: minWidth...maxWidth)
+                        width = (dragStartWidth + Double(delta)).clamped(to: Double(minWidth)...Double(maxWidth))
                     }
                     .onEnded { _ in
                         isDragging = false
@@ -85,8 +85,8 @@ struct PanelDivider: View {
     }
 }
 
-private extension CGFloat {
-    func clamped(to range: ClosedRange<CGFloat>) -> CGFloat {
+private extension Double {
+    func clamped(to range: ClosedRange<Double>) -> Double {
         Swift.min(Swift.max(self, range.lowerBound), range.upperBound)
     }
 }

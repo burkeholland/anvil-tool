@@ -109,6 +109,7 @@ struct SearchView: View {
                             fileResult: fileResult,
                             query: model.query,
                             caseSensitive: model.caseSensitive,
+                            useRegex: model.useRegex,
                             filePreview: filePreview
                         )
                     }
@@ -163,7 +164,27 @@ struct SearchInputBar: View {
                 .controlSize(.small)
                 .help("Case Sensitive")
 
+                Toggle(isOn: $model.useRegex) {
+                    Text(".*")
+                        .font(.system(size: 11, weight: model.useRegex ? .bold : .regular, design: .monospaced))
+                }
+                .toggleStyle(.button)
+                .controlSize(.small)
+                .help("Use Regular Expression")
+
                 Spacer()
+            }
+
+            if let error = model.regexError {
+                HStack(spacing: 4) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.yellow)
+                    Text(error)
+                        .font(.system(size: 10))
+                        .foregroundStyle(.red)
+                        .lineLimit(2)
+                }
             }
         }
         .padding(.horizontal, 12)
@@ -175,6 +196,7 @@ struct SearchFileSection: View {
     let fileResult: SearchFileResult
     let query: String
     let caseSensitive: Bool
+    let useRegex: Bool
     @ObservedObject var filePreview: FilePreviewModel
     @EnvironmentObject var terminalProxy: TerminalInputProxy
     @State private var isExpanded = true
@@ -263,6 +285,7 @@ struct SearchFileSection: View {
                         match: match,
                         query: query,
                         caseSensitive: caseSensitive,
+                        useRegex: useRegex,
                         fileURL: fileResult.url,
                         filePreview: filePreview
                     )
@@ -276,6 +299,7 @@ struct SearchMatchRow: View {
     let match: SearchMatch
     let query: String
     let caseSensitive: Bool
+    let useRegex: Bool
     let fileURL: URL
     @ObservedObject var filePreview: FilePreviewModel
 
@@ -310,6 +334,22 @@ struct SearchMatchRow: View {
 
     private var highlightedText: Text {
         let content = match.lineContent.trimmingCharacters(in: .whitespaces)
+
+        if useRegex {
+            let options: NSRegularExpression.Options = caseSensitive ? [] : [.caseInsensitive]
+            guard let regex = try? NSRegularExpression(pattern: query, options: options),
+                  let nsMatch = regex.firstMatch(in: content, range: NSRange(content.startIndex..., in: content)),
+                  let swiftRange = Range(nsMatch.range, in: content) else {
+                return Text(content).foregroundColor(.secondary)
+            }
+            let before = String(content[content.startIndex..<swiftRange.lowerBound])
+            let matched = String(content[swiftRange])
+            let after = String(content[swiftRange.upperBound...])
+            return Text(before).foregroundColor(.secondary)
+                + Text(matched).foregroundColor(.primary).bold()
+                + Text(after).foregroundColor(.secondary)
+        }
+
         let options: String.CompareOptions = caseSensitive ? [.literal] : [.literal, .caseInsensitive]
 
         guard let range = content.range(of: query, options: options) else {
