@@ -40,6 +40,7 @@ struct ContentView: View {
     @State private var showCopilotActions = false
     @State private var showProjectSwitcher = false
     @State private var showBranchDiff = false
+    @State private var showCloneSheet = false
 
     var body: some View {
         ZStack {
@@ -143,7 +144,8 @@ struct ContentView: View {
             onMentionInTerminal: workingDirectory.directoryURL != nil ? {
                 showQuickOpen = false
                 showMentionPicker = true
-            } : nil
+            } : nil,
+            onCloneRepository: { showCloneSheet = true }
         ))
         .onChange(of: workingDirectory.directoryURL) { _, newURL in
             showTaskBanner = false
@@ -196,6 +198,12 @@ struct ContentView: View {
                 openDirectory(url)
             }
         }
+        .sheet(isPresented: $showCloneSheet) {
+            CloneRepositoryView(
+                onCloned: { url in openDirectory(url) },
+                onDismiss: { showCloneSheet = false }
+            )
+        }
     }
 
     private var projectView: some View {
@@ -243,7 +251,8 @@ struct ContentView: View {
                         showCopilotActions: $showCopilotActions,
                         showProjectSwitcher: $showProjectSwitcher,
                         onOpenDirectory: { browseForDirectory() },
-                        onSwitchProject: { url in openDirectory(url) }
+                        onSwitchProject: { url in openDirectory(url) },
+                        onCloneRepository: { showCloneSheet = true }
                     )
 
                     if terminalTabs.tabs.count > 1 {
@@ -597,6 +606,11 @@ struct ContentView: View {
             } action: {
                 showProjectSwitcher = true
             },
+            PaletteCommand(id: "clone-repo", title: "Clone Repository…", icon: "arrow.down.circle", shortcut: nil, category: "File") {
+                true
+            } action: {
+                showCloneSheet = true
+            },
             PaletteCommand(id: "close-tab", title: "Close Preview Tab", icon: "xmark", shortcut: "⌘W", category: "File") {
                 filePreview.selectedURL != nil
             } action: { [weak filePreview] in
@@ -864,6 +878,7 @@ struct ToolbarView: View {
     @Binding var showProjectSwitcher: Bool
     var onOpenDirectory: () -> Void
     var onSwitchProject: (URL) -> Void
+    var onCloneRepository: () -> Void
 
     var body: some View {
         HStack(spacing: 12) {
@@ -985,6 +1000,7 @@ struct ToolbarView: View {
                     currentPath: workingDirectory.directoryURL?.standardizedFileURL.path,
                     onSelect: { url in onSwitchProject(url) },
                     onBrowse: { onOpenDirectory() },
+                    onClone: onCloneRepository,
                     onDismiss: { showProjectSwitcher = false }
                 )
             }
@@ -1281,6 +1297,7 @@ private struct FocusedSceneModifier: ViewModifier {
     var onGoToLine: (() -> Void)?
     var onRevealInTree: (() -> Void)?
     var onMentionInTerminal: (() -> Void)?
+    var onCloneRepository: (() -> Void)?
 
     func body(content: Content) -> some View {
         content
@@ -1313,7 +1330,8 @@ private struct FocusedSceneModifier: ViewModifier {
             ))
             .modifier(FocusedSceneModifierC(
                 onRevealInTree: onRevealInTree,
-                onMentionInTerminal: onMentionInTerminal
+                onMentionInTerminal: onMentionInTerminal,
+                onCloneRepository: onCloneRepository
             ))
     }
 }
@@ -1387,11 +1405,13 @@ private struct FocusedSceneModifierB: ViewModifier {
 private struct FocusedSceneModifierC: ViewModifier {
     var onRevealInTree: (() -> Void)?
     var onMentionInTerminal: (() -> Void)?
+    var onCloneRepository: (() -> Void)?
 
     func body(content: Content) -> some View {
         content
             .focusedSceneValue(\.revealInTree, onRevealInTree)
             .focusedSceneValue(\.mentionInTerminal, onMentionInTerminal)
+            .focusedSceneValue(\.cloneRepository, onCloneRepository)
     }
 }
 

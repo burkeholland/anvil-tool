@@ -8,6 +8,7 @@ struct WelcomeView: View {
     var onOpen: (URL) -> Void
     var onBrowse: () -> Void
     @State private var copilotAvailable: Bool?
+    @State private var showCloneSheet = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -57,16 +58,28 @@ struct WelcomeView: View {
             }
 
             // Open button
-            Button {
-                onBrowse()
-            } label: {
-                Label("Open Directory…", systemImage: "folder")
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 10)
+            HStack(spacing: 12) {
+                Button {
+                    onBrowse()
+                } label: {
+                    Label("Open Directory…", systemImage: "folder")
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 10)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .keyboardShortcut(.return, modifiers: .command)
+
+                Button {
+                    showCloneSheet = true
+                } label: {
+                    Label("Clone Repository…", systemImage: "arrow.down.circle")
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 10)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.large)
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .keyboardShortcut(.return, modifiers: .command)
 
             Text("or drag a folder here")
                 .font(.caption)
@@ -89,6 +102,12 @@ struct WelcomeView: View {
         .onAppear {
             checkCopilotAvailability()
             recentProjects.refreshGitInfo()
+        }
+        .sheet(isPresented: $showCloneSheet) {
+            CloneRepositoryView(
+                onCloned: { url in onOpen(url) },
+                onDismiss: { showCloneSheet = false }
+            )
         }
     }
 

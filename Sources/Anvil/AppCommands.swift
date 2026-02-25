@@ -95,6 +95,10 @@ struct MentionInTerminalKey: FocusedValueKey {
     typealias Value = () -> Void
 }
 
+struct CloneRepositoryKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
 extension FocusedValues {
     var sidebarVisible: Binding<Bool>? {
         get { self[SidebarVisibleKey.self] }
@@ -209,6 +213,11 @@ extension FocusedValues {
     var mentionInTerminal: (() -> Void)? {
         get { self[MentionInTerminalKey.self] }
         set { self[MentionInTerminalKey.self] = newValue }
+    }
+
+    var cloneRepository: (() -> Void)? {
+        get { self[CloneRepositoryKey.self] }
+        set { self[CloneRepositoryKey.self] = newValue }
     }
 }
 
@@ -404,6 +413,7 @@ struct ViewCommands: Commands {
 struct FileCommands: Commands {
     @FocusedValue(\.openDirectory) var openDirectory
     @FocusedValue(\.closeProject) var closeProject
+    @FocusedValue(\.cloneRepository) var cloneRepository
 
     var body: some Commands {
         CommandGroup(after: .newItem) {
@@ -412,6 +422,13 @@ struct FileCommands: Commands {
             }
             .keyboardShortcut("o", modifiers: .command)
             .disabled(openDirectory == nil)
+
+            Button("Clone Repository…") {
+                cloneRepository?()
+            }
+            .disabled(cloneRepository == nil)
+
+            Divider()
 
             Button("Close Project") {
                 closeProject?()

@@ -6,6 +6,7 @@ struct ProjectSwitcherView: View {
     var currentPath: String?
     var onSelect: (URL) -> Void
     var onBrowse: () -> Void
+    var onClone: () -> Void
     var onDismiss: () -> Void
 
     var body: some View {
@@ -63,22 +64,41 @@ struct ProjectSwitcherView: View {
 
             Divider()
 
-            Button {
-                onBrowse()
-                onDismiss()
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "folder.badge.plus")
-                        .font(.system(size: 11))
-                    Text("Open Other…")
-                        .font(.system(size: 12))
-                    Spacer()
+            VStack(spacing: 0) {
+                Button {
+                    onBrowse()
+                    onDismiss()
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "folder.badge.plus")
+                            .font(.system(size: 11))
+                        Text("Open Other…")
+                            .font(.system(size: 12))
+                        Spacer()
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .contentShape(Rectangle())
                 }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
-                .contentShape(Rectangle())
+                .buttonStyle(.plain)
+
+                Button {
+                    onClone()
+                    onDismiss()
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "arrow.down.circle")
+                            .font(.system(size: 11))
+                        Text("Clone Repository…")
+                            .font(.system(size: 12))
+                        Spacer()
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
         }
         .frame(width: 300)
         .onAppear {
