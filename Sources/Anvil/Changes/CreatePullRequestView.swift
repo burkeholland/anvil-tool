@@ -144,7 +144,8 @@ struct CreatePullRequestView: View {
                 .padding()
             }
         }
-        .frame(width: 480, minHeight: 360)
+        .frame(width: 480)
+        .frame(minHeight: 360)
         .onAppear { loadInitialData() }
     }
 
