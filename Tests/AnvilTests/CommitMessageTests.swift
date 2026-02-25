@@ -109,4 +109,45 @@ final class CommitMessageTests: XCTestCase {
         XCTAssertTrue(message.contains("Staged.swift"), "Got: \(message)")
         XCTAssertFalse(message.contains("Unstaged.swift"), "Should not mention unstaged. Got: \(message)")
     }
+
+    func testDirectoryGrouping() {
+        let model = ChangesModel()
+        model.setChangedFilesForTesting([
+            makeFile(path: "Sources/Changes/ChangesModel.swift", status: .modified, additions: 10, deletions: 2),
+            makeFile(path: "Tests/AnvilTests/CommitMessageTests.swift", status: .modified, additions: 5),
+        ])
+
+        let message = model.generateCommitMessage()
+        // Body should list both directories as group headers
+        XCTAssertTrue(message.contains("Sources/Changes/"), "Got: \(message)")
+        XCTAssertTrue(message.contains("Tests/AnvilTests/"), "Got: \(message)")
+        // Files should be listed under their directory with indentation
+        XCTAssertTrue(message.contains("  - ChangesModel.swift"), "Got: \(message)")
+        XCTAssertTrue(message.contains("  - CommitMessageTests.swift"), "Got: \(message)")
+    }
+
+    func testSymbolExtractionInBody() {
+        let url = URL(fileURLWithPath: "/tmp/project/Auth/LoginModel.swift")
+        let additionLines: [DiffLine] = [
+            DiffLine(id: 0, kind: .addition, text: "+func login(user: String) {", oldLineNumber: nil, newLineNumber: 1),
+            DiffLine(id: 1, kind: .addition, text: "+    return true", oldLineNumber: nil, newLineNumber: 2),
+            DiffLine(id: 2, kind: .addition, text: "+}", oldLineNumber: nil, newLineNumber: 3),
+        ]
+        let hunk = DiffHunk(id: 0, header: "@@ -0,0 +1,3 @@", lines: additionLines)
+        let diff = FileDiff(id: "Auth/LoginModel.swift", oldPath: "Auth/LoginModel.swift", newPath: "Auth/LoginModel.swift", hunks: [hunk])
+        let file = ChangedFile(url: url, relativePath: "Auth/LoginModel.swift", status: .modified, staging: .staged, diff: diff)
+
+        let secondURL = URL(fileURLWithPath: "/tmp/project/Auth/LogoutModel.swift")
+        let file2 = ChangedFile(url: secondURL, relativePath: "Auth/LogoutModel.swift", status: .modified, staging: .staged, diff: nil)
+
+        let model = ChangesModel()
+        model.setChangedFilesForTesting([file, file2])
+
+        let message = model.generateCommitMessage()
+        // The extracted symbol "login" should appear annotated next to the file name
+        XCTAssertTrue(message.contains("login"), "Expected symbol 'login' in message. Got: \(message)")
+        XCTAssertTrue(message.contains("LoginModel.swift"), "Expected filename in message. Got: \(message)")
+        // Since both files share the same directory, body should use the flat-list format
+        XCTAssertTrue(message.contains("- Auth/LoginModel.swift"), "Expected flat-list entry. Got: \(message)")
+    }
 }
