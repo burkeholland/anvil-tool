@@ -99,7 +99,8 @@ struct FilePreviewView: View {
     }
 }
 
-/// NSViewRepresentable wrapper around NSTextView with Highlightr syntax highlighting.
+/// NSViewRepresentable wrapper around NSTextView with Highlightr syntax highlighting
+/// and a line number gutter.
 struct HighlightedTextView: NSViewRepresentable {
     let content: String
     let language: String?
@@ -117,7 +118,7 @@ struct HighlightedTextView: NSViewRepresentable {
         textView.isRichText = true
         textView.drawsBackground = true
         textView.backgroundColor = NSColor(red: 0.12, green: 0.12, blue: 0.14, alpha: 1.0)
-        textView.textContainerInset = NSSize(width: 12, height: 12)
+        textView.textContainerInset = NSSize(width: 8, height: 12)
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticDashSubstitutionEnabled = false
         textView.isAutomaticTextReplacementEnabled = false
@@ -130,7 +131,15 @@ struct HighlightedTextView: NSViewRepresentable {
 
         scrollView.documentView = textView
 
+        // Install line number ruler
+        scrollView.rulersVisible = true
+        scrollView.hasVerticalRuler = true
+        scrollView.contentView.postsBoundsChangedNotifications = true
+        let rulerView = LineNumberRulerView(textView: textView)
+        scrollView.verticalRulerView = rulerView
+
         context.coordinator.textView = textView
+        context.coordinator.rulerView = rulerView
         context.coordinator.applyHighlighting(content: content, language: language)
 
         return scrollView
@@ -146,6 +155,7 @@ struct HighlightedTextView: NSViewRepresentable {
 
     final class Coordinator {
         weak var textView: NSTextView?
+        weak var rulerView: LineNumberRulerView?
         private let highlightr: Highlightr? = Highlightr()
         private var lastContent: String?
         private var lastLanguage: String?
@@ -177,6 +187,128 @@ struct HighlightedTextView: NSViewRepresentable {
             }
 
             textView.textStorage?.setAttributedString(attributed)
+            rulerView?.refreshAfterContentChange()
+
+        }
+    }
+}
+
+/// Draws line numbers in a vertical ruler alongside an NSTextView.
+final class LineNumberRulerView: NSRulerView {
+    private weak var targetTextView: NSTextView?
+    private let gutterBackground = NSColor(red: 0.10, green: 0.10, blue: 0.12, alpha: 1.0)
+    private let lineNumberColor = NSColor(white: 0.40, alpha: 1.0)
+    private let lineNumberFont = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .regular)
+
+    init(textView: NSTextView) {
+        self.targetTextView = textView
+        super.init(scrollView: textView.enclosingScrollView!, orientation: .verticalRuler)
+        self.ruleThickness = 40
+        self.clientView = textView
+
+        // Redraw when text changes or view scrolls
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(textDidChange),
+            name: NSText.didChangeNotification, object: textView
+        )
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(textDidChange),
+            name: NSView.boundsDidChangeNotification,
+            object: textView.enclosingScrollView?.contentView
+        )
+    }
+
+    @available(*, unavailable)
+    required init(coder: NSCoder) {
+        fatalError()
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    @objc private func textDidChange(_ notification: Notification) {
+        updateThickness()
+        needsDisplay = true
+    }
+
+    /// Called by the coordinator after setting new content programmatically.
+    func refreshAfterContentChange() {
+        updateThickness()
+        needsDisplay = true
+    }
+
+    private func updateThickness() {
+        guard let textView = targetTextView else { return }
+        let lineCount = max(textView.string.components(separatedBy: "\n").count, 1)
+        let digitCount = max(String(lineCount).count, 2)
+        let sampleString = String(repeating: "8", count: digitCount) as NSString
+        let width = sampleString.size(withAttributes: [.font: lineNumberFont]).width
+        let newThickness = ceil(width) + 20 // 10pt padding on each side
+        if abs(ruleThickness - newThickness) > 1 {
+            ruleThickness = newThickness
+        }
+    }
+
+    override func drawHashMarksAndLabels(in rect: NSRect) {
+        guard let textView = targetTextView,
+              let layoutManager = textView.layoutManager,
+              let textContainer = textView.textContainer else { return }
+
+        // Fill gutter background
+        gutterBackground.setFill()
+        rect.fill()
+
+        // Draw separator line
+        NSColor(white: 0.25, alpha: 1.0).setStroke()
+        let separatorX = bounds.maxX - 0.5
+        let separatorPath = NSBezierPath()
+        separatorPath.move(to: NSPoint(x: separatorX, y: rect.minY))
+        separatorPath.line(to: NSPoint(x: separatorX, y: rect.maxY))
+        separatorPath.lineWidth = 1
+        separatorPath.stroke()
+
+        let content = textView.string as NSString
+        let visibleRect = scrollView!.contentView.bounds
+        let textInset = textView.textContainerInset
+
+        // Visible glyph range
+        let visibleGlyphRange = layoutManager.glyphRange(
+            forBoundingRect: visibleRect, in: textContainer
+        )
+        let visibleCharRange = layoutManager.characterRange(
+            forGlyphRange: visibleGlyphRange, actualGlyphRange: nil
+        )
+
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: lineNumberFont,
+            .foregroundColor: lineNumberColor,
+        ]
+
+        // Walk through each line in the visible range
+        var lineNumber = content.substring(to: visibleCharRange.location)
+            .components(separatedBy: "\n").count
+        var charIndex = visibleCharRange.location
+
+        while charIndex < NSMaxRange(visibleCharRange) {
+            let lineRange = content.lineRange(for: NSRange(location: charIndex, length: 0))
+            let glyphRange = layoutManager.glyphRange(forCharacterRange: lineRange, actualCharacterRange: nil)
+            var lineRect = layoutManager.lineFragmentRect(forGlyphAt: glyphRange.location, effectiveRange: nil)
+            lineRect.origin.y += textInset.height
+
+            // Only draw if visible
+            if lineRect.maxY >= visibleRect.minY && lineRect.minY <= visibleRect.maxY {
+                let numStr = "\(lineNumber)" as NSString
+                let strSize = numStr.size(withAttributes: attrs)
+                let drawPoint = NSPoint(
+                    x: ruleThickness - strSize.width - 10,
+                    y: lineRect.minY + (lineRect.height - strSize.height) / 2 - visibleRect.origin.y
+                )
+                numStr.draw(at: drawPoint, withAttributes: attrs)
+            }
+
+            charIndex = NSMaxRange(lineRange)
+            lineNumber += 1
         }
     }
 }
