@@ -1,0 +1,306 @@
+{
+  "builtTestProducts" : [
+
+  ],
+  "copyCommands" : {
+
+  },
+  "explicitTargetDependencyImportCheckingMode" : {
+    "none" : {
+
+    }
+  },
+  "generatedSourceTargetSet" : [
+
+  ],
+  "pluginDescriptions" : [
+
+  ],
+  "swiftCommands" : {
+    "C.Anvil-x86_64-unknown-linux-gnu-debug.module" : {
+      "executable" : "/usr/share/swift/usr/bin/swiftc",
+      "fileList" : "/home/runner/work/anvil-tool/anvil-tool/.build/x86_64-unknown-linux-gnu/debug/Anvil.build/sources",
+      "importPath" : "/home/runner/work/anvil-tool/anvil-tool/.build/x86_64-unknown-linux-gnu/debug/Modules",
+      "inputs" : [
+        {
+          "kind" : "file",
+          "name" : "/home/runner/work/anvil-tool/anvil-tool/Sources/Anvil/AnvilApp.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/home/runner/work/anvil-tool/anvil-tool/Sources/Anvil/ContentView.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/home/runner/work/anvil-tool/anvil-tool/Sources/Anvil/Models/ActivityModel.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/home/runner/work/anvil-tool/anvil-tool/Sources/Anvil/Notifications/AgentNotificationManager.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/home/runner/work/anvil-tool/anvil-tool/Sources/Anvil/Settings/AgentSoundOption.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/home/runner/work/anvil-tool/anvil-tool/Sources/Anvil/Settings/SettingsView.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/home/runner/work/anvil-tool/anvil-tool/.build/x86_64-unknown-linux-gnu/debug/swift-version--1BFCD5C06E9F820A.txt"
+        },
+        {
+          "kind" : "file",
+          "name" : "/home/runner/work/anvil-tool/anvil-tool/.build/x86_64-unknown-linux-gnu/debug/Anvil.build/sources"
+        }
+      ],
+      "isLibrary" : false,
+      "moduleName" : "Anvil",
+      "moduleOutputPath" : "/home/runner/work/anvil-tool/anvil-tool/.build/x86_64-unknown-linux-gnu/debug/Modules/Anvil.swiftmodule",
+      "objects" : [
+        "/home/runner/work/anvil-tool/anvil-tool/.build/x86_64-unknown-linux-gnu/debug/Anvil.build/AnvilApp.swift.o",
+        "/home/runner/work/anvil-tool/anvil-tool/.build/x86_64-unknown-linux-gnu/debug/Anvil.build/ContentView.swift.o",
+        "/home/runner/work/anvil-tool/anvil-tool/.build/x86_64-unknown-linux-gnu/debug/Anvil.build/ActivityModel.swift.o",
+        "/home/runner/work/anvil-tool/anvil-tool/.build/x86_64-unknown-linux-gnu/debug/Anvil.build/AgentNotificationManager.swift.o",
+        "/home/runner/work/anvil-tool/anvil-tool/.build/x86_64-unknown-linux-gnu/debug/Anvil.build/AgentSoundOption.swift.o",
+        "/home/runner/work/anvil-tool/anvil-tool/.build/x86_64-unknown-linux-gnu/debug/Anvil.build/SettingsView.swift.o"
+      ],
+      "otherArguments" : [
+        "-target",
+        "x86_64-unknown-linux-gnu",
+        "-incremental",
+        "-enable-batch-mode",
+        "-serialize-diagnostics",
+        "-index-store-path",
+        "/home/runner/work/anvil-tool/anvil-tool/.build/x86_64-unknown-linux-gnu/debug/index/store",
+        "-Onone",
+        "-enable-testing",
+        "-j2",
+        "-DSWIFT_PACKAGE",
+        "-DDEBUG",
+        "-DSWIFT_MODULE_RESOURCE_BUNDLE_UNAVAILABLE",
+        "-module-cache-path",
+        "/home/runner/work/anvil-tool/anvil-tool/.build/x86_64-unknown-linux-gnu/debug/ModuleCache",
+        "-parseable-output",
+        "-Xfrontend",
+        "-entry-point-function-name",
+        "-Xfrontend",
+        "Anvil_main",
+        "-color-diagnostics",
+        "-swift-version",
+        "5",
+        "-g",
+        "-Xcc",
+        "-fPIC",
+        "-Xcc",
+        "-g",
+        "-package-name",
+        "anvil_tool",
+        "-Xcc",
+        "-fno-omit-frame-pointer"
+      ],
+      "outputFileMapPath" : "/home/runner/work/anvil-tool/anvil-tool/.build/x86_64-unknown-linux-gnu/debug/Anvil.build/output-file-map.json",
+      "outputs" : [
+        {
+          "kind" : "file",
+          "name" : "/home/runner/work/anvil-tool/anvil-tool/.build/x86_64-unknown-linux-gnu/debug/Anvil.build/AnvilApp.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/home/runner/work/anvil-tool/anvil-tool/.build/x86_64-unknown-linux-gnu/debug/Anvil.build/ContentView.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/home/runner/work/anvil-tool/anvil-tool/.build/x86_64-unknown-linux-gnu/debug/Anvil.build/ActivityModel.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/home/runner/work/anvil-tool/anvil-tool/.build/x86_64-unknown-linux-gnu/debug/Anvil.build/AgentNotificationManager.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/home/runner/work/anvil-tool/anvil-tool/.build/x86_64-unknown-linux-gnu/debug/Anvil.build/AgentSoundOption.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/home/runner/work/anvil-tool/anvil-tool/.build/x86_64-unknown-linux-gnu/debug/Anvil.build/SettingsView.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/home/runner/work/anvil-tool/anvil-tool/.build/x86_64-unknown-linux-gnu/debug/Modules/Anvil.swiftmodule"
+        }
+      ],
+      "prepareForIndexing" : false,
+      "sources" : [
+        "/home/runner/work/anvil-tool/anvil-tool/Sources/Anvil/AnvilApp.swift",
+        "/home/runner/work/anvil-tool/anvil-tool/Sources/Anvil/ContentView.swift",
+        "/home/runner/work/anvil-tool/anvil-tool/Sources/Anvil/Models/ActivityModel.swift",
+        "/home/runner/work/anvil-tool/anvil-tool/Sources/Anvil/Notifications/AgentNotificationManager.swift",
+        "/home/runner/work/anvil-tool/anvil-tool/Sources/Anvil/Settings/AgentSoundOption.swift",
+        "/home/runner/work/anvil-tool/anvil-tool/Sources/Anvil/Settings/SettingsView.swift"
+      ],
+      "tempsPath" : "/home/runner/work/anvil-tool/anvil-tool/.build/x86_64-unknown-linux-gnu/debug/Anvil.build",
+      "wholeModuleOptimization" : false
+    }
+  },
+  "swiftFrontendCommands" : {
+
+  },
+  "swiftTargetScanArgs" : {
+    "Anvil" : [
+      "/usr/share/swift/usr/bin/swiftc",
+      "-module-name",
+      "Anvil",
+      "-package-name",
+      "anvil_tool",
+      "-c",
+      "/home/runner/work/anvil-tool/anvil-tool/Sources/Anvil/AnvilApp.swift",
+      "/home/runner/work/anvil-tool/anvil-tool/Sources/Anvil/ContentView.swift",
+      "/home/runner/work/anvil-tool/anvil-tool/Sources/Anvil/Models/ActivityModel.swift",
+      "/home/runner/work/anvil-tool/anvil-tool/Sources/Anvil/Notifications/AgentNotificationManager.swift",
+      "/home/runner/work/anvil-tool/anvil-tool/Sources/Anvil/Settings/AgentSoundOption.swift",
+      "/home/runner/work/anvil-tool/anvil-tool/Sources/Anvil/Settings/SettingsView.swift",
+      "-I",
+      "/home/runner/work/anvil-tool/anvil-tool/.build/x86_64-unknown-linux-gnu/debug/Modules",
+      "-target",
+      "x86_64-unknown-linux-gnu",
+      "-incremental",
+      "-enable-batch-mode",
+      "-serialize-diagnostics",
+      "-index-store-path",
+      "/home/runner/work/anvil-tool/anvil-tool/.build/x86_64-unknown-linux-gnu/debug/index/store",
+      "-Onone",
+      "-enable-testing",
+      "-j2",
+      "-DSWIFT_PACKAGE",
+      "-DDEBUG",
+      "-DSWIFT_MODULE_RESOURCE_BUNDLE_UNAVAILABLE",
+      "-module-cache-path",
+      "/home/runner/work/anvil-tool/anvil-tool/.build/x86_64-unknown-linux-gnu/debug/ModuleCache",
+      "-parseable-output",
+      "-Xfrontend",
+      "-entry-point-function-name",
+      "-Xfrontend",
+      "Anvil_main",
+      "-color-diagnostics",
+      "-swift-version",
+      "5",
+      "-g",
+      "-Xcc",
+      "-fPIC",
+      "-Xcc",
+      "-g",
+      "-package-name",
+      "anvil_tool",
+      "-Xcc",
+      "-fno-omit-frame-pointer",
+      "-driver-use-frontend-path",
+      "/usr/share/swift/usr/bin/swiftc"
+    ]
+  },
+  "targetDependencyMap" : {
+    "Anvil" : [
+
+    ]
+  },
+  "testDiscoveryCommands" : {
+
+  },
+  "testEntryPointCommands" : {
+
+  },
+  "traitConfiguration" : {
+    "default" : {
+
+    }
+  },
+  "writeCommands" : {
+    "/home/runner/work/anvil-tool/anvil-tool/.build/x86_64-unknown-linux-gnu/debug/Anvil.build/sources" : {
+      "alwaysOutOfDate" : false,
+      "inputs" : [
+        {
+          "kind" : "virtual",
+          "name" : "<sources-file-list>"
+        },
+        {
+          "kind" : "file",
+          "name" : "/home/runner/work/anvil-tool/anvil-tool/Sources/Anvil/AnvilApp.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/home/runner/work/anvil-tool/anvil-tool/Sources/Anvil/ContentView.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/home/runner/work/anvil-tool/anvil-tool/Sources/Anvil/Models/ActivityModel.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/home/runner/work/anvil-tool/anvil-tool/Sources/Anvil/Notifications/AgentNotificationManager.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/home/runner/work/anvil-tool/anvil-tool/Sources/Anvil/Settings/AgentSoundOption.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/home/runner/work/anvil-tool/anvil-tool/Sources/Anvil/Settings/SettingsView.swift"
+        }
+      ],
+      "outputFilePath" : "/home/runner/work/anvil-tool/anvil-tool/.build/x86_64-unknown-linux-gnu/debug/Anvil.build/sources"
+    },
+    "/home/runner/work/anvil-tool/anvil-tool/.build/x86_64-unknown-linux-gnu/debug/Anvil.product/Objects.LinkFileList" : {
+      "alwaysOutOfDate" : false,
+      "inputs" : [
+        {
+          "kind" : "virtual",
+          "name" : "<link-file-list>"
+        },
+        {
+          "kind" : "file",
+          "name" : "/home/runner/work/anvil-tool/anvil-tool/.build/x86_64-unknown-linux-gnu/debug/Anvil.build/ActivityModel.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/home/runner/work/anvil-tool/anvil-tool/.build/x86_64-unknown-linux-gnu/debug/Anvil.build/AgentNotificationManager.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/home/runner/work/anvil-tool/anvil-tool/.build/x86_64-unknown-linux-gnu/debug/Anvil.build/AgentSoundOption.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/home/runner/work/anvil-tool/anvil-tool/.build/x86_64-unknown-linux-gnu/debug/Anvil.build/Anvil.swiftmodule.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/home/runner/work/anvil-tool/anvil-tool/.build/x86_64-unknown-linux-gnu/debug/Anvil.build/AnvilApp.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/home/runner/work/anvil-tool/anvil-tool/.build/x86_64-unknown-linux-gnu/debug/Anvil.build/ContentView.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/home/runner/work/anvil-tool/anvil-tool/.build/x86_64-unknown-linux-gnu/debug/Anvil.build/SettingsView.swift.o"
+        }
+      ],
+      "outputFilePath" : "/home/runner/work/anvil-tool/anvil-tool/.build/x86_64-unknown-linux-gnu/debug/Anvil.product/Objects.LinkFileList"
+    },
+    "/home/runner/work/anvil-tool/anvil-tool/.build/x86_64-unknown-linux-gnu/debug/swift-version--1BFCD5C06E9F820A.txt" : {
+      "alwaysOutOfDate" : true,
+      "inputs" : [
+        {
+          "kind" : "virtual",
+          "name" : "<swift-get-version>"
+        },
+        {
+          "kind" : "file",
+          "name" : "/usr/share/swift/usr/bin/swiftc"
+        }
+      ],
+      "outputFilePath" : "/home/runner/work/anvil-tool/anvil-tool/.build/x86_64-unknown-linux-gnu/debug/swift-version--1BFCD5C06E9F820A.txt"
+    }
+  }
+}
