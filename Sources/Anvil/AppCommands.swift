@@ -77,6 +77,7 @@ struct ViewCommands: Commands {
     @FocusedValue(\.closePreview) var closePreview
     @FocusedValue(\.refresh) var refresh
     @FocusedValue(\.quickOpen) var quickOpen
+    @AppStorage("autoLaunchCopilot") private var autoLaunchCopilot = true
 
     var body: some Commands {
         CommandGroup(after: .sidebar) {
@@ -85,6 +86,10 @@ struct ViewCommands: Commands {
             }
             .keyboardShortcut("o", modifiers: [.command, .shift])
             .disabled(quickOpen == nil)
+
+            Divider()
+
+            Toggle("Auto-Launch Copilot", isOn: $autoLaunchCopilot)
 
             Divider()
 

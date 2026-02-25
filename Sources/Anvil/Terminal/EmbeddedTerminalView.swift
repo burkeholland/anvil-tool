@@ -7,6 +7,7 @@ import SwiftTerm
 struct EmbeddedTerminalView: View {
     @ObservedObject var workingDirectory: WorkingDirectoryModel
     @EnvironmentObject var terminalProxy: TerminalInputProxy
+    @AppStorage("autoLaunchCopilot") private var autoLaunchCopilot = true
     @State private var processRunning = true
     @State private var lastExitCode: Int32?
     @State private var terminalID = UUID()
@@ -16,6 +17,7 @@ struct EmbeddedTerminalView: View {
             TerminalNSView(
                 workingDirectory: workingDirectory,
                 terminalProxy: terminalProxy,
+                autoLaunchCopilot: autoLaunchCopilot,
                 onProcessExit: { code in
                     lastExitCode = code
                     processRunning = false
@@ -75,6 +77,7 @@ struct EmbeddedTerminalView: View {
 private struct TerminalNSView: NSViewRepresentable {
     @ObservedObject var workingDirectory: WorkingDirectoryModel
     var terminalProxy: TerminalInputProxy
+    var autoLaunchCopilot: Bool
     var onProcessExit: (Int32?) -> Void
 
     func makeNSView(context: Context) -> LocalProcessTerminalView {
@@ -97,6 +100,10 @@ private struct TerminalNSView: NSViewRepresentable {
             currentDirectory: workingDirectory.path
         )
 
+        if autoLaunchCopilot {
+            context.coordinator.scheduleAutoLaunch(terminalView)
+        }
+
         return terminalView
     }
 
@@ -111,6 +118,17 @@ private struct TerminalNSView: NSViewRepresentable {
 
         init(onProcessExit: @escaping (Int32?) -> Void) {
             self.onProcessExit = onProcessExit
+        }
+
+        /// Detects whether the Copilot CLI is installed, then sends the launch
+        /// command to the terminal after the shell has had time to initialize.
+        func scheduleAutoLaunch(_ terminalView: LocalProcessTerminalView) {
+            DispatchQueue.global(qos: .userInitiated).async { [weak terminalView] in
+                guard CopilotDetector.isAvailable() else { return }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak terminalView] in
+                    terminalView?.send(txt: "copilot\n")
+                }
+            }
         }
 
         func sizeChanged(source: LocalProcessTerminalView, newCols: Int, newRows: Int) {}
