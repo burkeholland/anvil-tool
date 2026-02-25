@@ -131,6 +131,12 @@ struct ContentView: View {
             onFindInTerminal: {
                 terminalProxy.showFindBar()
             },
+            onFindTerminalNext: {
+                terminalProxy.findTerminalNext()
+            },
+            onFindTerminalPrevious: {
+                terminalProxy.findTerminalPrevious()
+            },
             onShowCommandPalette: {
                 buildCommandPalette()
                 showCommandPalette = true
@@ -1509,6 +1515,8 @@ private struct FocusedSceneModifier: ViewModifier {
     var onNewTerminalTab: () -> Void
     var onNewCopilotTab: () -> Void
     var onFindInTerminal: () -> Void
+    var onFindTerminalNext: () -> Void
+    var onFindTerminalPrevious: () -> Void
     var onShowCommandPalette: () -> Void
     var onNextChange: (() -> Void)?
     var onPreviousChange: (() -> Void)?
@@ -1553,6 +1561,8 @@ private struct FocusedSceneModifier: ViewModifier {
             .modifier(FocusedSceneModifierC(
                 hasProject: hasProject,
                 onNewCopilotTab: onNewCopilotTab,
+                onFindTerminalNext: onFindTerminalNext,
+                onFindTerminalPrevious: onFindTerminalPrevious,
                 onRevealInTree: onRevealInTree,
                 onMentionInTerminal: onMentionInTerminal,
                 onCloneRepository: onCloneRepository,
@@ -1631,6 +1641,8 @@ private struct FocusedSceneModifierB: ViewModifier {
 private struct FocusedSceneModifierC: ViewModifier {
     var hasProject: Bool
     var onNewCopilotTab: () -> Void
+    var onFindTerminalNext: () -> Void
+    var onFindTerminalPrevious: () -> Void
     var onRevealInTree: (() -> Void)?
     var onMentionInTerminal: (() -> Void)?
     var onCloneRepository: (() -> Void)?
@@ -1640,6 +1652,8 @@ private struct FocusedSceneModifierC: ViewModifier {
     func body(content: Content) -> some View {
         content
             .focusedSceneValue(\.newCopilotTab, hasProject ? onNewCopilotTab : nil)
+            .focusedSceneValue(\.findTerminalNext, hasProject ? onFindTerminalNext : nil)
+            .focusedSceneValue(\.findTerminalPrevious, hasProject ? onFindTerminalPrevious : nil)
             .focusedSceneValue(\.revealInTree, onRevealInTree)
             .focusedSceneValue(\.mentionInTerminal, onMentionInTerminal)
             .focusedSceneValue(\.cloneRepository, onCloneRepository)
