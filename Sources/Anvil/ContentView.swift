@@ -3,12 +3,14 @@ import SwiftUI
 enum SidebarTab {
     case files
     case changes
+    case activity
 }
 
 struct ContentView: View {
     @StateObject private var workingDirectory = WorkingDirectoryModel()
     @StateObject private var filePreview = FilePreviewModel()
     @StateObject private var changesModel = ChangesModel()
+    @StateObject private var activityModel = ActivityFeedModel()
     @State private var sidebarWidth: CGFloat = 240
     @State private var previewWidth: CGFloat = 400
     @State private var showSidebar = true
@@ -21,6 +23,7 @@ struct ContentView: View {
                     model: workingDirectory,
                     filePreview: filePreview,
                     changesModel: changesModel,
+                    activityModel: activityModel,
                     activeTab: $sidebarTab
                 )
                     .frame(width: max(sidebarWidth, 0))
@@ -62,12 +65,14 @@ struct ContentView: View {
             filePreview.rootDirectory = newURL
             if let url = newURL {
                 changesModel.start(rootURL: url)
+                activityModel.start(rootURL: url)
             }
         }
         .onAppear {
             filePreview.rootDirectory = workingDirectory.directoryURL
             if let url = workingDirectory.directoryURL {
                 changesModel.start(rootURL: url)
+                activityModel.start(rootURL: url)
             }
         }
     }
@@ -126,6 +131,7 @@ struct SidebarView: View {
     @ObservedObject var model: WorkingDirectoryModel
     @ObservedObject var filePreview: FilePreviewModel
     @ObservedObject var changesModel: ChangesModel
+    @ObservedObject var activityModel: ActivityFeedModel
     @Binding var activeTab: SidebarTab
 
     var body: some View {
@@ -147,6 +153,15 @@ struct SidebarView: View {
                     badge: changesModel.changedFiles.isEmpty ? nil : changesModel.changedFiles.count
                 ) {
                     activeTab = .changes
+                }
+
+                SidebarTabButton(
+                    title: "Activity",
+                    systemImage: "clock",
+                    isActive: activeTab == .activity,
+                    badge: activityModel.events.isEmpty ? nil : activityModel.events.count
+                ) {
+                    activeTab = .activity
                 }
 
                 Spacer()
@@ -182,6 +197,9 @@ struct SidebarView: View {
 
             case .changes:
                 ChangesListView(model: changesModel, filePreview: filePreview)
+
+            case .activity:
+                ActivityFeedView(model: activityModel, filePreview: filePreview)
             }
         }
         .background(Color(nsColor: .controlBackgroundColor))
