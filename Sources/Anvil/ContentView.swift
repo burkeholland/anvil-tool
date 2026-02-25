@@ -45,6 +45,8 @@ struct ContentView: View {
     @State private var showBranchDiff = false
     @State private var showCloneSheet = false
     @State private var showCreatePR = false
+    @State private var showMergeConflict = false
+    @StateObject private var mergeConflictModel = MergeConflictModel()
 
     var body: some View {
         ZStack {
@@ -260,7 +262,15 @@ struct ContentView: View {
                             showDiffSummary = false
                             showBranchDiff = true
                         },
-                        onCreatePR: { showCreatePR = true }
+                        onCreatePR: { showCreatePR = true },
+                        onResolveConflicts: { fileURL in
+                            if let rootURL = workingDirectory.directoryURL {
+                                mergeConflictModel.load(fileURL: fileURL, rootURL: rootURL)
+                            }
+                            showDiffSummary = false
+                            showBranchDiff = false
+                            showMergeConflict = true
+                        }
                     )
                         .frame(width: max(sidebarWidth, 0))
 
@@ -454,7 +464,7 @@ struct ContentView: View {
                     )
                 }
 
-                if filePreview.selectedURL != nil || showDiffSummary || showBranchDiff {
+                if filePreview.selectedURL != nil || showDiffSummary || showBranchDiff || showMergeConflict {
                     PanelDivider(
                         width: $previewWidth,
                         minWidth: 200,
@@ -463,7 +473,15 @@ struct ContentView: View {
                     )
 
                     VStack(spacing: 0) {
-                        if showBranchDiff {
+                        if showMergeConflict {
+                            MergeConflictView(
+                                model: mergeConflictModel,
+                                onDismiss: {
+                                    showMergeConflict = false
+                                    mergeConflictModel.close()
+                                }
+                            )
+                        } else if showBranchDiff {
                             BranchDiffView(
                                 model: branchDiffModel,
                                 onSelectFile: { path, _ in
@@ -988,6 +1006,8 @@ struct ContentView: View {
         filePreview.close(persist: false)
         showDiffSummary = false
         showBranchDiff = false
+        showMergeConflict = false
+        mergeConflictModel.close()
         changesModel.stop()
         activityModel.stop()
         searchModel.clear()
@@ -1372,6 +1392,7 @@ struct SidebarView: View {
     var onReviewAll: (() -> Void)?
     var onBranchDiff: (() -> Void)?
     var onCreatePR: (() -> Void)?
+    var onResolveConflicts: ((URL) -> Void)?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -1451,7 +1472,7 @@ struct SidebarView: View {
                 }
 
             case .changes:
-                ChangesListView(model: changesModel, filePreview: filePreview, workingDirectory: model, onReviewAll: onReviewAll, onBranchDiff: onBranchDiff, onCreatePR: onCreatePR)
+                ChangesListView(model: changesModel, filePreview: filePreview, workingDirectory: model, onReviewAll: onReviewAll, onBranchDiff: onBranchDiff, onCreatePR: onCreatePR, onResolveConflicts: onResolveConflicts)
 
             case .activity:
                 ActivityFeedView(model: activityModel, filePreview: filePreview, rootURL: model.directoryURL)

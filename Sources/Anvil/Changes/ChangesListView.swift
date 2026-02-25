@@ -10,6 +10,7 @@ struct ChangesListView: View {
     var onReviewAll: (() -> Void)?
     var onBranchDiff: (() -> Void)?
     var onCreatePR: (() -> Void)?
+    var onResolveConflicts: ((URL) -> Void)?
     @EnvironmentObject var terminalProxy: TerminalInputProxy
     @State private var fileToDiscard: ChangedFile?
     @State private var showDiscardAllConfirm = false
@@ -119,6 +120,49 @@ struct ChangesListView: View {
                         .padding(.vertical, 2)
                     }
                     .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var conflictsSection: some View {
+        if !model.conflictedFiles.isEmpty {
+            Section {
+                ForEach(model.conflictedFiles) { file in
+                    HStack(spacing: 6) {
+                        ChangedFileRow(
+                            file: file,
+                            isSelected: false,
+                            isStaged: false,
+                            isReviewed: false,
+                            isFocused: false
+                        )
+                        if let onResolveConflicts {
+                            Button {
+                                onResolveConflicts(file.url)
+                            } label: {
+                                Text("Resolve")
+                                    .font(.system(size: 10, weight: .medium))
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.mini)
+                            .tint(.red)
+                        }
+                    }
+                    .contentShape(Rectangle())
+                    .contextMenu { changedFileContextMenu(file: file, isStaged: false) }
+                }
+            } header: {
+                HStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.red)
+                    Text("Merge Conflicts")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.red)
+                        .textCase(nil)
+                    Spacer()
                 }
             }
         }
@@ -308,6 +352,7 @@ struct ChangesListView: View {
     private var listBase: some View {
         List {
             changesTopSections
+            conflictsSection
             stagedSection
             unstagedSection
             historyAndStashSections
