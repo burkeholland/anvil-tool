@@ -23,6 +23,15 @@ struct FilePreviewView: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
 
+                if let ctx = model.commitDiffContext {
+                    Text(String(ctx.sha.prefix(8)))
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Capsule().fill(.purple.opacity(0.7)))
+                }
+
                 Spacer()
 
                 // Source / Changes tab picker (only when diff is available)

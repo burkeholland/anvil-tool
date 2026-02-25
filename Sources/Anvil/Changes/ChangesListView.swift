@@ -1,14 +1,15 @@
 import SwiftUI
 import AppKit
 
-/// Shows all git-changed files in a list with status indicators and diff stats.
+/// Shows all git-changed files in a list with status indicators and diff stats,
+/// plus a recent commit history section.
 struct ChangesListView: View {
     @ObservedObject var model: ChangesModel
     @ObservedObject var filePreview: FilePreviewModel
     @EnvironmentObject var terminalProxy: TerminalInputProxy
 
     var body: some View {
-        if model.isLoading && model.changedFiles.isEmpty {
+        if model.isLoading && model.changedFiles.isEmpty && model.recentCommits.isEmpty {
             VStack(spacing: 8) {
                 Spacer()
                 ProgressView()
@@ -19,94 +20,295 @@ struct ChangesListView: View {
                 Spacer()
             }
             .frame(maxWidth: .infinity)
-        } else if model.changedFiles.isEmpty {
-            VStack(spacing: 12) {
-                Spacer()
-                Image(systemName: "checkmark.circle")
-                    .font(.system(size: 28))
-                    .foregroundStyle(.green.opacity(0.6))
-                Text("No changes")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                Text("Working tree is clean")
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-                Spacer()
-            }
-            .frame(maxWidth: .infinity)
         } else {
-            VStack(alignment: .leading, spacing: 0) {
-                // Summary bar
-                HStack(spacing: 12) {
-                    Text("\(model.changedFiles.count) changed file\(model.changedFiles.count == 1 ? "" : "s")")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-
-                    Spacer()
-
-                    if model.totalAdditions > 0 {
-                        Text("+\(model.totalAdditions)")
-                            .font(.caption.monospacedDigit())
-                            .foregroundStyle(.green)
-                    }
-                    if model.totalDeletions > 0 {
-                        Text("-\(model.totalDeletions)")
-                            .font(.caption.monospacedDigit())
-                            .foregroundStyle(.red)
-                    }
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
-
-                Divider()
-
-                // File list
-                List {
-                    ForEach(model.changedFiles) { file in
-                        ChangedFileRow(
-                            file: file,
-                            isSelected: filePreview.selectedURL == file.url
-                        )
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            filePreview.select(file.url)
+            List {
+                // Working changes section
+                if !model.changedFiles.isEmpty {
+                    Section {
+                        ForEach(model.changedFiles) { file in
+                            ChangedFileRow(
+                                file: file,
+                                isSelected: filePreview.selectedURL == file.url
+                            )
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                filePreview.select(file.url)
+                            }
+                            .contextMenu {
+                                changedFileContextMenu(file: file)
+                            }
                         }
-                        .contextMenu {
-                            Button {
-                                terminalProxy.mentionFile(relativePath: file.relativePath)
-                            } label: {
-                                Label("Mention in Terminal", systemImage: "terminal")
+                    } header: {
+                        HStack(spacing: 8) {
+                            Text("Working Changes")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(.secondary)
+                                .textCase(nil)
+                            Spacer()
+                            if model.totalAdditions > 0 {
+                                Text("+\(model.totalAdditions)")
+                                    .font(.caption.monospacedDigit())
+                                    .foregroundStyle(.green)
                             }
-
-                            Divider()
-
-                            Button {
-                                NSPasteboard.general.clearContents()
-                                NSPasteboard.general.setString(file.relativePath, forType: .string)
-                            } label: {
-                                Label("Copy Relative Path", systemImage: "doc.on.doc")
-                            }
-
-                            Button {
-                                NSPasteboard.general.clearContents()
-                                NSPasteboard.general.setString(file.url.path, forType: .string)
-                            } label: {
-                                Label("Copy Absolute Path", systemImage: "doc.on.doc.fill")
-                            }
-
-                            Divider()
-
-                            Button {
-                                NSWorkspace.shared.activateFileViewerSelecting([file.url])
-                            } label: {
-                                Label("Reveal in Finder", systemImage: "folder")
+                            if model.totalDeletions > 0 {
+                                Text("-\(model.totalDeletions)")
+                                    .font(.caption.monospacedDigit())
+                                    .foregroundStyle(.red)
                             }
                         }
                     }
+                } else if !model.isLoading {
+                    Section {
+                        HStack {
+                            Spacer()
+                            VStack(spacing: 4) {
+                                Image(systemName: "checkmark.circle")
+                                    .font(.system(size: 16))
+                                    .foregroundStyle(.green.opacity(0.6))
+                                Text("Working tree clean")
+                                    .font(.caption)
+                                    .foregroundStyle(.tertiary)
+                            }
+                            .padding(.vertical, 8)
+                            Spacer()
+                        }
+                    } header: {
+                        Text("Working Changes")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                            .textCase(nil)
+                    }
                 }
-                .listStyle(.sidebar)
+
+                // Commit history section
+                if !model.recentCommits.isEmpty {
+                    Section {
+                        ForEach(model.recentCommits) { commit in
+                            CommitRow(
+                                commit: commit,
+                                model: model,
+                                filePreview: filePreview
+                            )
+                        }
+                    } header: {
+                        Text("Recent Commits")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                            .textCase(nil)
+                    }
+                }
             }
+            .listStyle(.sidebar)
+        }
+    }
+
+    @ViewBuilder
+    private func changedFileContextMenu(file: ChangedFile) -> some View {
+        Button {
+            terminalProxy.mentionFile(relativePath: file.relativePath)
+        } label: {
+            Label("Mention in Terminal", systemImage: "terminal")
+        }
+
+        Divider()
+
+        Button {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(file.relativePath, forType: .string)
+        } label: {
+            Label("Copy Relative Path", systemImage: "doc.on.doc")
+        }
+
+        Button {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(file.url.path, forType: .string)
+        } label: {
+            Label("Copy Absolute Path", systemImage: "doc.on.doc.fill")
+        }
+
+        Divider()
+
+        Button {
+            NSWorkspace.shared.activateFileViewerSelecting([file.url])
+        } label: {
+            Label("Reveal in Finder", systemImage: "folder")
+        }
+    }
+}
+
+// MARK: - Commit Row
+
+struct CommitRow: View {
+    let commit: GitCommit
+    @ObservedObject var model: ChangesModel
+    @ObservedObject var filePreview: FilePreviewModel
+    @State private var isExpanded = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Commit header
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    isExpanded.toggle()
+                }
+                if isExpanded && commit.files == nil {
+                    model.loadCommitFiles(for: commit.sha)
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(.tertiary)
+                        .frame(width: 12)
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(commit.message)
+                            .font(.system(size: 12))
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                            .foregroundStyle(.primary)
+
+                        HStack(spacing: 6) {
+                            Text(commit.shortSHA)
+                                .font(.system(size: 10, design: .monospaced))
+                                .foregroundStyle(.purple.opacity(0.8))
+
+                            Text(commit.author)
+                                .font(.system(size: 10))
+                                .foregroundStyle(.tertiary)
+                                .lineLimit(1)
+
+                            Spacer()
+
+                            Text(commit.relativeDate)
+                                .font(.system(size: 10))
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+                }
+                .padding(.vertical, 3)
+            }
+            .buttonStyle(.plain)
+            .contextMenu {
+                Button {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(commit.sha, forType: .string)
+                } label: {
+                    Label("Copy Full SHA", systemImage: "doc.on.doc")
+                }
+
+                Button {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(commit.shortSHA, forType: .string)
+                } label: {
+                    Label("Copy Short SHA", systemImage: "doc.on.doc")
+                }
+            }
+
+            // Expanded file list
+            if isExpanded {
+                if let files = commit.files {
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(files) { file in
+                            CommitFileRow(
+                                file: file,
+                                commitSHA: commit.sha,
+                                model: model,
+                                filePreview: filePreview
+                            )
+                        }
+                    }
+                    .padding(.leading, 18)
+                } else {
+                    HStack {
+                        Spacer()
+                        ProgressView()
+                            .controlSize(.mini)
+                        Spacer()
+                    }
+                    .padding(.vertical, 4)
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Commit File Row
+
+struct CommitFileRow: View {
+    let file: CommitFile
+    let commitSHA: String
+    @ObservedObject var model: ChangesModel
+    @ObservedObject var filePreview: FilePreviewModel
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text(file.status)
+                .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                .foregroundStyle(.white)
+                .frame(width: 14, height: 14)
+                .background(
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(statusColor)
+                )
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(file.fileName)
+                    .font(.system(size: 11))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+
+                if !file.directoryPath.isEmpty {
+                    Text(file.directoryPath)
+                        .font(.system(size: 9))
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                        .truncationMode(.head)
+                }
+            }
+
+            Spacer()
+
+            HStack(spacing: 3) {
+                if file.additions > 0 {
+                    Text("+\(file.additions)")
+                        .font(.system(size: 10).monospacedDigit())
+                        .foregroundStyle(.green)
+                }
+                if file.deletions > 0 {
+                    Text("-\(file.deletions)")
+                        .font(.system(size: 10).monospacedDigit())
+                        .foregroundStyle(.red)
+                }
+            }
+        }
+        .padding(.vertical, 3)
+        .padding(.horizontal, 4)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            guard let rootURL = model.rootDirectory else { return }
+            filePreview.selectCommitFile(
+                path: file.path,
+                commitSHA: commitSHA,
+                rootURL: rootURL
+            )
+        }
+        .contextMenu {
+            Button {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(file.path, forType: .string)
+            } label: {
+                Label("Copy Path", systemImage: "doc.on.doc")
+            }
+        }
+    }
+
+    private var statusColor: Color {
+        switch file.status {
+        case "A": return .green
+        case "D": return .red
+        case "R": return .blue
+        default:  return .orange
         }
     }
 }

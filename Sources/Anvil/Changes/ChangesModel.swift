@@ -23,9 +23,12 @@ struct ChangedFile: Identifiable {
 final class ChangesModel: ObservableObject {
     @Published private(set) var changedFiles: [ChangedFile] = []
     @Published private(set) var isLoading = false
+    @Published private(set) var recentCommits: [GitCommit] = []
+    @Published private(set) var isLoadingCommits = false
 
-    private var rootDirectory: URL?
+    private(set) var rootDirectory: URL?
     private var refreshGeneration: UInt64 = 0
+    private var commitGeneration: UInt64 = 0
     private var fileWatcher: FileWatcher?
 
     deinit {
@@ -45,18 +48,23 @@ final class ChangesModel: ObservableObject {
         fileWatcher?.stop()
         fileWatcher = FileWatcher(directory: rootURL) { [weak self] in
             self?.refresh()
+            self?.refreshCommits()
         }
         refresh()
+        refreshCommits()
     }
 
     func stop() {
         fileWatcher?.stop()
         fileWatcher = nil
         rootDirectory = nil
-        // Advance generation so any in-flight refresh is discarded
+        // Advance generations so any in-flight refresh is discarded
         refreshGeneration &+= 1
+        commitGeneration &+= 1
         changedFiles = []
+        recentCommits = []
         isLoading = false
+        isLoadingCommits = false
     }
 
     func refresh() {
@@ -115,6 +123,38 @@ final class ChangesModel: ObservableObject {
                 guard let self = self, self.refreshGeneration == generation else { return }
                 self.changedFiles = files
                 self.isLoading = false
+            }
+        }
+    }
+
+    func refreshCommits() {
+        guard let rootURL = rootDirectory else { return }
+        isLoadingCommits = true
+        commitGeneration &+= 1
+        let generation = commitGeneration
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let commits = GitLogProvider.recentCommits(in: rootURL, count: 50)
+            DispatchQueue.main.async {
+                guard let self = self, self.commitGeneration == generation else { return }
+                self.recentCommits = commits
+                self.isLoadingCommits = false
+            }
+        }
+    }
+
+    /// Load the file list for a commit (lazy-loaded on expand).
+    func loadCommitFiles(for sha: String) {
+        guard let rootURL = rootDirectory else { return }
+        guard let index = recentCommits.firstIndex(where: { $0.sha == sha }),
+              recentCommits[index].files == nil else { return }
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let files = GitLogProvider.commitFiles(sha: sha, in: rootURL)
+            DispatchQueue.main.async {
+                guard let self = self,
+                      let idx = self.recentCommits.firstIndex(where: { $0.sha == sha }) else { return }
+                self.recentCommits[idx].files = files
             }
         }
     }

@@ -22,6 +22,25 @@ enum DiffProvider {
         return DiffParser.parse(output)
     }
 
+    /// Get the diff for a specific file in a specific commit.
+    static func commitFileDiff(sha: String, filePath: String, in directory: URL) -> FileDiff? {
+        // Try parent..commit diff first; fall back to `git show` for root commits
+        if let output = runGitDiff(
+            args: ["diff", "\(sha)~1", sha, "--", filePath],
+            at: directory
+        ), !output.isEmpty {
+            return DiffParser.parseSingleFile(output)
+        }
+        // Fallback for root commit (no parent)
+        if let output = runGitDiff(
+            args: ["show", "--format=", sha, "--", filePath],
+            at: directory
+        ), !output.isEmpty {
+            return DiffParser.parseSingleFile(output)
+        }
+        return nil
+    }
+
     // MARK: - Private
 
     private static func runGitDiff(args: [String], at directory: URL) -> String? {

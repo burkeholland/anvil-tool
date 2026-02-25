@@ -18,6 +18,8 @@ final class FilePreviewModel: ObservableObject {
     @Published private(set) var previewImage: NSImage?
     @Published private(set) var imageSize: CGSize?
     @Published private(set) var imageFileSize: Int?
+    /// When set, the preview shows a commit-specific diff instead of working directory diff.
+    private(set) var commitDiffContext: (sha: String, filePath: String)?
 
     /// The root directory for running git commands.
     var rootDirectory: URL? {
@@ -57,13 +59,27 @@ final class FilePreviewModel: ObservableObject {
 
     func select(_ url: URL) {
         guard !url.hasDirectoryPath else { return }
+        let wasCommitDiff = commitDiffContext != nil
+        commitDiffContext = nil
         // Add to tabs if not already open
         if !openTabs.contains(url) {
             openTabs.append(url)
         }
-        if selectedURL == url { return }
+        // Reload if switching away from a commit diff for the same file
+        if selectedURL == url && !wasCommitDiff { return }
         selectedURL = url
         loadFile(url)
+    }
+
+    /// Open a file showing the diff from a specific commit.
+    func selectCommitFile(path: String, commitSHA: String, rootURL: URL) {
+        let url = URL(fileURLWithPath: rootURL.path).appendingPathComponent(path)
+        commitDiffContext = (sha: commitSHA, filePath: path)
+        if !openTabs.contains(url) {
+            openTabs.append(url)
+        }
+        selectedURL = url
+        loadCommitFile(url: url, sha: commitSHA, filePath: path, rootURL: rootURL)
     }
 
     func closeTab(_ url: URL) {
@@ -90,6 +106,7 @@ final class FilePreviewModel: ObservableObject {
         imageSize = nil
         imageFileSize = nil
         activeTab = .source
+        commitDiffContext = nil
     }
 
     /// Refresh both source content and diff for the current file.
@@ -128,6 +145,34 @@ final class FilePreviewModel: ObservableObject {
                     }
                     self?.fileDiff = diff
                 }
+            }
+        }
+    }
+
+    private func loadCommitFile(url: URL, sha: String, filePath: String, rootURL: URL) {
+        isLoading = true
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let diff = DiffProvider.commitFileDiff(sha: sha, filePath: filePath, in: rootURL)
+            // Also try to load the current file content for source view
+            let content: String?
+            if FileManager.default.fileExists(atPath: url.path),
+               let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+               let size = attrs[.size] as? Int, size <= 1_048_576 {
+                content = try? String(contentsOf: url, encoding: .utf8)
+            } else {
+                content = nil
+            }
+
+            DispatchQueue.main.async {
+                guard self?.selectedURL == url else { return }
+                self?.fileContent = content
+                self?.lineCount = content?.components(separatedBy: "\n").count ?? 0
+                self?.fileDiff = diff
+                self?.previewImage = nil
+                self?.imageSize = nil
+                self?.imageFileSize = nil
+                self?.isLoading = false
+                self?.activeTab = diff != nil ? .changes : .source
             }
         }
     }
