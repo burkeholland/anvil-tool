@@ -381,11 +381,7 @@ struct CommitFormView: View {
 
                 Menu {
                     Button("Stage All & Commit") {
-                        let message = model.commitMessage.trimmingCharacters(in: .whitespacesAndNewlines)
-                        guard !message.isEmpty else { return }
-                        model.stageAll {
-                            model.commit()
-                        }
+                        model.stageAllAndCommit()
                     }
                     .disabled(model.changedFiles.isEmpty || model.commitMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 } label: {

@@ -284,6 +284,34 @@ final class ChangesModel: ObservableObject {
         }
     }
 
+    /// Stage all files and commit atomically, without relying on intermediate
+    /// UI state refresh between the two git operations.
+    func stageAllAndCommit() {
+        guard let rootURL = rootDirectory else { return }
+        let message = commitMessage.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !message.isEmpty, !changedFiles.isEmpty else { return }
+
+        isCommitting = true
+        lastCommitError = nil
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            Self.runGitSync(args: ["add", "-A"], at: rootURL)
+            let (success, error) = Self.runGitCommit(message: message, at: rootURL)
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                self.isCommitting = false
+                if success {
+                    self.commitMessage = ""
+                    self.lastCommitError = nil
+                } else {
+                    self.lastCommitError = error ?? "Commit failed"
+                }
+                self.refresh()
+                self.refreshCommits()
+            }
+        }
+    }
+
     /// Discard all uncommitted changes. Stashes first so the user can recover.
     func discardAll() {
         guard let rootURL = rootDirectory, !changedFiles.isEmpty else { return }
