@@ -51,6 +51,80 @@ final class FileTreeModel: ObservableObject {
         expandedDirs.contains(url)
     }
 
+    // MARK: - File Operations
+
+    /// Validates that a name is a safe single path component (no slashes, no `..`).
+    private static func isSafeFileName(_ name: String) -> Bool {
+        !name.isEmpty && !name.contains("/") && name != "." && name != ".."
+    }
+
+    /// Creates a new empty file inside the given directory.
+    /// Returns the URL of the new file, or nil on failure.
+    @discardableResult
+    func createFile(named name: String, in directory: URL) -> URL? {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard Self.isSafeFileName(trimmed) else { return nil }
+        let newURL = directory.appendingPathComponent(trimmed).standardizedFileURL
+        guard !FileManager.default.fileExists(atPath: newURL.path) else { return nil }
+        guard FileManager.default.createFile(atPath: newURL.path, contents: nil) else { return nil }
+        expandedDirs.insert(directory)
+        onFileSystemChange()
+        return newURL
+    }
+
+    /// Creates a new folder inside the given directory.
+    /// Returns the URL of the new folder, or nil on failure.
+    @discardableResult
+    func createFolder(named name: String, in directory: URL) -> URL? {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard Self.isSafeFileName(trimmed) else { return nil }
+        let newURL = directory.appendingPathComponent(trimmed).standardizedFileURL
+        guard !FileManager.default.fileExists(atPath: newURL.path) else { return nil }
+        do {
+            try FileManager.default.createDirectory(at: newURL, withIntermediateDirectories: false)
+        } catch {
+            return nil
+        }
+        expandedDirs.insert(directory)
+        onFileSystemChange()
+        return newURL
+    }
+
+    /// Renames a file or folder. Returns the new URL, or nil on failure.
+    @discardableResult
+    func renameItem(at url: URL, to newName: String) -> URL? {
+        let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard Self.isSafeFileName(trimmed) else { return nil }
+        let newURL = url.deletingLastPathComponent().appendingPathComponent(trimmed).standardizedFileURL
+        guard newURL != url else { return url }
+        guard !FileManager.default.fileExists(atPath: newURL.path) else { return nil }
+        do {
+            try FileManager.default.moveItem(at: url, to: newURL)
+        } catch {
+            return nil
+        }
+        // Update expanded dirs if a directory was renamed
+        if expandedDirs.contains(url) {
+            expandedDirs.remove(url)
+            expandedDirs.insert(newURL)
+        }
+        onFileSystemChange()
+        return newURL
+    }
+
+    /// Moves a file or folder to the Trash. Returns true on success.
+    @discardableResult
+    func deleteItem(at url: URL) -> Bool {
+        do {
+            try FileManager.default.trashItem(at: url, resultingItemURL: nil)
+        } catch {
+            return false
+        }
+        expandedDirs.remove(url)
+        onFileSystemChange()
+        return true
+    }
+
     // MARK: - Private
 
     private func onFileSystemChange() {

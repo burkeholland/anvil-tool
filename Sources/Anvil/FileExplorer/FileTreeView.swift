@@ -7,6 +7,14 @@ struct FileTreeView: View {
     @EnvironmentObject var terminalProxy: TerminalInputProxy
     @StateObject private var model = FileTreeModel()
 
+    // File operation dialog state
+    @State private var showNewFileDialog = false
+    @State private var showNewFolderDialog = false
+    @State private var showRenameDialog = false
+    @State private var showDeleteConfirm = false
+    @State private var operationTargetURL: URL?
+    @State private var operationName = ""
+
     var body: some View {
         VStack(spacing: 0) {
             // Search field
@@ -27,6 +35,30 @@ struct FileTreeView: View {
                     }
                     .buttonStyle(.plain)
                 }
+                Menu {
+                    Button {
+                        operationTargetURL = rootURL
+                        operationName = ""
+                        showNewFileDialog = true
+                    } label: {
+                        Label("New File…", systemImage: "doc.badge.plus")
+                    }
+                    Button {
+                        operationTargetURL = rootURL
+                        operationName = ""
+                        showNewFolderDialog = true
+                    } label: {
+                        Label("New Folder…", systemImage: "folder.badge.plus")
+                    }
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.secondary)
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .frame(width: 16)
+                .help("New File or Folder")
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
@@ -92,6 +124,83 @@ struct FileTreeView: View {
         .onChange(of: model.gitStatuses) { _, _ in
             filePreview.refresh()
         }
+        .alert("New File", isPresented: $showNewFileDialog) {
+            TextField("File name", text: $operationName)
+            Button("Create") {
+                if let dir = operationTargetURL {
+                    if let newURL = model.createFile(named: operationName, in: dir) {
+                        filePreview.select(newURL)
+                    }
+                }
+                operationName = ""
+                operationTargetURL = nil
+            }
+            Button("Cancel", role: .cancel) {
+                operationName = ""
+                operationTargetURL = nil
+            }
+        } message: {
+            if let dir = operationTargetURL {
+                Text("Create a new file in \(dir.lastPathComponent)/")
+            }
+        }
+        .alert("New Folder", isPresented: $showNewFolderDialog) {
+            TextField("Folder name", text: $operationName)
+            Button("Create") {
+                if let dir = operationTargetURL {
+                    model.createFolder(named: operationName, in: dir)
+                }
+                operationName = ""
+                operationTargetURL = nil
+            }
+            Button("Cancel", role: .cancel) {
+                operationName = ""
+                operationTargetURL = nil
+            }
+        } message: {
+            if let dir = operationTargetURL {
+                Text("Create a new folder in \(dir.lastPathComponent)/")
+            }
+        }
+        .alert("Rename", isPresented: $showRenameDialog) {
+            TextField("New name", text: $operationName)
+            Button("Rename") {
+                if let url = operationTargetURL {
+                    let wasSelected = filePreview.selectedURL == url
+                    if let newURL = model.renameItem(at: url, to: operationName), wasSelected {
+                        filePreview.select(newURL)
+                    }
+                }
+                operationName = ""
+                operationTargetURL = nil
+            }
+            Button("Cancel", role: .cancel) {
+                operationName = ""
+                operationTargetURL = nil
+            }
+        } message: {
+            if let url = operationTargetURL {
+                Text("Rename \"\(url.lastPathComponent)\"")
+            }
+        }
+        .alert("Move to Trash?", isPresented: $showDeleteConfirm) {
+            Button("Move to Trash", role: .destructive) {
+                if let url = operationTargetURL {
+                    let wasSelected = filePreview.selectedURL == url
+                    if model.deleteItem(at: url), wasSelected {
+                        filePreview.closeTab(url)
+                    }
+                }
+                operationTargetURL = nil
+            }
+            Button("Cancel", role: .cancel) {
+                operationTargetURL = nil
+            }
+        } message: {
+            if let url = operationTargetURL {
+                Text("\"\(url.lastPathComponent)\" will be moved to the Trash.")
+            }
+        }
     }
 
     private func handleTap(_ entry: FileEntry) {
@@ -115,6 +224,26 @@ struct FileTreeView: View {
 
     @ViewBuilder
     private func fileContextMenu(url: URL, isDirectory: Bool) -> some View {
+        if isDirectory {
+            Button {
+                operationTargetURL = url
+                operationName = ""
+                showNewFileDialog = true
+            } label: {
+                Label("New File…", systemImage: "doc.badge.plus")
+            }
+
+            Button {
+                operationTargetURL = url
+                operationName = ""
+                showNewFolderDialog = true
+            } label: {
+                Label("New Folder…", systemImage: "folder.badge.plus")
+            }
+
+            Divider()
+        }
+
         if !isDirectory {
             Button {
                 terminalProxy.mentionFile(relativePath: relativePath(of: url))
@@ -124,6 +253,23 @@ struct FileTreeView: View {
 
             Divider()
         }
+
+        Button {
+            operationTargetURL = url
+            operationName = url.lastPathComponent
+            showRenameDialog = true
+        } label: {
+            Label("Rename…", systemImage: "pencil")
+        }
+
+        Button(role: .destructive) {
+            operationTargetURL = url
+            showDeleteConfirm = true
+        } label: {
+            Label("Move to Trash", systemImage: "trash")
+        }
+
+        Divider()
 
         Button {
             NSPasteboard.general.clearContents()
