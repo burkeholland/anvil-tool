@@ -194,6 +194,7 @@ final class ChangesModel: ObservableObject {
             reviewedPaths.insert(file.relativePath)
             reviewedFingerprints[file.relativePath] = diffFingerprint(file)
         }
+        saveReviewedState()
     }
 
     func markAllReviewed() {
@@ -201,11 +202,33 @@ final class ChangesModel: ObservableObject {
             reviewedPaths.insert(file.relativePath)
             reviewedFingerprints[file.relativePath] = diffFingerprint(file)
         }
+        saveReviewedState()
     }
 
     func clearAllReviewed() {
         reviewedPaths.removeAll()
         reviewedFingerprints.removeAll()
+        saveReviewedState()
+    }
+
+    // MARK: - Review Persistence
+
+    private static let reviewedFingerprintsKeyPrefix = "com.anvil.reviewedFingerprints."
+
+    private func reviewedStateKey(for rootURL: URL) -> String {
+        Self.reviewedFingerprintsKeyPrefix + rootURL.path
+    }
+
+    private func saveReviewedState() {
+        guard let rootURL = rootDirectory else { return }
+        UserDefaults.standard.set(reviewedFingerprints, forKey: reviewedStateKey(for: rootURL))
+    }
+
+    private func loadReviewedState(for rootURL: URL) {
+        let key = reviewedStateKey(for: rootURL)
+        guard let stored = UserDefaults.standard.dictionary(forKey: key) as? [String: String] else { return }
+        reviewedFingerprints = stored
+        reviewedPaths = Set(stored.keys)
     }
 
     // MARK: - Keyboard Navigation
@@ -298,10 +321,12 @@ final class ChangesModel: ObservableObject {
                 reviewedFingerprints.removeValue(forKey: file.relativePath)
             }
         }
+        saveReviewedState()
     }
 
     func start(rootURL: URL) {
         self.rootDirectory = rootURL
+        loadReviewedState(for: rootURL)
         fileWatcher?.stop()
         fileWatcher = FileWatcher(directory: rootURL) { [weak self] in
             self?.refresh()

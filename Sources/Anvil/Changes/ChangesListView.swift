@@ -14,6 +14,7 @@ struct ChangesListView: View {
     @State private var showDiscardAllConfirm = false
     @State private var showUndoCommitConfirm = false
     @State private var stashToDrop: StashEntry?
+    @State private var showOnlyUnreviewed = false
 
     var body: some View {
         if model.isLoading && model.changedFiles.isEmpty && model.recentCommits.isEmpty {
@@ -63,6 +64,7 @@ struct ChangesListView: View {
                     ReviewProgressBar(
                         reviewed: model.reviewedCount,
                         total: model.changedFiles.count,
+                        showOnlyUnreviewed: $showOnlyUnreviewed,
                         onMarkAll: { model.markAllReviewed() },
                         onClearAll: { model.clearAllReviewed() }
                     )
@@ -101,14 +103,16 @@ struct ChangesListView: View {
     private var stagedSection: some View {
         if !model.stagedFiles.isEmpty {
             Section {
-                ForEach(model.stagedFiles) { file in
+                let files = showOnlyUnreviewed ? model.stagedFiles.filter { !model.isReviewed($0) } : model.stagedFiles
+                ForEach(files) { file in
                     let fileIdx = model.changedFiles.firstIndex(where: { $0.id == file.id })
                     ChangedFileRow(
                         file: file,
                         isSelected: filePreview.selectedURL == file.url,
                         isStaged: true,
                         isReviewed: model.isReviewed(file),
-                        isFocused: fileIdx == model.focusedFileIndex
+                        isFocused: fileIdx == model.focusedFileIndex,
+                        onToggleReview: { model.toggleReviewed(file) }
                     )
                     .contentShape(Rectangle())
                     .onTapGesture {
@@ -143,14 +147,16 @@ struct ChangesListView: View {
     private var unstagedSection: some View {
         if !model.unstagedFiles.isEmpty {
             Section {
-                ForEach(model.unstagedFiles) { file in
+                let files = showOnlyUnreviewed ? model.unstagedFiles.filter { !model.isReviewed($0) } : model.unstagedFiles
+                ForEach(files) { file in
                     let fileIdx = model.changedFiles.firstIndex(where: { $0.id == file.id })
                     ChangedFileRow(
                         file: file,
                         isSelected: filePreview.selectedURL == file.url,
                         isStaged: false,
                         isReviewed: model.isReviewed(file),
-                        isFocused: fileIdx == model.focusedFileIndex
+                        isFocused: fileIdx == model.focusedFileIndex,
+                        onToggleReview: { model.toggleReviewed(file) }
                     )
                     .contentShape(Rectangle())
                     .onTapGesture {
@@ -474,6 +480,7 @@ struct ChangesListView: View {
 struct ReviewProgressBar: View {
     let reviewed: Int
     let total: Int
+    @Binding var showOnlyUnreviewed: Bool
     var onMarkAll: () -> Void
     var onClearAll: () -> Void
 
@@ -495,6 +502,15 @@ struct ReviewProgressBar: View {
                     .foregroundStyle(isComplete ? .green : .secondary)
 
                 Spacer()
+
+                Button {
+                    showOnlyUnreviewed.toggle()
+                } label: {
+                    Text(showOnlyUnreviewed ? "Show All" : "Unreviewed")
+                        .font(.system(size: 10))
+                        .foregroundStyle(showOnlyUnreviewed ? .blue : .secondary)
+                }
+                .buttonStyle(.plain)
 
                 if reviewed > 0 && !isComplete {
                     Button {
@@ -1065,6 +1081,7 @@ struct ChangedFileRow: View {
     var isStaged: Bool = false
     var isReviewed: Bool = false
     var isFocused: Bool = false
+    var onToggleReview: (() -> Void)? = nil
 
     var body: some View {
         HStack(spacing: 6) {
@@ -1084,6 +1101,7 @@ struct ChangedFileRow: View {
                     .font(.system(.body, design: .default))
                     .lineLimit(1)
                     .truncationMode(.middle)
+                    .foregroundStyle(isReviewed ? .secondary : .primary)
 
                 if !file.directoryPath.isEmpty {
                     Text(file.directoryPath)
@@ -1112,12 +1130,17 @@ struct ChangedFileRow: View {
                 }
             }
 
-            // Review indicator
-            if isReviewed {
-                Image(systemName: "eye.fill")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.blue.opacity(0.7))
-                    .help("Reviewed")
+            // Review toggle button (checkbox)
+            if let onToggleReview {
+                Button {
+                    onToggleReview()
+                } label: {
+                    Image(systemName: isReviewed ? "checkmark.circle.fill" : "circle")
+                        .font(.system(size: 13))
+                        .foregroundStyle(isReviewed ? Color.blue.opacity(0.8) : Color.secondary.opacity(0.4))
+                }
+                .buttonStyle(.borderless)
+                .help(isReviewed ? "Mark as unreviewed (R)" : "Mark as reviewed (R)")
             }
 
             // Staging indicator
