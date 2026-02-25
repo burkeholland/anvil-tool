@@ -55,6 +55,7 @@ struct KeyboardShortcutsView: View {
                             ("⌘⇧D", "Review All Changes"),
                             ("⌃⌘↓", "Next Changed File"),
                             ("⌃⌘↑", "Previous Changed File"),
+                            ("⌘L", "Go to Line"),
                         ])
 
                         shortcutSection("Terminal", shortcuts: [

@@ -5,6 +5,19 @@ import Highlightr
 struct FilePreviewView: View {
     @ObservedObject var model: FilePreviewModel
     var changesModel: ChangesModel?
+    @EnvironmentObject var terminalProxy: TerminalInputProxy
+    @State private var showGoToLine = false
+    @State private var goToLineText = ""
+
+    /// Gutter changes for the current file, cached for navigation.
+    private var currentGutterChanges: [Int: GutterChangeKind] {
+        model.fileDiff.map { DiffParser.gutterChanges(from: $0) } ?? [:]
+    }
+
+    /// Number of contiguous change regions in the current file.
+    private var changeRegionCount: Int {
+        model.changeRegions(from: currentGutterChanges).count
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -32,6 +45,38 @@ struct FilePreviewView: View {
 
                 Spacer()
 
+                // Change navigation (source tab with changes)
+                if model.activeTab == .source && changeRegionCount > 0 {
+                    HStack(spacing: 4) {
+                        Text("\(changeRegionCount) change\(changeRegionCount == 1 ? "" : "s")")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.orange)
+
+                        Button {
+                            model.goToPreviousChange(gutterChanges: currentGutterChanges)
+                        } label: {
+                            Image(systemName: "chevron.up")
+                                .font(.system(size: 9, weight: .semibold))
+                                .frame(width: 18, height: 16)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.borderless)
+                        .help("Previous Change")
+
+                        Button {
+                            model.goToNextChange(gutterChanges: currentGutterChanges)
+                        } label: {
+                            Image(systemName: "chevron.down")
+                                .font(.system(size: 9, weight: .semibold))
+                                .frame(width: 18, height: 16)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.borderless)
+                        .help("Next Change")
+                    }
+                    .padding(.horizontal, 4)
+                }
+
                 // Source / Changes / Preview tab picker
                 if model.hasDiff || model.isMarkdownFile {
                     Picker("", selection: $model.activeTab) {
@@ -53,6 +98,18 @@ struct FilePreviewView: View {
                     .pickerStyle(.segmented)
                     .frame(width: model.hasDiff && model.isMarkdownFile ? 280 : 200)
                 }
+
+                // @Mention in terminal
+                Button {
+                    terminalProxy.mentionFile(relativePath: model.relativePath)
+                } label: {
+                    Image(systemName: "at")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.borderless)
+                .help("Mention in Terminal (@)")
+                .disabled(model.selectedURL == nil)
 
                 Button {
                     if let url = model.selectedURL {
@@ -86,54 +143,88 @@ struct FilePreviewView: View {
             Divider()
 
             // Content area
-            if model.isLoading {
-                Spacer()
-                ProgressView()
-                    .controlSize(.small)
-                Spacer()
-            } else if let image = model.previewImage {
-                ImagePreviewContent(
-                    image: image,
-                    imageSize: model.imageSize,
-                    fileSize: model.imageFileSize
-                )
-            } else if model.activeTab == .changes, let diff = model.fileDiff {
-                // Only show hunk actions for working tree diffs, not commit history
-                let isLiveDiff = model.commitDiffContext == nil
-                DiffView(
-                    diff: diff,
-                    onStageHunk: isLiveDiff ? changesModel.map { cm in
-                        { hunk in cm.stageHunk(patch: DiffParser.reconstructPatch(fileDiff: diff, hunk: hunk)) }
-                    } : nil,
-                    onDiscardHunk: isLiveDiff ? changesModel.map { cm in
-                        { hunk in cm.discardHunk(patch: DiffParser.reconstructPatch(fileDiff: diff, hunk: hunk)) }
-                    } : nil
-                )
-            } else if model.activeTab == .rendered, model.isMarkdownFile, let content = model.fileContent {
-                MarkdownPreviewView(content: content)
-            } else if let content = model.fileContent {
-                HighlightedTextView(
-                    content: content,
-                    language: model.highlightLanguage,
-                    gutterChanges: model.fileDiff.map { DiffParser.gutterChanges(from: $0) } ?? [:]
-                )
-            } else {
-                Spacer()
-                VStack(spacing: 8) {
-                    Image(systemName: "doc.questionmark")
-                        .font(.system(size: 28))
-                        .foregroundStyle(.tertiary)
-                    Text("Unable to preview this file")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                    Text("File may be binary or too large")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
+            ZStack {
+                if model.isLoading {
+                    Spacer()
+                    ProgressView()
+                        .controlSize(.small)
+                    Spacer()
+                } else if let image = model.previewImage {
+                    ImagePreviewContent(
+                        image: image,
+                        imageSize: model.imageSize,
+                        fileSize: model.imageFileSize
+                    )
+                } else if model.activeTab == .changes, let diff = model.fileDiff {
+                    // Only show hunk actions for working tree diffs, not commit history
+                    let isLiveDiff = model.commitDiffContext == nil
+                    DiffView(
+                        diff: diff,
+                        onStageHunk: isLiveDiff ? changesModel.map { cm in
+                            { hunk in cm.stageHunk(patch: DiffParser.reconstructPatch(fileDiff: diff, hunk: hunk)) }
+                        } : nil,
+                        onDiscardHunk: isLiveDiff ? changesModel.map { cm in
+                            { hunk in cm.discardHunk(patch: DiffParser.reconstructPatch(fileDiff: diff, hunk: hunk)) }
+                        } : nil
+                    )
+                } else if model.activeTab == .rendered, model.isMarkdownFile, let content = model.fileContent {
+                    MarkdownPreviewView(content: content)
+                } else if let content = model.fileContent {
+                    HighlightedTextView(
+                        content: content,
+                        language: model.highlightLanguage,
+                        gutterChanges: currentGutterChanges,
+                        scrollToLine: $model.scrollToLine
+                    )
+                } else {
+                    Spacer()
+                    VStack(spacing: 8) {
+                        Image(systemName: "doc.questionmark")
+                            .font(.system(size: 28))
+                            .foregroundStyle(.tertiary)
+                        Text("Unable to preview this file")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                        Text("File may be binary or too large")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                    }
+                    Spacer()
                 }
-                Spacer()
+
+                // Go to Line overlay
+                if showGoToLine {
+                    VStack {
+                        GoToLineBar(
+                            text: $goToLineText,
+                            lineCount: model.lineCount,
+                            onGo: { line in
+                                model.scrollToLine = line
+                                model.lastNavigatedLine = line
+                                showGoToLine = false
+                                goToLineText = ""
+                            },
+                            onDismiss: {
+                                showGoToLine = false
+                                goToLineText = ""
+                            }
+                        )
+                        .padding(.horizontal, 40)
+                        .padding(.top, 8)
+                        Spacer()
+                    }
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                }
             }
         }
         .background(Color(nsColor: .textBackgroundColor))
+        .onChange(of: model.showGoToLine) { _, show in
+            guard show, model.selectedURL != nil, model.fileContent != nil, model.activeTab == .source else { return }
+            withAnimation(.easeOut(duration: 0.15)) {
+                showGoToLine = true
+            }
+            model.showGoToLine = false
+        }
     }
 
     private func iconForExtension(_ ext: String) -> String {
@@ -165,6 +256,71 @@ struct FilePreviewView: View {
                 .font(.system(.body, design: .monospaced))
                 .lineLimit(1)
                 .truncationMode(.head)
+        }
+    }
+}
+
+/// Floating input bar for jumping to a specific line number.
+struct GoToLineBar: View {
+    @Binding var text: String
+    let lineCount: Int
+    var onGo: (Int) -> Void
+    var onDismiss: () -> Void
+    @FocusState private var isFocused: Bool
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "arrow.right.to.line")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+
+            TextField("Go to line (1–\(lineCount))", text: $text)
+                .textFieldStyle(.plain)
+                .font(.system(size: 13, design: .monospaced))
+                .focused($isFocused)
+                .onSubmit {
+                    if let line = Int(text.trimmingCharacters(in: .whitespaces)),
+                       line >= 1, line <= lineCount {
+                        onGo(line)
+                    }
+                }
+                .onExitCommand {
+                    onDismiss()
+                }
+
+            if let line = Int(text.trimmingCharacters(in: .whitespaces)),
+               line >= 1, line <= lineCount {
+                Text("↵")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(.secondary)
+            } else if !text.isEmpty {
+                Image(systemName: "exclamationmark.triangle")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.orange)
+            }
+
+            Button {
+                onDismiss()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .buttonStyle(.borderless)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(.ultraThinMaterial)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .strokeBorder(Color.accentColor.opacity(0.4), lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.2), radius: 8, y: 4)
+        .onAppear {
+            isFocused = true
         }
     }
 }
@@ -344,6 +500,8 @@ struct HighlightedTextView: NSViewRepresentable {
     let content: String
     let language: String?
     var gutterChanges: [Int: GutterChangeKind] = [:]
+    /// Binding to scroll to a specific line (1-based). Set to nil after scrolling.
+    @Binding var scrollToLine: Int?
 
     func makeNSView(context: Context) -> NSScrollView {
         let scrollView = NSScrollView()
@@ -389,6 +547,13 @@ struct HighlightedTextView: NSViewRepresentable {
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         context.coordinator.applyHighlighting(content: content, language: language)
         context.coordinator.rulerView?.gutterChanges = gutterChanges
+
+        if let line = scrollToLine {
+            DispatchQueue.main.async {
+                context.coordinator.scrollToLine(line)
+                self.scrollToLine = nil
+            }
+        }
     }
 
     func makeCoordinator() -> Coordinator {
@@ -431,6 +596,74 @@ struct HighlightedTextView: NSViewRepresentable {
             textView.textStorage?.setAttributedString(attributed)
             rulerView?.refreshAfterContentChange()
 
+        }
+
+        /// Scrolls the text view so the given 1-based line number is visible near the top.
+        func scrollToLine(_ lineNumber: Int) {
+            guard let textView = textView,
+                  let layoutManager = textView.layoutManager,
+                  textView.textContainer != nil else { return }
+
+            let content = textView.string as NSString
+            let totalLength = content.length
+            let targetLine = max(1, lineNumber)
+
+            // Walk through lines using NSString to stay in UTF-16 space consistently
+            var charIndex = 0
+            var currentLine = 1
+            while currentLine < targetLine && charIndex < totalLength {
+                let lineRange = content.lineRange(for: NSRange(location: charIndex, length: 0))
+                charIndex = NSMaxRange(lineRange)
+                currentLine += 1
+            }
+            charIndex = min(charIndex, totalLength)
+
+            let glyphRange = layoutManager.glyphRange(
+                forCharacterRange: NSRange(location: charIndex, length: 0),
+                actualCharacterRange: nil
+            )
+            var lineRect = layoutManager.lineFragmentRect(forGlyphAt: max(glyphRange.location, 0), effectiveRange: nil)
+            lineRect.origin.y += textView.textContainerInset.height
+
+            // Scroll so the line is ~1/4 from the top
+            guard let scrollView = textView.enclosingScrollView else { return }
+            let visibleHeight = scrollView.contentView.bounds.height
+            let targetY = max(lineRect.origin.y - visibleHeight * 0.25, 0)
+            scrollView.contentView.scroll(to: NSPoint(x: 0, y: targetY))
+            scrollView.reflectScrolledClipView(scrollView.contentView)
+
+            // Flash the line briefly for visibility
+            let flashRect = NSRect(
+                x: 0,
+                y: lineRect.origin.y,
+                width: textView.bounds.width,
+                height: lineRect.height
+            )
+            let flashView = NSView(frame: flashRect)
+            flashView.wantsLayer = true
+            flashView.layer?.backgroundColor = NSColor.systemYellow.withAlphaComponent(0.3).cgColor
+            textView.addSubview(flashView)
+            NSAnimationContext.runAnimationGroup({ ctx in
+                ctx.duration = 0.6
+                flashView.animator().alphaValue = 0
+            }, completionHandler: {
+                flashView.removeFromSuperview()
+            })
+        }
+
+        /// Returns the approximate 1-based line number at the top of the visible area.
+        func visibleTopLine() -> Int {
+            guard let textView = textView,
+                  let layoutManager = textView.layoutManager,
+                  let textContainer = textView.textContainer,
+                  let scrollView = textView.enclosingScrollView else { return 1 }
+
+            let visibleRect = scrollView.contentView.bounds
+            let glyphRange = layoutManager.glyphRange(forBoundingRect: visibleRect, in: textContainer)
+            let charRange = layoutManager.characterRange(forGlyphRange: glyphRange, actualGlyphRange: nil)
+            let content = textView.string as NSString
+            let upToVisible = content.substring(to: charRange.location)
+            return upToVisible.components(separatedBy: "\n").count
         }
     }
 }

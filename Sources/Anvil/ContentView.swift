@@ -121,7 +121,10 @@ struct ContentView: View {
             onNextChange: hasChangesToNavigate ? { navigateToNextChange() } : nil,
             onPreviousChange: hasChangesToNavigate ? { navigateToPreviousChange() } : nil,
             onReviewAllChanges: hasChangesToNavigate ? { showDiffSummary = true } : nil,
-            onShowKeyboardShortcuts: { showKeyboardShortcuts = true }
+            onShowKeyboardShortcuts: { showKeyboardShortcuts = true },
+            onGoToLine: (filePreview.selectedURL != nil && filePreview.fileContent != nil && filePreview.activeTab == .source) ? {
+                filePreview.showGoToLine = true
+            } : nil
         ))
         .onChange(of: workingDirectory.directoryURL) { _, newURL in
             showTaskBanner = false
@@ -531,6 +534,12 @@ struct ContentView: View {
             } action: {
                 showKeyboardShortcuts = true
             },
+
+            PaletteCommand(id: "go-to-line", title: "Go to Line…", icon: "arrow.right.to.line", shortcut: "⌘L", category: "Navigation") {
+                filePreview.selectedURL != nil && filePreview.fileContent != nil && filePreview.activeTab == .source
+            } action: { [weak filePreview] in
+                filePreview?.showGoToLine = true
+            },
         ])
     }
 
@@ -877,6 +886,7 @@ private struct FocusedSceneModifier: ViewModifier {
     var onPreviousChange: (() -> Void)?
     var onReviewAllChanges: (() -> Void)?
     var onShowKeyboardShortcuts: () -> Void
+    var onGoToLine: (() -> Void)?
 
     func body(content: Content) -> some View {
         content
@@ -904,7 +914,8 @@ private struct FocusedSceneModifier: ViewModifier {
                 onNextChange: onNextChange,
                 onPreviousChange: onPreviousChange,
                 onReviewAllChanges: onReviewAllChanges,
-                onShowKeyboardShortcuts: onShowKeyboardShortcuts
+                onShowKeyboardShortcuts: onShowKeyboardShortcuts,
+                onGoToLine: onGoToLine
             ))
     }
 }
@@ -956,6 +967,7 @@ private struct FocusedSceneModifierB: ViewModifier {
     var onPreviousChange: (() -> Void)?
     var onReviewAllChanges: (() -> Void)?
     var onShowKeyboardShortcuts: () -> Void
+    var onGoToLine: (() -> Void)?
 
     func body(content: Content) -> some View {
         content
@@ -970,6 +982,7 @@ private struct FocusedSceneModifierB: ViewModifier {
             .focusedSceneValue(\.previousChange, onPreviousChange)
             .focusedSceneValue(\.reviewAllChanges, onReviewAllChanges)
             .focusedSceneValue(\.showKeyboardShortcuts, onShowKeyboardShortcuts)
+            .focusedSceneValue(\.goToLine, onGoToLine)
     }
 }
 

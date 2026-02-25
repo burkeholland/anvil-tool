@@ -16,6 +16,12 @@ final class FilePreviewModel: ObservableObject {
     @Published private(set) var isLoading = false
     @Published var activeTab: PreviewTab = .source
     @Published private(set) var lineCount: Int = 0
+    /// Set this to scroll the source view to a specific line number (1-based).
+    @Published var scrollToLine: Int?
+    /// Tracks the last line navigated to, used as reference for next/previous change.
+    var lastNavigatedLine: Int = 1
+    /// Controls the Go to Line overlay in the file preview.
+    @Published var showGoToLine = false
     @Published private(set) var previewImage: NSImage?
     @Published private(set) var imageSize: CGSize?
     @Published private(set) var imageFileSize: Int?
@@ -75,6 +81,7 @@ final class FilePreviewModel: ObservableObject {
         // Reload if switching away from a commit diff for the same file
         if selectedURL == url && !wasCommitDiff { return }
         selectedURL = url
+        lastNavigatedLine = 1
         loadFile(url)
     }
 
@@ -86,6 +93,7 @@ final class FilePreviewModel: ObservableObject {
             openTabs.append(url)
         }
         selectedURL = url
+        lastNavigatedLine = 1
         loadCommitFile(url: url, sha: commitSHA, filePath: path, rootURL: rootURL)
     }
 
@@ -99,6 +107,7 @@ final class FilePreviewModel: ObservableObject {
             // Switch to adjacent tab
             let newIndex = min(index, openTabs.count - 1)
             selectedURL = openTabs[newIndex]
+            lastNavigatedLine = 1
             loadFile(openTabs[newIndex])
         }
     }
@@ -109,6 +118,7 @@ final class FilePreviewModel: ObservableObject {
         fileContent = nil
         fileDiff = nil
         lineCount = 0
+        lastNavigatedLine = 1
         previewImage = nil
         imageSize = nil
         imageFileSize = nil
@@ -309,6 +319,56 @@ final class FilePreviewModel: ObservableObject {
     static let markdownExtensions: Set<String> = [
         "md", "markdown", "mdown", "mkd",
     ]
+
+    // MARK: - Change Region Navigation
+
+    /// Returns contiguous groups of changed lines as sorted ranges (1-based line numbers).
+    func changeRegions(from gutterChanges: [Int: GutterChangeKind]) -> [ClosedRange<Int>] {
+        guard !gutterChanges.isEmpty else { return [] }
+        let sorted = gutterChanges.keys.sorted()
+        var regions: [ClosedRange<Int>] = []
+        var start = sorted[0]
+        var end = sorted[0]
+        for i in 1..<sorted.count {
+            if sorted[i] == end + 1 {
+                end = sorted[i]
+            } else {
+                regions.append(start...end)
+                start = sorted[i]
+                end = sorted[i]
+            }
+        }
+        regions.append(start...end)
+        return regions
+    }
+
+    /// Scrolls to the next change region after the current navigation position.
+    func goToNextChange(gutterChanges: [Int: GutterChangeKind]) {
+        let regions = changeRegions(from: gutterChanges)
+        guard !regions.isEmpty else { return }
+        if let next = regions.first(where: { $0.lowerBound > lastNavigatedLine }) {
+            scrollToLine = next.lowerBound
+            lastNavigatedLine = next.lowerBound
+        } else {
+            // Wrap around to first region
+            scrollToLine = regions[0].lowerBound
+            lastNavigatedLine = regions[0].lowerBound
+        }
+    }
+
+    /// Scrolls to the previous change region before the current navigation position.
+    func goToPreviousChange(gutterChanges: [Int: GutterChangeKind]) {
+        let regions = changeRegions(from: gutterChanges)
+        guard !regions.isEmpty else { return }
+        if let prev = regions.last(where: { $0.lowerBound < lastNavigatedLine }) {
+            scrollToLine = prev.lowerBound
+            lastNavigatedLine = prev.lowerBound
+        } else {
+            // Wrap around to last region
+            scrollToLine = regions.last!.lowerBound
+            lastNavigatedLine = regions.last!.lowerBound
+        }
+    }
 
     // MARK: - Path Helpers
 

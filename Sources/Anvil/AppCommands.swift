@@ -83,6 +83,10 @@ struct ShowKeyboardShortcutsKey: FocusedValueKey {
     typealias Value = () -> Void
 }
 
+struct GoToLineKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
 extension FocusedValues {
     var sidebarVisible: Binding<Bool>? {
         get { self[SidebarVisibleKey.self] }
@@ -183,6 +187,11 @@ extension FocusedValues {
         get { self[ShowKeyboardShortcutsKey.self] }
         set { self[ShowKeyboardShortcutsKey.self] = newValue }
     }
+
+    var goToLine: (() -> Void)? {
+        get { self[GoToLineKey.self] }
+        set { self[GoToLineKey.self] = newValue }
+    }
 }
 
 // MARK: - View Menu Commands
@@ -205,6 +214,7 @@ struct ViewCommands: Commands {
     @FocusedValue(\.nextChange) var nextChange
     @FocusedValue(\.previousChange) var previousChange
     @FocusedValue(\.reviewAllChanges) var reviewAllChanges
+    @FocusedValue(\.goToLine) var goToLine
     @AppStorage("autoLaunchCopilot") private var autoLaunchCopilot = true
     @AppStorage("notificationsEnabled") private var notificationsEnabled = true
 
@@ -235,6 +245,12 @@ struct ViewCommands: Commands {
             }
             .keyboardShortcut("f", modifiers: .command)
             .disabled(findInTerminal == nil)
+
+            Button("Go to Line…") {
+                goToLine?()
+            }
+            .keyboardShortcut("l", modifiers: .command)
+            .disabled(goToLine == nil)
 
             Divider()
 
