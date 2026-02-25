@@ -159,6 +159,24 @@ struct FilePreviewView: View {
                     }
                 }
 
+                // Git blame toggle
+                if model.activeTab == .source && !model.fileHistory.isEmpty {
+                    Button {
+                        model.showBlame.toggle()
+                        if model.showBlame {
+                            model.loadBlame()
+                        } else {
+                            model.clearBlame()
+                        }
+                    } label: {
+                        Image(systemName: "person.text.rectangle")
+                            .font(.system(size: 11))
+                            .foregroundStyle(model.showBlame ? Color.accentColor : Color.secondary)
+                    }
+                    .buttonStyle(.borderless)
+                    .help(model.showBlame ? "Hide Blame Annotations" : "Show Blame Annotations")
+                }
+
                 // @Mention in terminal
                 Button {
                     terminalProxy.mentionFile(relativePath: model.relativePath)
@@ -246,6 +264,7 @@ struct FilePreviewView: View {
                                 }
                             }
                         } : nil,
+                        blameLines: model.showBlame ? model.blameLines : [],
                         scrollToLine: $model.scrollToLine
                     )
                 } else {
@@ -675,6 +694,8 @@ struct HighlightedTextView: NSViewRepresentable {
     var fileDiff: FileDiff?
     /// Called when the user clicks "Revert" in a gutter diff popover.
     var onRevertHunk: ((DiffHunk) -> Void)?
+    /// Per-line blame annotations. Empty when blame is off.
+    var blameLines: [BlameLine] = []
     /// Binding to scroll to a specific line (1-based). Set to nil after scrolling.
     @Binding var scrollToLine: Int?
 
@@ -722,6 +743,7 @@ struct HighlightedTextView: NSViewRepresentable {
         context.coordinator.onRevertHunk = onRevertHunk
         context.coordinator.applyHighlighting(content: content, language: language)
         rulerView.gutterChanges = gutterChanges
+        rulerView.blameLines = blameLines
 
         return scrollView
     }
@@ -729,6 +751,7 @@ struct HighlightedTextView: NSViewRepresentable {
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         context.coordinator.applyHighlighting(content: content, language: language)
         context.coordinator.rulerView?.gutterChanges = gutterChanges
+        context.coordinator.rulerView?.blameLines = blameLines
         context.coordinator.fileDiff = fileDiff
         context.coordinator.onRevertHunk = onRevertHunk
 
@@ -892,11 +915,25 @@ final class LineNumberRulerView: NSRulerView {
     private let gutterBackground = NSColor(red: 0.10, green: 0.10, blue: 0.12, alpha: 1.0)
     private let lineNumberColor = NSColor(white: 0.40, alpha: 1.0)
     private let lineNumberFont = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .regular)
+    private let blameFont = NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .regular)
+    private let blameAuthorColor = NSColor(white: 0.50, alpha: 1.0)
+    private let blameDateColor = NSColor(white: 0.35, alpha: 1.0)
 
     /// Line-number → change kind mapping. Set externally; triggers redraw.
     var gutterChanges: [Int: GutterChangeKind] = [:] {
         didSet { needsDisplay = true }
     }
+
+    /// Per-line blame annotations indexed by 1-based line number.
+    var blameLines: [BlameLine] = [] {
+        didSet {
+            blameMap = Dictionary(uniqueKeysWithValues: blameLines.map { ($0.lineNumber, $0) })
+            updateThickness()
+            needsDisplay = true
+        }
+    }
+    /// Fast lookup for blame by line number.
+    private var blameMap: [Int: BlameLine] = [:]
 
     /// Called when the user clicks on a gutter change indicator.
     /// Parameters: (lineNumber, rectInRulerCoordinates).
@@ -945,8 +982,18 @@ final class LineNumberRulerView: NSRulerView {
         let lineCount = max(textView.string.components(separatedBy: "\n").count, 1)
         let digitCount = max(String(lineCount).count, 2)
         let sampleString = String(repeating: "8", count: digitCount) as NSString
-        let width = sampleString.size(withAttributes: [.font: lineNumberFont]).width
-        let newThickness = ceil(width) + 20 // 10pt padding on each side
+        let lineNumWidth = sampleString.size(withAttributes: [.font: lineNumberFont]).width
+        let baseThickness = ceil(lineNumWidth) + 20 // 10pt padding on each side
+
+        let newThickness: CGFloat
+        if !blameMap.isEmpty {
+            // Add space for blame: "author  2d ago" (approx 20 chars)
+            let blameLabel = String(repeating: "M", count: 20) as NSString
+            let blameWidth = blameLabel.size(withAttributes: [.font: blameFont]).width
+            newThickness = baseThickness + blameWidth + 12 // 12pt gap between blame and line numbers
+        } else {
+            newThickness = baseThickness
+        }
         if abs(ruleThickness - newThickness) > 1 {
             ruleThickness = newThickness
         }
@@ -1035,6 +1082,21 @@ final class LineNumberRulerView: NSRulerView {
         separatorPath.lineWidth = 1
         separatorPath.stroke()
 
+        let hasBlame = !blameMap.isEmpty
+
+        // When blame is active, draw a second separator between blame and line numbers
+        if hasBlame {
+            let blameLabel = String(repeating: "M", count: 20) as NSString
+            let blameWidth = blameLabel.size(withAttributes: [.font: blameFont]).width
+            let blameSepX = blameWidth + 8 + 0.5
+            NSColor(white: 0.20, alpha: 1.0).setStroke()
+            let blameSepPath = NSBezierPath()
+            blameSepPath.move(to: NSPoint(x: blameSepX, y: rect.minY))
+            blameSepPath.line(to: NSPoint(x: blameSepX, y: rect.maxY))
+            blameSepPath.lineWidth = 1
+            blameSepPath.stroke()
+        }
+
         let content = textView.string as NSString
         let visibleRect = scrollView!.contentView.bounds
         let textInset = textView.textContainerInset
@@ -1047,15 +1109,32 @@ final class LineNumberRulerView: NSRulerView {
             forGlyphRange: visibleGlyphRange, actualGlyphRange: nil
         )
 
-        let attrs: [NSAttributedString.Key: Any] = [
+        let lineNumAttrs: [NSAttributedString.Key: Any] = [
             .font: lineNumberFont,
             .foregroundColor: lineNumberColor,
         ]
+
+        let blameAuthorAttrs: [NSAttributedString.Key: Any] = [
+            .font: blameFont,
+            .foregroundColor: blameAuthorColor,
+        ]
+        let blameDateAttrs: [NSAttributedString.Key: Any] = [
+            .font: blameFont,
+            .foregroundColor: blameDateColor,
+        ]
+
+        // Track the previous line's commit SHA to suppress repeated blame rows
+        var previousBlameSHA: String?
 
         // Walk through each line in the visible range
         var lineNumber = content.substring(to: visibleCharRange.location)
             .components(separatedBy: "\n").count
         var charIndex = visibleCharRange.location
+
+        // Pre-compute the previous line's blame SHA for the first visible line
+        if hasBlame, lineNumber > 1, let prev = blameMap[lineNumber - 1] {
+            previousBlameSHA = prev.sha
+        }
 
         while charIndex < NSMaxRange(visibleCharRange) {
             let lineRange = content.lineRange(for: NSRange(location: charIndex, length: 0))
@@ -1065,13 +1144,42 @@ final class LineNumberRulerView: NSRulerView {
 
             // Only draw if visible
             if lineRect.maxY >= visibleRect.minY && lineRect.minY <= visibleRect.maxY {
+                let drawY = lineRect.minY - visibleRect.origin.y
+
+                // Blame annotation (left of line number)
+                if hasBlame, let blame = blameMap[lineNumber] {
+                    let isNewCommit = blame.sha != previousBlameSHA
+                    if isNewCommit {
+                        // Author name (truncated to ~10 chars)
+                        let authorName = blame.isUncommitted ? "Uncommitted" : String(blame.author.prefix(12))
+                        let authorStr = authorName as NSString
+                        let authorSize = authorStr.size(withAttributes: blameAuthorAttrs)
+                        let authorPoint = NSPoint(
+                            x: 6,
+                            y: drawY + (lineRect.height - authorSize.height) / 2
+                        )
+                        authorStr.draw(at: authorPoint, withAttributes: blameAuthorAttrs)
+
+                        // Relative date
+                        let dateStr = blame.relativeDate as NSString
+                        let dateSize = dateStr.size(withAttributes: blameDateAttrs)
+                        let datePoint = NSPoint(
+                            x: 6 + authorSize.width + 4,
+                            y: drawY + (lineRect.height - dateSize.height) / 2
+                        )
+                        dateStr.draw(at: datePoint, withAttributes: blameDateAttrs)
+                    }
+                    previousBlameSHA = blame.sha
+                }
+
+                // Line number (right-aligned within line number region)
                 let numStr = "\(lineNumber)" as NSString
-                let strSize = numStr.size(withAttributes: attrs)
+                let strSize = numStr.size(withAttributes: lineNumAttrs)
                 let drawPoint = NSPoint(
                     x: ruleThickness - strSize.width - 10,
-                    y: lineRect.minY + (lineRect.height - strSize.height) / 2 - visibleRect.origin.y
+                    y: drawY + (lineRect.height - strSize.height) / 2
                 )
-                numStr.draw(at: drawPoint, withAttributes: attrs)
+                numStr.draw(at: drawPoint, withAttributes: lineNumAttrs)
 
                 // Draw gutter change indicator bar
                 if let change = gutterChanges[lineNumber] {

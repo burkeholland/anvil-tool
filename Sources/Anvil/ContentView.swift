@@ -525,6 +525,16 @@ struct ContentView: View {
                 showSidebar = true
                 sidebarTab = .files
             },
+            PaletteCommand(id: "toggle-blame", title: filePreview.showBlame ? "Hide Blame Annotations" : "Show Blame Annotations", icon: "person.text.rectangle", shortcut: nil, category: "View") {
+                filePreview.selectedURL != nil && filePreview.activeTab == .source
+            } action: { [weak filePreview] in
+                filePreview?.showBlame.toggle()
+                if filePreview?.showBlame == true {
+                    filePreview?.loadBlame()
+                } else {
+                    filePreview?.clearBlame()
+                }
+            },
             PaletteCommand(id: "reveal-in-tree", title: "Reveal in File Tree", icon: "arrow.right.circle", shortcut: "⌘⇧J", category: "Navigation") {
                 filePreview.selectedURL != nil
             } action: { [weak filePreview] in

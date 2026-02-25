@@ -32,6 +32,12 @@ final class FilePreviewModel: ObservableObject {
     @Published private(set) var fileHistory: [GitCommit] = []
     /// When set, the preview shows a commit-specific diff instead of working directory diff.
     private(set) var commitDiffContext: (sha: String, filePath: String)?
+    /// Per-line blame annotations for the current file.
+    @Published private(set) var blameLines: [BlameLine] = []
+    /// Whether blame annotations are shown in the source view gutter.
+    @Published var showBlame = false
+    /// Monotonic counter to discard stale async blame results.
+    private var blameGeneration: UInt64 = 0
 
     /// Recently viewed file URLs in most-recent-first order, capped at 20.
     @Published private(set) var recentlyViewedURLs: [URL] = []
@@ -102,6 +108,9 @@ final class FilePreviewModel: ObservableObject {
             }
             return
         }
+        // Clear stale blame immediately when switching files
+        blameLines = []
+        blameGeneration &+= 1
         selectedURL = url
         lastNavigatedLine = line ?? 1
         fileHistory = []
@@ -116,6 +125,9 @@ final class FilePreviewModel: ObservableObject {
     func selectCommitFile(path: String, commitSHA: String, rootURL: URL) {
         let url = URL(fileURLWithPath: rootURL.path).appendingPathComponent(path)
         commitDiffContext = (sha: commitSHA, filePath: path)
+        // Blame is not meaningful for commit diffs
+        blameLines = []
+        blameGeneration &+= 1
         if !openTabs.contains(url) {
             openTabs.append(url)
         }
@@ -150,9 +162,11 @@ final class FilePreviewModel: ObservableObject {
         imageSize = nil
         imageFileSize = nil
         fileHistory = []
+        blameLines = []
         activeTab = .source
         commitDiffContext = nil
         showSymbolOutline = false
+        showBlame = false
     }
 
     /// Refresh both source content and diff for the current file.
@@ -196,6 +210,10 @@ final class FilePreviewModel: ObservableObject {
                             let isMD = Self.markdownExtensions.contains(url.pathExtension.lowercased())
                             self?.activeTab = isMD ? .rendered : .source
                         }
+                    }
+                    // Refresh blame if active (file content may have changed on disk)
+                    if self?.showBlame == true {
+                        self?.loadBlame()
                     }
                 }
             }
@@ -295,6 +313,9 @@ final class FilePreviewModel: ObservableObject {
                         self?.activeTab = .source
                     }
                     self?.loadFileHistory(for: url)
+                    if self?.showBlame == true {
+                        self?.loadBlame()
+                    }
                 }
             }
         }
@@ -314,6 +335,33 @@ final class FilePreviewModel: ObservableObject {
                 self?.fileHistory = commits
             }
         }
+    }
+
+    /// Loads git blame for the current file if blame mode is active.
+    func loadBlame() {
+        blameGeneration &+= 1
+        let generation = blameGeneration
+        guard showBlame, let url = selectedURL, let root = rootDirectory else {
+            blameLines = []
+            return
+        }
+        let relativePath = Self.relativePath(of: url, from: root)
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let blame = GitBlameProvider.blame(for: relativePath, in: root)
+            DispatchQueue.main.async {
+                guard let self,
+                      self.blameGeneration == generation,
+                      self.selectedURL == url,
+                      self.showBlame else { return }
+                self.blameLines = blame
+            }
+        }
+    }
+
+    /// Clears blame annotations.
+    func clearBlame() {
+        blameGeneration &+= 1
+        blameLines = []
     }
 
     private static let extensionToLanguage: [String: String] = [
