@@ -271,7 +271,8 @@ struct ChangesListView: View {
         }
     }
 
-    private var contentList: some View {
+    // List + keyboard + focused-value bindings (split to stay within type-checker limits)
+    private var listBase: some View {
         List {
             changesTopSections
             stagedSection
@@ -304,82 +305,79 @@ struct ChangesListView: View {
         .focusedValue(\.discardFocusedHunk, model.focusedHunk != nil ? { model.discardFocusedHunk() } : nil)
         .focusedValue(\.toggleFocusedFileReviewed, model.focusedFile != nil ? { model.toggleFocusedFileReviewed() } : nil)
         .focusedValue(\.openFocusedFile, model.focusedFile != nil ? { if let url = model.focusedFile?.url { filePreview.select(url) } } : nil)
-        .alert("Discard Changes?", isPresented: Binding(
-            get: { fileToDiscard != nil },
-            set: { if !$0 { fileToDiscard = nil } }
-        )) {
-            Button("Discard", role: .destructive) {
+    }
+
+    // Alerts layered on top of listBase
+    private var listWithAlerts: some View {
+        listBase
+            .alert("Discard Changes?", isPresented: Binding(
+                get: { fileToDiscard != nil },
+                set: { if !$0 { fileToDiscard = nil } }
+            )) {
+                Button("Discard", role: .destructive) {
+                    if let file = fileToDiscard {
+                        model.discardChanges(for: file)
+                        if filePreview.selectedURL == file.url { filePreview.refresh() }
+                    }
+                    fileToDiscard = nil
+                }
+                Button("Cancel", role: .cancel) { fileToDiscard = nil }
+            } message: {
                 if let file = fileToDiscard {
-                    model.discardChanges(for: file)
-                    if filePreview.selectedURL == file.url {
-                        filePreview.refresh()
+                    Text("This will permanently discard all uncommitted changes to \"\(file.fileName)\". This cannot be undone.")
+                }
+            }
+            .alert("Discard All Changes?", isPresented: $showDiscardAllConfirm) {
+                Button("Discard All", role: .destructive) { model.discardAll() }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("This will discard all \(model.changedFiles.count) uncommitted changed file\(model.changedFiles.count == 1 ? "" : "s"). Changes are stashed so you can recover them.")
+            }
+            .alert("Undo Last Commit?", isPresented: $showUndoCommitConfirm) {
+                Button("Undo Commit", role: .destructive) { model.undoLastCommit() }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                if let commit = model.recentCommits.first {
+                    Text("This will undo \"\(commit.message)\" (\(commit.shortSHA)). The changes will be moved back to the staging area — no work is lost.")
+                }
+            }
+            .alert("Drop Stash?", isPresented: Binding(
+                get: { stashToDrop != nil },
+                set: { if !$0 { stashToDrop = nil } }
+            )) {
+                Button("Drop", role: .destructive) {
+                    if let stash = stashToDrop { model.dropStash(sha: stash.sha) }
+                    stashToDrop = nil
+                }
+                Button("Cancel", role: .cancel) { stashToDrop = nil }
+            } message: {
+                if let stash = stashToDrop {
+                    Text("This will permanently delete stash@{\(stash.index)} (\(stash.cleanMessage)). This cannot be undone.")
+                }
+            }
+    }
+
+    private var contentList: some View {
+        listWithAlerts
+            .overlay(alignment: .bottom) {
+                VStack(spacing: 0) {
+                    if model.lastStashError != nil {
+                        StashErrorBanner(model: model)
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
+                    if model.lastUndoneCommitSHA != nil {
+                        UndoCommitBanner(model: model)
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
+                    if model.lastDiscardStashRef != nil {
+                        DiscardRecoveryBanner(model: model)
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
                     }
                 }
-                fileToDiscard = nil
             }
-            Button("Cancel", role: .cancel) {
-                fileToDiscard = nil
-            }
-        } message: {
-            if let file = fileToDiscard {
-                Text("This will permanently discard all uncommitted changes to \"\(file.fileName)\". This cannot be undone.")
-            }
-        }
-        .alert("Discard All Changes?", isPresented: $showDiscardAllConfirm) {
-            Button("Discard All", role: .destructive) {
-                model.discardAll()
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("This will discard all \(model.changedFiles.count) uncommitted changed file\(model.changedFiles.count == 1 ? "" : "s"). Changes are stashed so you can recover them.")
-        }
-        .alert("Undo Last Commit?", isPresented: $showUndoCommitConfirm) {
-            Button("Undo Commit", role: .destructive) {
-                model.undoLastCommit()
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            if let commit = model.recentCommits.first {
-                Text("This will undo \"\(commit.message)\" (\(commit.shortSHA)). The changes will be moved back to the staging area — no work is lost.")
-            }
-        }
-        .alert("Drop Stash?", isPresented: Binding(
-            get: { stashToDrop != nil },
-            set: { if !$0 { stashToDrop = nil } }
-        )) {
-            Button("Drop", role: .destructive) {
-                if let stash = stashToDrop {
-                    model.dropStash(sha: stash.sha)
-                }
-                stashToDrop = nil
-            }
-            Button("Cancel", role: .cancel) {
-                stashToDrop = nil
-            }
-        } message: {
-            if let stash = stashToDrop {
-                Text("This will permanently delete stash@{\(stash.index)} (\(stash.cleanMessage)). This cannot be undone.")
-            }
-        }
-        .overlay(alignment: .bottom) {
-            VStack(spacing: 0) {
-                if model.lastStashError != nil {
-                    StashErrorBanner(model: model)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
-                }
-                if model.lastUndoneCommitSHA != nil {
-                    UndoCommitBanner(model: model)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
-                }
-                if model.lastDiscardStashRef != nil {
-                    DiscardRecoveryBanner(model: model)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
-                }
-            }
-        }
-        .animation(.easeInOut(duration: 0.2), value: model.lastDiscardStashRef != nil)
-        .animation(.easeInOut(duration: 0.2), value: model.lastUndoneCommitSHA != nil)
-        .animation(.easeInOut(duration: 0.2), value: model.lastStashError != nil)
+            .animation(.easeInOut(duration: 0.2), value: model.lastDiscardStashRef != nil)
+            .animation(.easeInOut(duration: 0.2), value: model.lastUndoneCommitSHA != nil)
+            .animation(.easeInOut(duration: 0.2), value: model.lastStashError != nil)
     }
 
     @ViewBuilder
