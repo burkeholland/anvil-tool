@@ -30,6 +30,7 @@ struct ContentView: View {
     @State private var isDroppingFolder = false
     @AppStorage("autoFollowChanges") private var autoFollow = true
     @AppStorage("terminalFontSize") private var terminalFontSize: Double = 14
+    @State private var isDroppingFileToTerminal = false
 
     var body: some View {
         ZStack {
@@ -186,8 +187,31 @@ struct ContentView: View {
                             .opacity(tab.id == terminalTabs.activeTabID ? 1 : 0)
                             .allowsHitTesting(tab.id == terminalTabs.activeTabID)
                         }
+
+                        // Drop overlay for file → terminal @ mentions
+                        if isDroppingFileToTerminal {
+                            VStack(spacing: 6) {
+                                Image(systemName: "at")
+                                    .font(.system(size: 28, weight: .medium))
+                                Text("Drop to @mention in terminal")
+                                    .font(.system(size: 13, weight: .medium))
+                            }
+                            .foregroundStyle(Color.accentColor)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .background(Color.accentColor.opacity(0.06))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .strokeBorder(Color.accentColor, style: StrokeStyle(lineWidth: 2, dash: [8, 4]))
+                            )
+                            .allowsHitTesting(false)
+                        }
                     }
                     .id(workingDirectory.directoryURL)
+                    .dropDestination(for: URL.self) { urls, _ in
+                        handleTerminalFileDrop(urls)
+                    } isTargeted: { targeted in
+                        isDroppingFileToTerminal = targeted
+                    }
 
                     StatusBarView(
                         workingDirectory: workingDirectory,
@@ -505,6 +529,33 @@ struct ContentView: View {
             }
             return true
         }
+    }
+
+    /// Handles file drops on the terminal area.
+    /// Project files → @mention in terminal. External files → open as project.
+    private func handleTerminalFileDrop(_ urls: [URL]) -> Bool {
+        guard let rootURL = workingDirectory.directoryURL else {
+            return handleDrop(urls)
+        }
+        let rootPath = rootURL.standardizedFileURL.path
+        let rootPrefix = rootPath.hasSuffix("/") ? rootPath : rootPath + "/"
+
+        var mentioned = false
+        for url in urls {
+            let filePath = url.standardizedFileURL.path
+            if filePath.hasPrefix(rootPrefix) {
+                let relativePath = String(filePath.dropFirst(rootPrefix.count))
+                if !relativePath.isEmpty {
+                    terminalProxy.mentionFile(relativePath: relativePath)
+                    mentioned = true
+                }
+            }
+        }
+
+        if mentioned { return true }
+
+        // Non-project files fall through to standard drop behavior
+        return handleDrop(urls)
     }
 }
 

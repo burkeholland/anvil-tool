@@ -64,6 +64,7 @@ struct FileTreeView: View {
                             .contextMenu {
                                 fileContextMenu(url: result.url, isDirectory: false)
                             }
+                            .draggable(result.url)
                         }
                     }
                     .listStyle(.sidebar)
@@ -81,6 +82,7 @@ struct FileTreeView: View {
                         .contextMenu {
                             fileContextMenu(url: entry.url, isDirectory: entry.isDirectory)
                         }
+                        .draggable(entry.url)
                     }
                 }
                 .listStyle(.sidebar)

@@ -69,6 +69,7 @@ struct ChangesListView: View {
                             .contextMenu {
                                 changedFileContextMenu(file: file, isStaged: true)
                             }
+                            .draggable(file.url)
                         }
                     } header: {
                         HStack(spacing: 8) {
@@ -105,6 +106,7 @@ struct ChangesListView: View {
                             .contextMenu {
                                 changedFileContextMenu(file: file, isStaged: false)
                             }
+                            .draggable(file.url)
                         }
                     } header: {
                         HStack(spacing: 8) {
