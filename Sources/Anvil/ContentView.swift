@@ -23,6 +23,7 @@ struct ContentView: View {
     @State private var showQuickOpen = false
     @State private var isDroppingFolder = false
     @AppStorage("autoFollowChanges") private var autoFollow = true
+    @AppStorage("terminalFontSize") private var terminalFontSize: Double = 14
 
     var body: some View {
         Group {
@@ -60,7 +61,16 @@ struct ContentView: View {
                 sidebarTab = .search
             },
             onBrowse: { browseForDirectory() },
-            onCloseProject: { closeCurrentProject() }
+            onCloseProject: { closeCurrentProject() },
+            onIncreaseFontSize: {
+                terminalFontSize = min(terminalFontSize + 1, EmbeddedTerminalView.maxFontSize)
+            },
+            onDecreaseFontSize: {
+                terminalFontSize = max(terminalFontSize - 1, EmbeddedTerminalView.minFontSize)
+            },
+            onResetFontSize: {
+                terminalFontSize = EmbeddedTerminalView.defaultFontSize
+            }
         ))
         .onChange(of: workingDirectory.directoryURL) { _, newURL in
             filePreview.close()
@@ -438,6 +448,9 @@ private struct FocusedSceneModifier: ViewModifier {
     var onFindInProject: () -> Void
     var onBrowse: () -> Void
     var onCloseProject: () -> Void
+    var onIncreaseFontSize: () -> Void
+    var onDecreaseFontSize: () -> Void
+    var onResetFontSize: () -> Void
 
     func body(content: Content) -> some View {
         content
@@ -459,5 +472,8 @@ private struct FocusedSceneModifier: ViewModifier {
             .focusedSceneValue(\.autoFollow, $autoFollow)
             .focusedSceneValue(\.findInProject, hasProject ? onFindInProject : nil)
             .focusedSceneValue(\.closeProject, hasProject ? onCloseProject : nil)
+            .focusedSceneValue(\.increaseFontSize, onIncreaseFontSize)
+            .focusedSceneValue(\.decreaseFontSize, onDecreaseFontSize)
+            .focusedSceneValue(\.resetFontSize, onResetFontSize)
     }
 }

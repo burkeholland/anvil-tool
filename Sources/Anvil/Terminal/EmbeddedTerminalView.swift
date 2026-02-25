@@ -8,9 +8,26 @@ struct EmbeddedTerminalView: View {
     @ObservedObject var workingDirectory: WorkingDirectoryModel
     @EnvironmentObject var terminalProxy: TerminalInputProxy
     @AppStorage("autoLaunchCopilot") private var autoLaunchCopilot = true
+    @AppStorage("terminalFontSize") private var fontSize: Double = 14
     @State private var processRunning = true
     @State private var lastExitCode: Int32?
     @State private var terminalID = UUID()
+
+    static let minFontSize: Double = 9
+    static let maxFontSize: Double = 32
+    static let defaultFontSize: Double = 14
+
+    func increaseFontSize() {
+        fontSize = min(fontSize + 1, Self.maxFontSize)
+    }
+
+    func decreaseFontSize() {
+        fontSize = max(fontSize - 1, Self.minFontSize)
+    }
+
+    func resetFontSize() {
+        fontSize = Self.defaultFontSize
+    }
 
     var body: some View {
         ZStack {
@@ -18,6 +35,7 @@ struct EmbeddedTerminalView: View {
                 workingDirectory: workingDirectory,
                 terminalProxy: terminalProxy,
                 autoLaunchCopilot: autoLaunchCopilot,
+                fontSize: fontSize,
                 onProcessExit: { code in
                     lastExitCode = code
                     processRunning = false
@@ -78,6 +96,7 @@ private struct TerminalNSView: NSViewRepresentable {
     @ObservedObject var workingDirectory: WorkingDirectoryModel
     var terminalProxy: TerminalInputProxy
     var autoLaunchCopilot: Bool
+    var fontSize: Double
     var onProcessExit: (Int32?) -> Void
 
     func makeNSView(context: Context) -> LocalProcessTerminalView {
@@ -85,8 +104,7 @@ private struct TerminalNSView: NSViewRepresentable {
         terminalView.processDelegate = context.coordinator
         terminalProxy.terminalView = terminalView
 
-        let fontSize: CGFloat = 14
-        terminalView.font = NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
+        terminalView.font = NSFont.monospacedSystemFont(ofSize: CGFloat(fontSize), weight: .regular)
         terminalView.nativeBackgroundColor = NSColor(red: 0.1, green: 0.1, blue: 0.12, alpha: 1.0)
         terminalView.nativeForegroundColor = NSColor(red: 0.9, green: 0.9, blue: 0.9, alpha: 1.0)
 
@@ -104,10 +122,17 @@ private struct TerminalNSView: NSViewRepresentable {
             context.coordinator.scheduleAutoLaunch(terminalView)
         }
 
+        context.coordinator.lastFontSize = fontSize
+
         return terminalView
     }
 
-    func updateNSView(_ nsView: LocalProcessTerminalView, context: Context) {}
+    func updateNSView(_ nsView: LocalProcessTerminalView, context: Context) {
+        if context.coordinator.lastFontSize != fontSize {
+            context.coordinator.lastFontSize = fontSize
+            nsView.font = NSFont.monospacedSystemFont(ofSize: CGFloat(fontSize), weight: .regular)
+        }
+    }
 
     func makeCoordinator() -> Coordinator {
         Coordinator(onProcessExit: onProcessExit)
@@ -115,6 +140,7 @@ private struct TerminalNSView: NSViewRepresentable {
 
     final class Coordinator: NSObject, LocalProcessTerminalViewDelegate {
         let onProcessExit: (Int32?) -> Void
+        var lastFontSize: Double = 14
 
         init(onProcessExit: @escaping (Int32?) -> Void) {
             self.onProcessExit = onProcessExit

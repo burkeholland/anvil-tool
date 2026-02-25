@@ -43,6 +43,18 @@ struct CloseProjectKey: FocusedValueKey {
     typealias Value = () -> Void
 }
 
+struct IncreaseFontSizeKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
+struct DecreaseFontSizeKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
+struct ResetFontSizeKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
 extension FocusedValues {
     var sidebarVisible: Binding<Bool>? {
         get { self[SidebarVisibleKey.self] }
@@ -93,6 +105,21 @@ extension FocusedValues {
         get { self[CloseProjectKey.self] }
         set { self[CloseProjectKey.self] = newValue }
     }
+
+    var increaseFontSize: (() -> Void)? {
+        get { self[IncreaseFontSizeKey.self] }
+        set { self[IncreaseFontSizeKey.self] = newValue }
+    }
+
+    var decreaseFontSize: (() -> Void)? {
+        get { self[DecreaseFontSizeKey.self] }
+        set { self[DecreaseFontSizeKey.self] = newValue }
+    }
+
+    var resetFontSize: (() -> Void)? {
+        get { self[ResetFontSizeKey.self] }
+        set { self[ResetFontSizeKey.self] = newValue }
+    }
 }
 
 // MARK: - View Menu Commands
@@ -106,6 +133,9 @@ struct ViewCommands: Commands {
     @FocusedValue(\.quickOpen) var quickOpen
     @FocusedValue(\.autoFollow) var autoFollow
     @FocusedValue(\.findInProject) var findInProject
+    @FocusedValue(\.increaseFontSize) var increaseFontSize
+    @FocusedValue(\.decreaseFontSize) var decreaseFontSize
+    @FocusedValue(\.resetFontSize) var resetFontSize
     @AppStorage("autoLaunchCopilot") private var autoLaunchCopilot = true
 
     var body: some Commands {
@@ -183,6 +213,26 @@ struct ViewCommands: Commands {
             }
             .keyboardShortcut("r", modifiers: [.command, .shift])
             .disabled(refresh == nil)
+
+            Divider()
+
+            Button("Increase Font Size") {
+                increaseFontSize?()
+            }
+            .keyboardShortcut("+", modifiers: .command)
+            .disabled(increaseFontSize == nil)
+
+            Button("Decrease Font Size") {
+                decreaseFontSize?()
+            }
+            .keyboardShortcut("-", modifiers: .command)
+            .disabled(decreaseFontSize == nil)
+
+            Button("Reset Font Size") {
+                resetFontSize?()
+            }
+            .keyboardShortcut("0", modifiers: .command)
+            .disabled(resetFontSize == nil)
         }
     }
 }
