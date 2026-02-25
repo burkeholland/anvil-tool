@@ -151,6 +151,10 @@ struct SplitTerminalVKey: FocusedValueKey {
     typealias Value = () -> Void
 }
 
+struct RequestFixKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
 extension FocusedValues {
     var sidebarVisible: Binding<Bool>? {
         get { self[SidebarVisibleKey.self] }
@@ -336,6 +340,11 @@ extension FocusedValues {
         get { self[SplitTerminalVKey.self] }
         set { self[SplitTerminalVKey.self] = newValue }
     }
+
+    var requestFix: (() -> Void)? {
+        get { self[RequestFixKey.self] }
+        set { self[RequestFixKey.self] = newValue }
+    }
 }
 
 // MARK: - View Menu Commands
@@ -374,6 +383,7 @@ struct ViewCommands: Commands {
     @FocusedValue(\.discardFocusedHunk) var discardFocusedHunk
     @FocusedValue(\.toggleFocusedFileReviewed) var toggleFocusedFileReviewed
     @FocusedValue(\.openFocusedFile) var openFocusedFile
+    @FocusedValue(\.requestFix) var requestFix
     @AppStorage("autoLaunchCopilot") private var autoLaunchCopilot = true
     @AppStorage("notificationsEnabled") private var notificationsEnabled = true
 
@@ -568,6 +578,12 @@ struct ViewCommands: Commands {
             }
             .keyboardShortcut(.return, modifiers: [])
             .disabled(openFocusedFile == nil)
+
+            Button("Request Fix…") {
+                requestFix?()
+            }
+            .keyboardShortcut("f", modifiers: [])
+            .disabled(requestFix == nil)
 
             Divider()
 

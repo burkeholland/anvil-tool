@@ -8,6 +8,8 @@ struct BranchDiffView: View {
     var onDismiss: (() -> Void)?
     @State private var collapsedFiles: Set<String> = []
     @AppStorage("diffViewMode") private var diffMode: String = DiffViewMode.unified.rawValue
+    @State private var requestFixContext: RequestFixContext?
+    @EnvironmentObject var terminalProxy: TerminalInputProxy
 
     private var filesWithDiffs: [BranchDiffFile] {
         model.files.filter { $0.diff != nil }
@@ -17,6 +19,19 @@ struct BranchDiffView: View {
         VStack(spacing: 0) {
             branchDiffHeader
             Divider()
+
+            // Request Fix prompt bar (shown when a fix is requested)
+            if let context = requestFixContext {
+                RequestFixPromptView(
+                    context: context,
+                    onSubmit: { prompt in
+                        terminalProxy.send(prompt)
+                        requestFixContext = nil
+                    },
+                    onDismiss: { requestFixContext = nil }
+                )
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
 
             if model.isLoading {
                 loadingState
@@ -35,6 +50,7 @@ struct BranchDiffView: View {
             }
         }
         .background(Color(nsColor: .textBackgroundColor))
+        .animation(.easeInOut(duration: 0.15), value: requestFixContext != nil)
     }
 
     // MARK: - Header
@@ -224,6 +240,17 @@ struct BranchDiffView: View {
                     .buttonStyle(.borderless)
                     .help("Open in Preview")
                 }
+
+                // Request Fix button for this file
+                Button {
+                    requestFixContext = RequestFixContext(filePath: file.path, lineRange: nil)
+                } label: {
+                    Image(systemName: "wrench.and.screwdriver")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.orange)
+                }
+                .buttonStyle(.borderless)
+                .help("Request Fix for this file")
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
@@ -255,7 +282,16 @@ struct BranchDiffView: View {
                     } else {
                         VStack(alignment: .leading, spacing: 0) {
                             ForEach(diff.hunks) { hunk in
-                                DiffHunkView(hunk: hunk, syntaxHighlights: highlights)
+                                DiffHunkView(
+                                    hunk: hunk,
+                                    syntaxHighlights: highlights,
+                                    onRequestFix: {
+                                        requestFixContext = RequestFixContext(
+                                            filePath: file.path,
+                                            lineRange: hunk.newFileLineRange
+                                        )
+                                    }
+                                )
                             }
                         }
                     }
