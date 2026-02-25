@@ -4,8 +4,8 @@ import AppKit
 struct FileTreeView: View {
     let rootURL: URL
     @ObservedObject var filePreview: FilePreviewModel
+    @ObservedObject var model: FileTreeModel
     @EnvironmentObject var terminalProxy: TerminalInputProxy
-    @StateObject private var model = FileTreeModel()
 
     // File operation dialog state
     @State private var showNewFileDialog = false
@@ -102,22 +102,32 @@ struct FileTreeView: View {
                     .listStyle(.sidebar)
                 }
             } else {
-                List {
-                    ForEach(model.entries) { entry in
-                        FileRowView(
-                            entry: entry,
-                            isExpanded: model.isExpanded(entry.url),
-                            isSelected: filePreview.selectedURL == entry.url,
-                            gitStatus: model.gitStatuses[entry.url.path],
-                            onToggle: { handleTap(entry) }
-                        )
-                        .contextMenu {
-                            fileContextMenu(url: entry.url, isDirectory: entry.isDirectory)
+                ScrollViewReader { proxy in
+                    List {
+                        ForEach(model.entries) { entry in
+                            FileRowView(
+                                entry: entry,
+                                isExpanded: model.isExpanded(entry.url),
+                                isSelected: filePreview.selectedURL == entry.url,
+                                gitStatus: model.gitStatuses[entry.url.path],
+                                onToggle: { handleTap(entry) }
+                            )
+                            .id(entry.url)
+                            .contextMenu {
+                                fileContextMenu(url: entry.url, isDirectory: entry.isDirectory)
+                            }
+                            .draggable(entry.url)
                         }
-                        .draggable(entry.url)
+                    }
+                    .listStyle(.sidebar)
+                    .onChange(of: model.revealTarget) { _, target in
+                        if let target {
+                            withAnimation(.easeOut(duration: 0.25)) {
+                                proxy.scrollTo(target.url, anchor: .center)
+                            }
+                        }
                     }
                 }
-                .listStyle(.sidebar)
             }
         }
         .onAppear { model.start(rootURL: rootURL) }

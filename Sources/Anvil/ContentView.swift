@@ -18,6 +18,7 @@ struct ContentView: View {
     @StateObject private var searchModel = SearchModel()
     @StateObject private var terminalTabs = TerminalTabsModel()
     @StateObject private var commandPalette = CommandPaletteModel()
+    @StateObject private var fileTreeModel = FileTreeModel()
     @State private var notificationManager = AgentNotificationManager()
     @State private var sidebarWidth: CGFloat = 240
     @State private var previewWidth: CGFloat = 400
@@ -124,6 +125,11 @@ struct ContentView: View {
             onShowKeyboardShortcuts: { showKeyboardShortcuts = true },
             onGoToLine: (filePreview.selectedURL != nil && filePreview.fileContent != nil && filePreview.activeTab == .source) ? {
                 filePreview.showGoToLine = true
+            } : nil,
+            onRevealInTree: filePreview.selectedURL != nil ? {
+                if let url = filePreview.selectedURL {
+                    revealInFileTree(url)
+                }
             } : nil
         ))
         .onChange(of: workingDirectory.directoryURL) { _, newURL in
@@ -136,11 +142,19 @@ struct ContentView: View {
                 changesModel.start(rootURL: url)
                 activityModel.start(rootURL: url)
                 searchModel.setRoot(url)
+                fileTreeModel.start(rootURL: url)
             }
         }
         .onChange(of: activityModel.latestFileChange) { _, change in
             guard autoFollow, let change = change else { return }
             filePreview.select(change.url)
+            revealInFileTree(change.url)
+        }
+        .onChange(of: filePreview.selectedURL) { _, newURL in
+            // Keep tree expanded to the selected file regardless of how it was opened
+            if let url = newURL {
+                fileTreeModel.revealFile(url: url)
+            }
         }
         .onChange(of: activityModel.isAgentActive) { wasActive, isActive in
             if wasActive && !isActive && activityModel.sessionStats.totalFilesTouched > 0 {
@@ -161,6 +175,7 @@ struct ContentView: View {
                 changesModel.start(rootURL: url)
                 activityModel.start(rootURL: url)
                 searchModel.setRoot(url)
+                fileTreeModel.start(rootURL: url)
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: AppDelegate.openDirectoryNotification)) { notification in
@@ -180,6 +195,7 @@ struct ContentView: View {
                         changesModel: changesModel,
                         activityModel: activityModel,
                         searchModel: searchModel,
+                        fileTreeModel: fileTreeModel,
                         activeTab: $sidebarTab,
                         onReviewAll: { showDiffSummary = true }
                     )
@@ -375,6 +391,13 @@ struct ContentView: View {
         commandPalette.reset()
     }
 
+    /// Switches sidebar to Files tab and scrolls the file tree to the given file.
+    private func revealInFileTree(_ url: URL) {
+        sidebarTab = .files
+        showSidebar = true
+        fileTreeModel.revealFile(url: url)
+    }
+
     private func buildCommandPalette() {
         let hasProject = workingDirectory.directoryURL != nil
         commandPalette.register([
@@ -433,6 +456,13 @@ struct ContentView: View {
                 true
             } action: {
                 autoFollow.toggle()
+            },
+            PaletteCommand(id: "reveal-in-tree", title: "Reveal in File Tree", icon: "arrow.right.circle", shortcut: "⌘⇧J", category: "Navigation") {
+                filePreview.selectedURL != nil
+            } action: { [weak filePreview] in
+                if let url = filePreview?.selectedURL {
+                    revealInFileTree(url)
+                }
             },
 
             // Terminal
@@ -744,6 +774,7 @@ struct SidebarView: View {
     @ObservedObject var changesModel: ChangesModel
     @ObservedObject var activityModel: ActivityFeedModel
     @ObservedObject var searchModel: SearchModel
+    @ObservedObject var fileTreeModel: FileTreeModel
     @Binding var activeTab: SidebarTab
     var onReviewAll: (() -> Void)?
 
@@ -797,7 +828,7 @@ struct SidebarView: View {
             switch activeTab {
             case .files:
                 if let rootURL = model.directoryURL {
-                    FileTreeView(rootURL: rootURL, filePreview: filePreview)
+                    FileTreeView(rootURL: rootURL, filePreview: filePreview, model: fileTreeModel)
                         .id(rootURL)
                 } else {
                     VStack(spacing: 12) {
@@ -892,6 +923,7 @@ private struct FocusedSceneModifier: ViewModifier {
     var onReviewAllChanges: (() -> Void)?
     var onShowKeyboardShortcuts: () -> Void
     var onGoToLine: (() -> Void)?
+    var onRevealInTree: (() -> Void)?
 
     func body(content: Content) -> some View {
         content
@@ -921,6 +953,9 @@ private struct FocusedSceneModifier: ViewModifier {
                 onReviewAllChanges: onReviewAllChanges,
                 onShowKeyboardShortcuts: onShowKeyboardShortcuts,
                 onGoToLine: onGoToLine
+            ))
+            .modifier(FocusedSceneModifierC(
+                onRevealInTree: onRevealInTree
             ))
     }
 }
@@ -988,6 +1023,15 @@ private struct FocusedSceneModifierB: ViewModifier {
             .focusedSceneValue(\.reviewAllChanges, onReviewAllChanges)
             .focusedSceneValue(\.showKeyboardShortcuts, onShowKeyboardShortcuts)
             .focusedSceneValue(\.goToLine, onGoToLine)
+    }
+}
+
+private struct FocusedSceneModifierC: ViewModifier {
+    var onRevealInTree: (() -> Void)?
+
+    func body(content: Content) -> some View {
+        content
+            .focusedSceneValue(\.revealInTree, onRevealInTree)
     }
 }
 

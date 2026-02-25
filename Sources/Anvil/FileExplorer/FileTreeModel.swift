@@ -9,6 +9,14 @@ final class FileTreeModel: ObservableObject {
     }
     /// Flat list of all files for search filtering.
     @Published private(set) var searchResults: [FileSearchResult] = []
+    /// Set when a file should be scrolled into view. Each reveal gets a unique token
+    /// so ScrollViewReader fires even when revealing the same file twice.
+    @Published private(set) var revealTarget: RevealTarget?
+
+    struct RevealTarget: Equatable {
+        let url: URL
+        let token: UUID
+    }
 
     private(set) var expandedDirs: Set<URL> = []
     private var rootURL: URL?
@@ -29,6 +37,8 @@ final class FileTreeModel: ObservableObject {
     }
 
     func start(rootURL: URL) {
+        // Avoid redundant re-initialization for the same directory
+        if self.rootURL == rootURL, fileWatcher != nil { return }
         self.rootURL = rootURL
         let filter = GitIgnoreFilter(rootURL: rootURL)
         self.gitIgnoreFilter = filter
@@ -63,6 +73,29 @@ final class FileTreeModel: ObservableObject {
 
     func isExpanded(_ url: URL) -> Bool {
         expandedDirs.contains(url)
+    }
+
+    /// Expands all ancestor directories of `url` so it becomes visible, then
+    /// sets `revealTarget` to trigger a scroll-to in the view.
+    func revealFile(url: URL) {
+        guard let rootURL = rootURL else { return }
+        let rootPath = rootURL.standardizedFileURL.path
+        let filePath = url.standardizedFileURL.path
+        guard filePath == rootPath || filePath.hasPrefix(rootPath + "/") else { return }
+
+        // Clear search so the tree is visible
+        if isSearching { searchText = "" }
+
+        // Expand every ancestor directory from root down to the file's parent
+        var parent = url.deletingLastPathComponent().standardizedFileURL
+        while parent.path.count > rootPath.count {
+            expandedDirs.insert(parent)
+            parent = parent.deletingLastPathComponent().standardizedFileURL
+        }
+        // Include root if it's a direct child (root itself isn't in entries but children are)
+
+        rebuildEntries()
+        revealTarget = RevealTarget(url: url.standardizedFileURL, token: UUID())
     }
 
     // MARK: - File Operations

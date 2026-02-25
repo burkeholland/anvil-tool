@@ -87,6 +87,10 @@ struct GoToLineKey: FocusedValueKey {
     typealias Value = () -> Void
 }
 
+struct RevealInTreeKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
 extension FocusedValues {
     var sidebarVisible: Binding<Bool>? {
         get { self[SidebarVisibleKey.self] }
@@ -192,6 +196,11 @@ extension FocusedValues {
         get { self[GoToLineKey.self] }
         set { self[GoToLineKey.self] = newValue }
     }
+
+    var revealInTree: (() -> Void)? {
+        get { self[RevealInTreeKey.self] }
+        set { self[RevealInTreeKey.self] = newValue }
+    }
 }
 
 // MARK: - View Menu Commands
@@ -211,6 +220,7 @@ struct ViewCommands: Commands {
     @FocusedValue(\.resetFontSize) var resetFontSize
     @FocusedValue(\.newTerminalTab) var newTerminalTab
     @FocusedValue(\.showCommandPalette) var showCommandPalette
+    @FocusedValue(\.revealInTree) var revealInTree
     @FocusedValue(\.nextChange) var nextChange
     @FocusedValue(\.previousChange) var previousChange
     @FocusedValue(\.reviewAllChanges) var reviewAllChanges
@@ -251,6 +261,12 @@ struct ViewCommands: Commands {
             }
             .keyboardShortcut("l", modifiers: .command)
             .disabled(goToLine == nil)
+
+            Button("Reveal in File Tree") {
+                revealInTree?()
+            }
+            .keyboardShortcut("j", modifiers: [.command, .shift])
+            .disabled(revealInTree == nil)
 
             Divider()
 
