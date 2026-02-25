@@ -43,7 +43,10 @@ struct ChangesListView: View {
     private var changesTopSections: some View {
         if !model.changedFiles.isEmpty {
             Section {
-                CommitFormView(model: model)
+                CommitFormView(
+                    model: model,
+                    onPush: workingDirectory.hasRemotes ? { workingDirectory.push() } : nil
+                )
             }
             if let onReviewAll, model.changedFiles.count > 0 {
                 Section {
@@ -637,6 +640,8 @@ struct ReviewProgressBar: View {
 
 struct CommitFormView: View {
     @ObservedObject var model: ChangesModel
+    /// Called after a successful commit to trigger a push. When nil, push options are hidden.
+    var onPush: (() -> Void)?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -655,6 +660,11 @@ struct CommitFormView: View {
                     .scrollContentBackground(.hidden)
                     .padding(.horizontal, 2)
                     .padding(.vertical, 2)
+                    .onKeyPress(.return, phases: .down) { press in
+                        guard press.modifiers.contains(.command), model.canCommit else { return .ignored }
+                        model.commit()
+                        return .handled
+                    }
             }
             .background(
                 RoundedRectangle(cornerRadius: 6)
@@ -695,12 +705,25 @@ struct CommitFormView: View {
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
                 .disabled(!model.canCommit)
+                .help("Commit staged changes (⌘↩)")
 
                 Menu {
                     Button("Stage All & Commit") {
                         model.stageAllAndCommit()
                     }
                     .disabled(model.changedFiles.isEmpty || model.commitMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                    if let onPush {
+                        Divider()
+                        Button("Commit & Push") {
+                            model.commitAndPush(pushAction: onPush)
+                        }
+                        .disabled(!model.canCommit)
+                        Button("Stage All & Commit & Push") {
+                            model.stageAllAndCommitAndPush(pushAction: onPush)
+                        }
+                        .disabled(model.changedFiles.isEmpty || model.commitMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
                 } label: {
                     Image(systemName: "chevron.down")
                         .font(.system(size: 9, weight: .semibold))
