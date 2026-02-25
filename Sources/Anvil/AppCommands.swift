@@ -63,6 +63,10 @@ struct FindInTerminalKey: FocusedValueKey {
     typealias Value = () -> Void
 }
 
+struct ShowCommandPaletteKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
 extension FocusedValues {
     var sidebarVisible: Binding<Bool>? {
         get { self[SidebarVisibleKey.self] }
@@ -138,6 +142,11 @@ extension FocusedValues {
         get { self[FindInTerminalKey.self] }
         set { self[FindInTerminalKey.self] = newValue }
     }
+
+    var showCommandPalette: (() -> Void)? {
+        get { self[ShowCommandPaletteKey.self] }
+        set { self[ShowCommandPaletteKey.self] = newValue }
+    }
 }
 
 // MARK: - View Menu Commands
@@ -156,11 +165,20 @@ struct ViewCommands: Commands {
     @FocusedValue(\.decreaseFontSize) var decreaseFontSize
     @FocusedValue(\.resetFontSize) var resetFontSize
     @FocusedValue(\.newTerminalTab) var newTerminalTab
+    @FocusedValue(\.showCommandPalette) var showCommandPalette
     @AppStorage("autoLaunchCopilot") private var autoLaunchCopilot = true
     @AppStorage("notificationsEnabled") private var notificationsEnabled = true
 
     var body: some Commands {
         CommandGroup(after: .sidebar) {
+            Button("Command Palette…") {
+                showCommandPalette?()
+            }
+            .keyboardShortcut("p", modifiers: [.command, .shift])
+            .disabled(showCommandPalette == nil)
+
+            Divider()
+
             Button("Quick Open…") {
                 quickOpen?()
             }

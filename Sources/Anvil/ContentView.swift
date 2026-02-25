@@ -17,28 +17,49 @@ struct ContentView: View {
     @StateObject private var quickOpenModel = QuickOpenModel()
     @StateObject private var searchModel = SearchModel()
     @StateObject private var terminalTabs = TerminalTabsModel()
+    @StateObject private var commandPalette = CommandPaletteModel()
     @State private var notificationManager = AgentNotificationManager()
     @State private var sidebarWidth: CGFloat = 240
     @State private var previewWidth: CGFloat = 400
     @State private var showSidebar = true
     @State private var sidebarTab: SidebarTab = .files
     @State private var showQuickOpen = false
+    @State private var showCommandPalette = false
     @State private var isDroppingFolder = false
     @AppStorage("autoFollowChanges") private var autoFollow = true
     @AppStorage("terminalFontSize") private var terminalFontSize: Double = 14
 
     var body: some View {
-        Group {
-            if workingDirectory.directoryURL != nil {
-                projectView
-                    .environmentObject(terminalProxy)
-            } else {
-                WelcomeView(
-                    recentProjects: recentProjects,
-                    isDroppingFolder: isDroppingFolder,
-                    onOpen: { url in openDirectory(url) },
-                    onBrowse: { browseForDirectory() }
-                )
+        ZStack {
+            Group {
+                if workingDirectory.directoryURL != nil {
+                    projectView
+                        .environmentObject(terminalProxy)
+                } else {
+                    WelcomeView(
+                        recentProjects: recentProjects,
+                        isDroppingFolder: isDroppingFolder,
+                        onOpen: { url in openDirectory(url) },
+                        onBrowse: { browseForDirectory() }
+                    )
+                }
+            }
+
+            // Command Palette overlay (available on all screens)
+            if showCommandPalette {
+                Color.black.opacity(0.2)
+                    .ignoresSafeArea()
+                    .onTapGesture { dismissCommandPalette() }
+
+                VStack {
+                    CommandPaletteView(
+                        model: commandPalette,
+                        onDismiss: { dismissCommandPalette() }
+                    )
+                    .padding(.top, 60)
+
+                    Spacer()
+                }
             }
         }
         .dropDestination(for: URL.self) { urls, _ in
@@ -78,6 +99,10 @@ struct ContentView: View {
             },
             onFindInTerminal: {
                 terminalProxy.showFindBar()
+            },
+            onShowCommandPalette: {
+                buildCommandPalette()
+                showCommandPalette = true
             }
         ))
         .onChange(of: workingDirectory.directoryURL) { _, newURL in
@@ -237,6 +262,123 @@ struct ContentView: View {
     private func dismissQuickOpen() {
         showQuickOpen = false
         quickOpenModel.reset()
+    }
+
+    private func dismissCommandPalette() {
+        showCommandPalette = false
+        commandPalette.reset()
+    }
+
+    private func buildCommandPalette() {
+        let hasProject = workingDirectory.directoryURL != nil
+        commandPalette.register([
+            // Navigation
+            PaletteCommand(id: "quick-open", title: "Quick Open File…", icon: "doc.text.magnifyingglass", shortcut: "⌘⇧O", category: "Navigation") {
+                hasProject
+            } action: { [weak quickOpenModel] in
+                if let url = workingDirectory.directoryURL {
+                    quickOpenModel?.index(rootURL: url)
+                }
+                showQuickOpen = true
+            },
+            PaletteCommand(id: "find-in-project", title: "Find in Project…", icon: "magnifyingglass", shortcut: "⌘⇧F", category: "Navigation") {
+                hasProject
+            } action: {
+                showSidebar = true
+                sidebarTab = .search
+            },
+            PaletteCommand(id: "find-in-terminal", title: "Find in Terminal…", icon: "text.magnifyingglass", shortcut: "⌘F", category: "Navigation") {
+                hasProject
+            } action: { [weak terminalProxy] in
+                terminalProxy?.showFindBar()
+            },
+
+            // View
+            PaletteCommand(id: "toggle-sidebar", title: "Toggle Sidebar", icon: "sidebar.leading", shortcut: "⌘B", category: "View") {
+                true
+            } action: {
+                showSidebar.toggle()
+            },
+            PaletteCommand(id: "show-files", title: "Show Files", icon: "folder", shortcut: "⌘1", category: "View") {
+                hasProject
+            } action: {
+                showSidebar = true
+                sidebarTab = .files
+            },
+            PaletteCommand(id: "show-changes", title: "Show Changes", icon: "arrow.triangle.2.circlepath", shortcut: "⌘2", category: "View") {
+                hasProject
+            } action: {
+                showSidebar = true
+                sidebarTab = .changes
+            },
+            PaletteCommand(id: "show-activity", title: "Show Activity", icon: "clock", shortcut: "⌘3", category: "View") {
+                hasProject
+            } action: {
+                showSidebar = true
+                sidebarTab = .activity
+            },
+            PaletteCommand(id: "show-search", title: "Show Search", icon: "magnifyingglass", shortcut: "⌘4", category: "View") {
+                hasProject
+            } action: {
+                showSidebar = true
+                sidebarTab = .search
+            },
+            PaletteCommand(id: "toggle-auto-follow", title: autoFollow ? "Disable Auto-Follow" : "Enable Auto-Follow", icon: autoFollow ? "eye.slash" : "eye", shortcut: nil, category: "View") {
+                true
+            } action: {
+                autoFollow.toggle()
+            },
+
+            // Terminal
+            PaletteCommand(id: "new-terminal-tab", title: "New Terminal Tab", icon: "plus.rectangle", shortcut: "⌘T", category: "Terminal") {
+                hasProject
+            } action: { [weak terminalTabs] in
+                terminalTabs?.addTab()
+            },
+            PaletteCommand(id: "increase-font", title: "Increase Font Size", icon: "plus.magnifyingglass", shortcut: "⌘+", category: "Terminal") {
+                true
+            } action: {
+                terminalFontSize = min(terminalFontSize + 1, EmbeddedTerminalView.maxFontSize)
+            },
+            PaletteCommand(id: "decrease-font", title: "Decrease Font Size", icon: "minus.magnifyingglass", shortcut: "⌘-", category: "Terminal") {
+                true
+            } action: {
+                terminalFontSize = max(terminalFontSize - 1, EmbeddedTerminalView.minFontSize)
+            },
+            PaletteCommand(id: "reset-font", title: "Reset Font Size", icon: "textformat.size", shortcut: "⌘0", category: "Terminal") {
+                true
+            } action: {
+                terminalFontSize = EmbeddedTerminalView.defaultFontSize
+            },
+
+            // File
+            PaletteCommand(id: "open-directory", title: "Open Directory…", icon: "folder.badge.plus", shortcut: "⌘O", category: "File") {
+                true
+            } action: {
+                browseForDirectory()
+            },
+            PaletteCommand(id: "close-tab", title: "Close Preview Tab", icon: "xmark", shortcut: "⌘W", category: "File") {
+                filePreview.selectedURL != nil
+            } action: { [weak filePreview] in
+                if let url = filePreview?.selectedURL {
+                    filePreview?.closeTab(url)
+                }
+            },
+            PaletteCommand(id: "close-project", title: "Close Project", icon: "xmark.circle", shortcut: "⌘⇧W", category: "File") {
+                hasProject
+            } action: {
+                closeCurrentProject()
+            },
+
+            // Actions
+            PaletteCommand(id: "refresh", title: "Refresh Changes", icon: "arrow.clockwise", shortcut: "⌘⇧R", category: "Actions") {
+                hasProject
+            } action: { [weak changesModel, weak workingDirectory] in
+                if let url = workingDirectory?.directoryURL {
+                    changesModel?.start(rootURL: url)
+                }
+            },
+        ])
     }
 
     private func closeCurrentProject() {
@@ -481,6 +623,7 @@ private struct FocusedSceneModifier: ViewModifier {
     var onResetFontSize: () -> Void
     var onNewTerminalTab: () -> Void
     var onFindInTerminal: () -> Void
+    var onShowCommandPalette: () -> Void
 
     func body(content: Content) -> some View {
         content
@@ -503,7 +646,8 @@ private struct FocusedSceneModifier: ViewModifier {
                 onDecreaseFontSize: onDecreaseFontSize,
                 onResetFontSize: onResetFontSize,
                 onNewTerminalTab: onNewTerminalTab,
-                onFindInTerminal: onFindInTerminal
+                onFindInTerminal: onFindInTerminal,
+                onShowCommandPalette: onShowCommandPalette
             ))
     }
 }
@@ -550,6 +694,7 @@ private struct FocusedSceneModifierB: ViewModifier {
     var onResetFontSize: () -> Void
     var onNewTerminalTab: () -> Void
     var onFindInTerminal: () -> Void
+    var onShowCommandPalette: () -> Void
 
     func body(content: Content) -> some View {
         content
@@ -559,5 +704,6 @@ private struct FocusedSceneModifierB: ViewModifier {
             .focusedSceneValue(\.resetFontSize, onResetFontSize)
             .focusedSceneValue(\.newTerminalTab, hasProject ? onNewTerminalTab : nil)
             .focusedSceneValue(\.findInTerminal, hasProject ? onFindInTerminal : nil)
+            .focusedSceneValue(\.showCommandPalette, onShowCommandPalette)
     }
 }
