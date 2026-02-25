@@ -6,7 +6,13 @@ final class FileTreeModel: ObservableObject {
     @Published private(set) var gitStatuses: [String: GitFileStatus] = [:]
     /// Number of changed files contained (recursively) in each directory.
     @Published private(set) var dirChangeCounts: [String: Int] = [:]
+    /// Precomputed count of leaf-level changed files (excludes propagated directory statuses).
+    @Published private(set) var changedFileCount: Int = 0
     @Published var searchText: String = "" {
+        didSet { rebuildEntries() }
+    }
+    /// When true, the tree shows only files with git changes and their ancestor directories.
+    @Published var showChangedOnly: Bool = false {
         didSet { rebuildEntries() }
     }
     /// Flat list of all files for search filtering.
@@ -74,7 +80,8 @@ final class FileTreeModel: ObservableObject {
     }
 
     func isExpanded(_ url: URL) -> Bool {
-        expandedDirs.contains(url)
+        if showChangedOnly { return true }
+        return expandedDirs.contains(url)
     }
 
     /// Expands all ancestor directories of `url` so it becomes visible, then
@@ -211,9 +218,23 @@ final class FileTreeModel: ObservableObject {
     private func buildEntries(for directory: URL, depth: Int, into entries: inout [FileEntry]) {
         let children = FileEntry.loadChildren(of: directory, depth: depth, filter: gitIgnoreFilter)
         for child in children {
-            entries.append(child)
-            if child.isDirectory && expandedDirs.contains(child.url) {
-                buildEntries(for: child.url, depth: depth + 1, into: &entries)
+            if showChangedOnly {
+                let path = child.url.standardizedFileURL.path
+                if child.isDirectory {
+                    // Only include directories that contain changed files
+                    guard dirChangeCounts[path] != nil && dirChangeCounts[path]! > 0 else { continue }
+                    entries.append(child)
+                    // Auto-expand directories in changed-only mode
+                    buildEntries(for: child.url, depth: depth + 1, into: &entries)
+                } else {
+                    guard gitStatuses[path] != nil else { continue }
+                    entries.append(child)
+                }
+            } else {
+                entries.append(child)
+                if child.isDirectory && expandedDirs.contains(child.url) {
+                    buildEntries(for: child.url, depth: depth + 1, into: &entries)
+                }
             }
         }
     }
@@ -230,6 +251,10 @@ final class FileTreeModel: ObservableObject {
                 guard let self = self, self.refreshGeneration == generation else { return }
                 self.gitStatuses = statuses
                 self.dirChangeCounts = counts
+                self.changedFileCount = Self.countLeafPaths(statuses: statuses, rootPath: rootPath)
+                if self.showChangedOnly {
+                    self.rebuildEntries()
+                }
             }
         }
     }
@@ -238,11 +263,7 @@ final class FileTreeModel: ObservableObject {
     /// Filters out propagated directory entries from the git status map to avoid double-counting.
     static func computeDirChangeCounts(statuses: [String: GitFileStatus], rootPath: String) -> [String: Int] {
         var counts: [String: Int] = [:]
-        let allPaths = Set(statuses.keys)
-        // Only count leaf paths (actual files), not propagated directory statuses.
-        let filePaths = allPaths.filter { path in
-            !allPaths.contains(where: { $0.hasPrefix(path + "/") })
-        }
+        let filePaths = leafPaths(from: statuses)
         for filePath in filePaths {
             var dir = (filePath as NSString).deletingLastPathComponent
             while dir.count >= rootPath.count {
@@ -253,6 +274,24 @@ final class FileTreeModel: ObservableObject {
             }
         }
         return counts
+    }
+
+    /// Returns the number of leaf-level changed files (excludes propagated directory entries).
+    static func countLeafPaths(statuses: [String: GitFileStatus], rootPath: String) -> Int {
+        leafPaths(from: statuses).filter { $0.hasPrefix(rootPath) }.count
+    }
+
+    /// Filters status keys to only leaf paths (actual files, not propagated directory statuses).
+    /// Uses sorted-order comparison for near-linear performance.
+    private static func leafPaths(from statuses: [String: GitFileStatus]) -> [String] {
+        let sorted = statuses.keys.sorted()
+        return sorted.enumerated().filter { index, path in
+            let nextIndex = index + 1
+            if nextIndex < sorted.count {
+                return !sorted[nextIndex].hasPrefix(path + "/")
+            }
+            return true
+        }.map(\.element)
     }
 
     /// Recursively indexes all non-hidden files for search. Runs on a background thread.

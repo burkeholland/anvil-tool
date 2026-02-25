@@ -465,6 +465,13 @@ struct ContentView: View {
             } action: {
                 autoFollow.toggle()
             },
+            PaletteCommand(id: "toggle-changed-only", title: fileTreeModel.showChangedOnly ? "Show All Files" : "Show Changed Files Only", icon: "line.3.horizontal.decrease", shortcut: nil, category: "View") {
+                hasProject
+            } action: { [weak fileTreeModel] in
+                fileTreeModel?.showChangedOnly.toggle()
+                showSidebar = true
+                sidebarTab = .files
+            },
             PaletteCommand(id: "reveal-in-tree", title: "Reveal in File Tree", icon: "arrow.right.circle", shortcut: "⌘⇧J", category: "Navigation") {
                 filePreview.selectedURL != nil
             } action: { [weak filePreview] in

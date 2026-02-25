@@ -35,6 +35,21 @@ struct FileTreeView: View {
                     }
                     .buttonStyle(.plain)
                 }
+                Button {
+                    model.showChangedOnly.toggle()
+                } label: {
+                    HStack(spacing: 2) {
+                        Image(systemName: "line.3.horizontal.decrease")
+                            .font(.system(size: 11, weight: .medium))
+                        if model.showChangedOnly {
+                            Text("\(model.changedFileCount)")
+                                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                        }
+                    }
+                    .foregroundStyle(model.showChangedOnly ? Color.orange : .secondary)
+                }
+                .buttonStyle(.plain)
+                .help(model.showChangedOnly ? "Show All Files" : "Show Changed Files Only")
                 Menu {
                     Button {
                         operationTargetURL = rootURL
@@ -101,6 +116,25 @@ struct FileTreeView: View {
                     }
                     .listStyle(.sidebar)
                 }
+            } else if model.showChangedOnly && model.entries.isEmpty {
+                VStack(spacing: 8) {
+                    Spacer()
+                    Image(systemName: "checkmark.circle")
+                        .font(.system(size: 24))
+                        .foregroundStyle(.green.opacity(0.5))
+                    Text("No changed files")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Button {
+                        model.showChangedOnly = false
+                    } label: {
+                        Text("Show All Files")
+                            .font(.caption)
+                    }
+                    .buttonStyle(.link)
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity)
             } else {
                 ScrollViewReader { proxy in
                     List {
