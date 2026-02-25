@@ -323,18 +323,18 @@ $open_issue_titles
 
 Identify exactly $issues_to_create improvements or features to build next. Each should be:
 1. A single focused unit of work (completable in one session)
-2. Scoped to specific files or modules (to minimize merge conflicts with parallel work)
+2. Scoped to a specific area of the app (to minimize merge conflicts with parallel work)
 3. Not duplicating any open issue listed above
 4. Impactful — ask yourself what matters most to a developer using this app right now
+
+Do NOT specify which files to modify — the implementing agent will figure that out.
 
 Output ONLY a JSON array. No markdown, no explanation, no code fences. Just the raw JSON array:
 [
   {
     \"title\": \"Short descriptive title\",
     \"problem\": \"What is the current problem or gap (1-2 sentences)\",
-    \"solution\": \"What to build and how it should work (2-4 sentences)\",
-    \"files\": [\"path/to/file1.swift\", \"path/to/file2.swift\"],
-    \"module\": \"The primary directory under Sources/Anvil/ this touches\"
+    \"solution\": \"What to build and how it should work (2-4 sentences)\"
   }
 ]"
 
@@ -376,21 +376,10 @@ Output ONLY a JSON array. No markdown, no explanation, no code fences. Just the 
 
   local i=0
   while [ "$i" -lt "$count" ]; do
-    local title problem solution files_json module
+    local title problem solution
     title="$(echo "$json_output" | jq -r ".[$i].title")"
     problem="$(echo "$json_output" | jq -r ".[$i].problem // .[$i].description // empty")"
     solution="$(echo "$json_output" | jq -r ".[$i].solution // empty")"
-    files_json="$(echo "$json_output" | jq -r ".[$i].files // [] | .[]")"
-    module="$(echo "$json_output" | jq -r ".[$i].module // empty")"
-
-    # Build a file list as markdown
-    local files_md=""
-    if [ -n "$files_json" ]; then
-      while IFS= read -r f; do
-        files_md="$files_md
-- \`$f\`"
-      done <<< "$files_json"
-    fi
 
     # Compose structured issue body
     local full_body="## Problem
@@ -405,22 +394,9 @@ $problem"
 $solution"
     fi
 
-    if [ -n "$files_md" ]; then
-      full_body="$full_body
-
-## Files to modify
-$files_md"
-    fi
-
     full_body="$full_body
 
----"
-    if [ -n "$module" ]; then
-      full_body="$full_body
-📁 **Module**: \`Sources/Anvil/$module/\`
-"
-    fi
-    full_body="$full_body
+---
 🤖 *Filed by ralph-team.sh*"
 
     log "   📋 Creating issue: $title"
