@@ -21,6 +21,7 @@ struct ContentView: View {
     @State private var showSidebar = true
     @State private var sidebarTab: SidebarTab = .files
     @State private var showQuickOpen = false
+    @State private var isDroppingFolder = false
     @AppStorage("autoFollowChanges") private var autoFollow = true
 
     var body: some View {
@@ -31,10 +32,16 @@ struct ContentView: View {
             } else {
                 WelcomeView(
                     recentProjects: recentProjects,
+                    isDroppingFolder: isDroppingFolder,
                     onOpen: { url in openDirectory(url) },
                     onBrowse: { browseForDirectory() }
                 )
             }
+        }
+        .dropDestination(for: URL.self) { urls, _ in
+            handleDrop(urls)
+        } isTargeted: { targeted in
+            isDroppingFolder = targeted
         }
         .frame(minWidth: 800, minHeight: 500)
         .background(Color(nsColor: .windowBackgroundColor))
@@ -155,6 +162,15 @@ struct ContentView: View {
                     Spacer()
                 }
             }
+
+            // Drop overlay
+            if isDroppingFolder {
+                RoundedRectangle(cornerRadius: 8)
+                    .strokeBorder(Color.accentColor, style: StrokeStyle(lineWidth: 2, dash: [8, 4]))
+                    .background(Color.accentColor.opacity(0.05))
+                    .padding(6)
+                    .allowsHitTesting(false)
+            }
         }
         .onChange(of: showQuickOpen) { _, isShowing in
             if isShowing, let url = workingDirectory.directoryURL {
@@ -190,6 +206,27 @@ struct ContentView: View {
     private func dismissQuickOpen() {
         showQuickOpen = false
         quickOpenModel.reset()
+    }
+
+    private func handleDrop(_ urls: [URL]) -> Bool {
+        guard let url = urls.first else { return false }
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir) else {
+            return false
+        }
+        if isDir.boolValue {
+            openDirectory(url)
+            return true
+        } else {
+            // Dropped a file — open its parent directory and preview the file
+            let parent = url.deletingLastPathComponent()
+            openDirectory(parent)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak workingDirectory, weak filePreview] in
+                guard workingDirectory?.directoryURL == parent else { return }
+                filePreview?.select(url)
+            }
+            return true
+        }
     }
 }
 

@@ -4,6 +4,7 @@ import SwiftUI
 /// and an option to open a new directory.
 struct WelcomeView: View {
     @ObservedObject var recentProjects: RecentProjectsModel
+    var isDroppingFolder: Bool
     var onOpen: (URL) -> Void
     var onBrowse: () -> Void
 
@@ -60,10 +61,24 @@ struct WelcomeView: View {
             .controlSize(.large)
             .keyboardShortcut(.return, modifiers: .command)
 
+            Text("or drag a folder here")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+                .padding(.top, 6)
+
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .windowBackgroundColor))
+        .overlay {
+            if isDroppingFolder {
+                RoundedRectangle(cornerRadius: 12)
+                    .strokeBorder(Color.accentColor, style: StrokeStyle(lineWidth: 3, dash: [10, 5]))
+                    .background(Color.accentColor.opacity(0.06).clipShape(RoundedRectangle(cornerRadius: 12)))
+                    .padding(12)
+                    .allowsHitTesting(false)
+            }
+        }
     }
 }
 
