@@ -150,7 +150,13 @@ struct ContentView: View {
                 showQuickOpen = false
                 showMentionPicker = true
             } : nil,
-            onCloneRepository: { showCloneSheet = true }
+            onCloneRepository: { showCloneSheet = true },
+            onSplitTerminalH: workingDirectory.directoryURL != nil ? {
+                terminalTabs.splitPane(direction: .horizontal)
+            } : nil,
+            onSplitTerminalV: workingDirectory.directoryURL != nil ? {
+                terminalTabs.splitPane(direction: .vertical)
+            } : nil
         ))
         .onChange(of: workingDirectory.directoryURL) { _, newURL in
             showTaskBanner = false
@@ -266,49 +272,129 @@ struct ContentView: View {
                     TerminalTabBar(
                         model: terminalTabs,
                         onNewShellTab: { terminalTabs.addTab() },
-                        onNewCopilotTab: { terminalTabs.addCopilotTab() }
+                        onNewCopilotTab: { terminalTabs.addCopilotTab() },
+                        onSplitHorizontally: { terminalTabs.splitPane(direction: .horizontal) },
+                        onSplitVertically: { terminalTabs.splitPane(direction: .vertical) },
+                        onCloseSplit: { terminalTabs.closeSplit() }
                     )
 
-                    ZStack {
-                        ForEach(terminalTabs.tabs) { tab in
-                            EmbeddedTerminalView(
-                                workingDirectory: workingDirectory,
-                                launchCopilotOverride: tab.launchCopilot,
-                                isActiveTab: tab.id == terminalTabs.activeTabID,
-                                onTitleChange: { title in
-                                    terminalTabs.updateTitle(for: tab.id, to: title)
-                                },
-                                onOpenFile: { url, line in
-                                    filePreview.select(url, line: line)
+                    Group {
+                        if terminalTabs.isSplit, let splitTab = terminalTabs.splitTab {
+                            let primaryPane = ZStack {
+                                ForEach(terminalTabs.tabs) { tab in
+                                    EmbeddedTerminalView(
+                                        workingDirectory: workingDirectory,
+                                        launchCopilotOverride: tab.launchCopilot,
+                                        isActiveTab: tab.id == terminalTabs.activeTabID,
+                                        onTitleChange: { title in
+                                            terminalTabs.updateTitle(for: tab.id, to: title)
+                                        },
+                                        onOpenFile: { url, line in
+                                            filePreview.select(url, line: line)
+                                        }
+                                    )
+                                    .opacity(tab.id == terminalTabs.activeTabID ? 1 : 0)
+                                    .allowsHitTesting(tab.id == terminalTabs.activeTabID)
                                 }
-                            )
-                            .opacity(tab.id == terminalTabs.activeTabID ? 1 : 0)
-                            .allowsHitTesting(tab.id == terminalTabs.activeTabID)
-                        }
-
-                        // Drop overlay for file → terminal @ mentions
-                        if isDroppingFileToTerminal {
-                            VStack(spacing: 6) {
-                                Image(systemName: "at")
-                                    .font(.system(size: 28, weight: .medium))
-                                Text("Drop to @mention in terminal")
-                                    .font(.system(size: 13, weight: .medium))
                             }
-                            .foregroundStyle(Color.accentColor)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .background(Color.accentColor.opacity(0.06))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .strokeBorder(Color.accentColor, style: StrokeStyle(lineWidth: 2, dash: [8, 4]))
-                            )
-                            .allowsHitTesting(false)
+
+                            let splitPane = VStack(spacing: 0) {
+                                // Mini header for the split pane
+                                HStack(spacing: 6) {
+                                    Image(systemName: splitTab.launchCopilot ? "sparkle" : "terminal")
+                                        .font(.system(size: 10))
+                                        .foregroundStyle(splitTab.launchCopilot ? .purple : .secondary)
+                                    Text(splitTab.title)
+                                        .font(.system(size: 11))
+                                        .lineLimit(1)
+                                        .foregroundStyle(.secondary)
+                                    Spacer()
+                                    Button {
+                                        terminalTabs.closeSplit()
+                                    } label: {
+                                        Image(systemName: "xmark")
+                                            .font(.system(size: 8, weight: .semibold))
+                                            .foregroundStyle(.tertiary)
+                                            .frame(width: 16, height: 16)
+                                            .contentShape(Rectangle())
+                                    }
+                                    .buttonStyle(.plain)
+                                    .help("Close Split")
+                                    .padding(.trailing, 6)
+                                }
+                                .padding(.leading, 10)
+                                .frame(height: 26)
+                                .background(Color(nsColor: NSColor(red: 0.08, green: 0.08, blue: 0.10, alpha: 1.0)))
+                                .overlay(alignment: .bottom) { Divider().opacity(0.3) }
+
+                                EmbeddedTerminalView(
+                                    workingDirectory: workingDirectory,
+                                    launchCopilotOverride: splitTab.launchCopilot,
+                                    isActiveTab: false,
+                                    onTitleChange: { title in
+                                        terminalTabs.updateSplitTitle(to: title)
+                                    },
+                                    onOpenFile: { url, line in
+                                        filePreview.select(url, line: line)
+                                    }
+                                )
+                                .id(splitTab.id)
+                            }
+
+                            if terminalTabs.splitDirection == .horizontal {
+                                HSplitView {
+                                    primaryPane
+                                    splitPane
+                                }
+                            } else {
+                                VSplitView {
+                                    primaryPane
+                                    splitPane
+                                }
+                            }
+                        } else {
+                            ZStack {
+                                ForEach(terminalTabs.tabs) { tab in
+                                    EmbeddedTerminalView(
+                                        workingDirectory: workingDirectory,
+                                        launchCopilotOverride: tab.launchCopilot,
+                                        isActiveTab: tab.id == terminalTabs.activeTabID,
+                                        onTitleChange: { title in
+                                            terminalTabs.updateTitle(for: tab.id, to: title)
+                                        },
+                                        onOpenFile: { url, line in
+                                            filePreview.select(url, line: line)
+                                        }
+                                    )
+                                    .opacity(tab.id == terminalTabs.activeTabID ? 1 : 0)
+                                    .allowsHitTesting(tab.id == terminalTabs.activeTabID)
+                                }
+
+                                // Drop overlay for file → terminal @ mentions
+                                if isDroppingFileToTerminal {
+                                    VStack(spacing: 6) {
+                                        Image(systemName: "at")
+                                            .font(.system(size: 28, weight: .medium))
+                                        Text("Drop to @mention in terminal")
+                                            .font(.system(size: 13, weight: .medium))
+                                    }
+                                    .foregroundStyle(Color.accentColor)
+                                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                    .background(Color.accentColor.opacity(0.06))
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 8)
+                                            .strokeBorder(Color.accentColor, style: StrokeStyle(lineWidth: 2, dash: [8, 4]))
+                                    )
+                                    .allowsHitTesting(false)
+                                }
+                            }
+                            .id(workingDirectory.directoryURL)
+                            .dropDestination(for: URL.self) { urls, _ in
+                                handleTerminalFileDrop(urls)
+                            } isTargeted: { targeted in
+                                isDroppingFileToTerminal = targeted
+                            }
                         }
-                    }
-                    .id(workingDirectory.directoryURL)
-                    .dropDestination(for: URL.self) { urls, _ in
-                        handleTerminalFileDrop(urls)
-                    } isTargeted: { targeted in
-                        isDroppingFileToTerminal = targeted
                     }
 
                     if showTaskBanner {
@@ -597,6 +683,21 @@ struct ContentView: View {
                 hasProject
             } action: { [weak terminalTabs] in
                 terminalTabs?.addCopilotTab()
+            },
+            PaletteCommand(id: "split-terminal-right", title: "Split Terminal Right", icon: "rectangle.split.2x1", shortcut: "⌘D", category: "Terminal") {
+                hasProject && !terminalTabs.isSplit
+            } action: { [weak terminalTabs] in
+                terminalTabs?.splitPane(direction: .horizontal)
+            },
+            PaletteCommand(id: "split-terminal-down", title: "Split Terminal Down", icon: "rectangle.split.1x2", shortcut: "⌘⇧D", category: "Terminal") {
+                hasProject && !terminalTabs.isSplit
+            } action: { [weak terminalTabs] in
+                terminalTabs?.splitPane(direction: .vertical)
+            },
+            PaletteCommand(id: "close-split-terminal", title: "Close Split Terminal", icon: "rectangle", shortcut: nil, category: "Terminal") {
+                terminalTabs.isSplit
+            } action: { [weak terminalTabs] in
+                terminalTabs?.closeSplit()
             },
             PaletteCommand(id: "increase-font", title: "Increase Font Size", icon: "plus.magnifyingglass", shortcut: "⌘+", category: "Terminal") {
                 true
@@ -1398,6 +1499,8 @@ private struct FocusedSceneModifier: ViewModifier {
     var onRevealInTree: (() -> Void)?
     var onMentionInTerminal: (() -> Void)?
     var onCloneRepository: (() -> Void)?
+    var onSplitTerminalH: (() -> Void)?
+    var onSplitTerminalV: (() -> Void)?
 
     func body(content: Content) -> some View {
         content
@@ -1433,7 +1536,9 @@ private struct FocusedSceneModifier: ViewModifier {
                 onNewCopilotTab: onNewCopilotTab,
                 onRevealInTree: onRevealInTree,
                 onMentionInTerminal: onMentionInTerminal,
-                onCloneRepository: onCloneRepository
+                onCloneRepository: onCloneRepository,
+                onSplitTerminalH: onSplitTerminalH,
+                onSplitTerminalV: onSplitTerminalV
             ))
     }
 }
@@ -1510,6 +1615,8 @@ private struct FocusedSceneModifierC: ViewModifier {
     var onRevealInTree: (() -> Void)?
     var onMentionInTerminal: (() -> Void)?
     var onCloneRepository: (() -> Void)?
+    var onSplitTerminalH: (() -> Void)?
+    var onSplitTerminalV: (() -> Void)?
 
     func body(content: Content) -> some View {
         content
@@ -1517,6 +1624,8 @@ private struct FocusedSceneModifierC: ViewModifier {
             .focusedSceneValue(\.revealInTree, onRevealInTree)
             .focusedSceneValue(\.mentionInTerminal, onMentionInTerminal)
             .focusedSceneValue(\.cloneRepository, onCloneRepository)
+            .focusedSceneValue(\.splitTerminalH, onSplitTerminalH)
+            .focusedSceneValue(\.splitTerminalV, onSplitTerminalV)
     }
 }
 
