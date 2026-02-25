@@ -410,11 +410,11 @@ Output ONLY a JSON array. No markdown, no explanation, no code fences. Just the 
 phase_assign() {
   log "🤖 Phase 4: ASSIGN — dispatching work to cloud agents..."
 
-  # Count currently active agents (issues assigned to copilot with open PRs)
+  # Count currently active agents (issues assigned to Copilot)
   local active_count
   active_count="$(gh issue list --repo "$REPO" --label "$LABEL" --state open \
-    --assignee "copilot" \
-    --json number -q 'length' 2>/dev/null)" || active_count=0
+    --json number,assignees \
+    --jq '[.[] | select(.assignees | map(.login) | index("Copilot"))] | length' 2>/dev/null)" || active_count=0
 
   # Also count open PRs as active work
   local open_pr_count
@@ -458,8 +458,8 @@ phase_assign() {
       log "   [DRY RUN] Would assign issue #$issue_num to @copilot"
     else
       log "   🚀 Assigning issue #$issue_num to @copilot"
-      # Assigning to "copilot" triggers the Copilot Coding Agent
-      gh issue edit "$issue_num" --repo "$REPO" --add-assignee "copilot" 2>/dev/null || {
+      # Assigning to "copilot-swe-agent" triggers the Copilot Coding Agent
+      gh issue edit "$issue_num" --repo "$REPO" --add-assignee "copilot-swe-agent" 2>/dev/null || {
         log "   ⚠️  Failed to assign issue #$issue_num"
         continue
       }
