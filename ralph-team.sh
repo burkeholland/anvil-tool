@@ -342,7 +342,7 @@ Output ONLY a JSON array. No markdown, no explanation, no code fences. Just the 
     return 0
   fi
 
-  copilot_output="$(copilot -p "$plan_prompt" --silent 2>/dev/null)" || {
+  copilot_output="$(copilot -p "$plan_prompt" --model claude-opus-4.6 --silent 2>/dev/null)" || {
     log "   ⚠️  Copilot planning failed. Skipping issue creation."
     return 0
   }
