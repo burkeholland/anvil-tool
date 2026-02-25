@@ -17,364 +17,372 @@ struct ChangesListView: View {
 
     var body: some View {
         if model.isLoading && model.changedFiles.isEmpty && model.recentCommits.isEmpty {
-            VStack(spacing: 8) {
-                Spacer()
-                ProgressView()
-                    .controlSize(.small)
-                Text("Scanning changes…")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Spacer()
-            }
-            .frame(maxWidth: .infinity)
+            loadingView
         } else {
-            List {
-                // Commit form section
-                if !model.changedFiles.isEmpty {
-                    Section {
-                        CommitFormView(model: model)
-                    }
+            contentList
+        }
+    }
 
-                    // Review all button
-                    if let onReviewAll, model.changedFiles.count > 0 {
-                        Section {
-                            Button {
-                                onReviewAll()
-                            } label: {
-                                HStack(spacing: 6) {
-                                    Image(systemName: "doc.text.magnifyingglass")
-                                        .font(.system(size: 11))
-                                    Text("Review All Changes")
-                                        .font(.system(size: 12, weight: .medium))
-                                    Spacer()
-                                    Text("⌘⇧D")
-                                        .font(.system(size: 10, design: .monospaced))
-                                        .foregroundStyle(.tertiary)
-                                }
-                                .padding(.vertical, 2)
-                            }
-                            .buttonStyle(.plain)
+    private var loadingView: some View {
+        VStack(spacing: 8) {
+            Spacer()
+            ProgressView()
+                .controlSize(.small)
+            Text("Scanning changes…")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity)
+    }
 
-                            // Review progress
-                            ReviewProgressBar(
-                                reviewed: model.reviewedCount,
-                                total: model.changedFiles.count,
-                                onMarkAll: { model.markAllReviewed() },
-                                onClearAll: { model.clearAllReviewed() }
-                            )
-                        }
-                    }
+    private var contentList: some View {
+        List {
+            // Commit form section
+            if !model.changedFiles.isEmpty {
+                Section {
+                    CommitFormView(model: model)
                 }
 
-                // Branch diff button (PR preview)
-                if let onBranchDiff, workingDirectory.gitBranch != nil {
+                // Review all button
+                if let onReviewAll, model.changedFiles.count > 0 {
                     Section {
                         Button {
-                            onBranchDiff()
+                            onReviewAll()
                         } label: {
                             HStack(spacing: 6) {
-                                Image(systemName: "arrow.triangle.pull")
+                                Image(systemName: "doc.text.magnifyingglass")
                                     .font(.system(size: 11))
-                                    .foregroundStyle(.purple)
-                                Text("Branch Diff")
+                                Text("Review All Changes")
                                     .font(.system(size: 12, weight: .medium))
                                 Spacer()
-                                Text("PR Preview")
-                                    .font(.system(size: 10))
+                                Text("⌘⇧D")
+                                    .font(.system(size: 10, design: .monospaced))
                                     .foregroundStyle(.tertiary)
                             }
                             .padding(.vertical, 2)
                         }
                         .buttonStyle(.plain)
+
+                        // Review progress
+                        ReviewProgressBar(
+                            reviewed: model.reviewedCount,
+                            total: model.changedFiles.count,
+                            onMarkAll: { model.markAllReviewed() },
+                            onClearAll: { model.clearAllReviewed() }
+                        )
                     }
                 }
+            }
 
-                // Push prompt when there are unpushed commits
-                if workingDirectory.hasRemotes && (workingDirectory.aheadCount > 0 || !workingDirectory.hasUpstream) && model.changedFiles.isEmpty {
-                    Section {
-                        SyncPromptView(workingDirectory: workingDirectory)
-                    }
-                }
-
-                // Staged changes section
-                if !model.stagedFiles.isEmpty {
-                    Section {
-                        ForEach(model.stagedFiles) { file in
-                            let fileIdx = model.changedFiles.firstIndex(where: { $0.id == file.id })
-                            ChangedFileRow(
-                                file: file,
-                                isSelected: filePreview.selectedURL == file.url,
-                                isStaged: true,
-                                isReviewed: model.isReviewed(file),
-                                isFocused: fileIdx == model.focusedFileIndex
-                            )
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                filePreview.select(file.url)
-                                if let idx = fileIdx {
-                                    model.focusedFileIndex = idx
-                                    model.focusedHunkIndex = nil
-                                }
-                            }
-                            .contextMenu {
-                                changedFileContextMenu(file: file, isStaged: true)
-                            }
-                            .draggable(file.url)
+            // Branch diff button (PR preview)
+            if let onBranchDiff, workingDirectory.gitBranch != nil {
+                Section {
+                    Button {
+                        onBranchDiff()
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "arrow.triangle.pull")
+                                .font(.system(size: 11))
+                                .foregroundStyle(.purple)
+                            Text("Branch Diff")
+                                .font(.system(size: 12, weight: .medium))
+                            Spacer()
+                            Text("PR Preview")
+                                .font(.system(size: 10))
+                                .foregroundStyle(.tertiary)
                         }
-                    } header: {
-                        HStack(spacing: 8) {
-                            Text("Staged Changes")
-                                .font(.system(size: 11, weight: .semibold))
+                        .padding(.vertical, 2)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+
+            // Push prompt when there are unpushed commits
+            if workingDirectory.hasRemotes && (workingDirectory.aheadCount > 0 || !workingDirectory.hasUpstream) && model.changedFiles.isEmpty {
+                Section {
+                    SyncPromptView(workingDirectory: workingDirectory)
+                }
+            }
+
+            // Staged changes section
+            if !model.stagedFiles.isEmpty {
+                Section {
+                    ForEach(model.stagedFiles) { file in
+                        let fileIdx = model.changedFiles.firstIndex(where: { $0.id == file.id })
+                        ChangedFileRow(
+                            file: file,
+                            isSelected: filePreview.selectedURL == file.url,
+                            isStaged: true,
+                            isReviewed: model.isReviewed(file),
+                            isFocused: fileIdx == model.focusedFileIndex
+                        )
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            filePreview.select(file.url)
+                            if let idx = fileIdx {
+                                model.focusedFileIndex = idx
+                                model.focusedHunkIndex = nil
+                            }
+                        }
+                        .contextMenu {
+                            changedFileContextMenu(file: file, isStaged: true)
+                        }
+                        .draggable(file.url)
+                    }
+                } header: {
+                    HStack(spacing: 8) {
+                        Text("Staged Changes")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                            .textCase(nil)
+                        Spacer()
+                        Button {
+                            model.unstageAll()
+                        } label: {
+                            Text("Unstage All")
+                                .font(.system(size: 10))
                                 .foregroundStyle(.secondary)
-                                .textCase(nil)
-                            Spacer()
-                            Button {
-                                model.unstageAll()
-                            } label: {
-                                Text("Unstage All")
-                                    .font(.system(size: 10))
-                                    .foregroundStyle(.secondary)
-                            }
-                            .buttonStyle(.plain)
                         }
+                        .buttonStyle(.plain)
                     }
                 }
+            }
 
-                // Unstaged / working changes section
-                if !model.unstagedFiles.isEmpty {
-                    Section {
-                        ForEach(model.unstagedFiles) { file in
-                            let fileIdx = model.changedFiles.firstIndex(where: { $0.id == file.id })
-                            ChangedFileRow(
-                                file: file,
-                                isSelected: filePreview.selectedURL == file.url,
-                                isStaged: false,
-                                isReviewed: model.isReviewed(file),
-                                isFocused: fileIdx == model.focusedFileIndex
-                            )
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                filePreview.select(file.url)
-                                if let idx = fileIdx {
-                                    model.focusedFileIndex = idx
-                                    model.focusedHunkIndex = nil
-                                }
+            // Unstaged / working changes section
+            if !model.unstagedFiles.isEmpty {
+                Section {
+                    ForEach(model.unstagedFiles) { file in
+                        let fileIdx = model.changedFiles.firstIndex(where: { $0.id == file.id })
+                        ChangedFileRow(
+                            file: file,
+                            isSelected: filePreview.selectedURL == file.url,
+                            isStaged: false,
+                            isReviewed: model.isReviewed(file),
+                            isFocused: fileIdx == model.focusedFileIndex
+                        )
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            filePreview.select(file.url)
+                            if let idx = fileIdx {
+                                model.focusedFileIndex = idx
+                                model.focusedHunkIndex = nil
                             }
-                            .contextMenu {
-                                changedFileContextMenu(file: file, isStaged: false)
-                            }
-                            .draggable(file.url)
                         }
-                    } header: {
-                        HStack(spacing: 8) {
-                            Text("Changes")
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundStyle(.secondary)
-                                .textCase(nil)
-                            Spacer()
-                            if model.totalAdditions > 0 {
-                                Text("+\(model.totalAdditions)")
-                                    .font(.caption.monospacedDigit())
-                                    .foregroundStyle(.green)
-                            }
-                            if model.totalDeletions > 0 {
-                                Text("-\(model.totalDeletions)")
-                                    .font(.caption.monospacedDigit())
-                                    .foregroundStyle(.red)
-                            }
-                            Button {
-                                showDiscardAllConfirm = true
-                            } label: {
-                                Text("Discard All")
-                                    .font(.system(size: 10))
-                                    .foregroundStyle(.red.opacity(0.8))
-                            }
-                            .buttonStyle(.plain)
-                            .help("Discard all uncommitted changes (stashes first for recovery)")
-                            Button {
-                                model.stageAll()
-                            } label: {
-                                Text("Stage All")
-                                    .font(.system(size: 10))
-                                    .foregroundStyle(.secondary)
-                            }
-                            .buttonStyle(.plain)
+                        .contextMenu {
+                            changedFileContextMenu(file: file, isStaged: false)
                         }
+                        .draggable(file.url)
                     }
-                } else if model.stagedFiles.isEmpty && !model.isLoading {
-                    Section {
-                        HStack {
-                            Spacer()
-                            VStack(spacing: 4) {
-                                Image(systemName: "checkmark.circle")
-                                    .font(.system(size: 16))
-                                    .foregroundStyle(.green.opacity(0.6))
-                                Text("Working tree clean")
-                                    .font(.caption)
-                                    .foregroundStyle(.tertiary)
-                            }
-                            .padding(.vertical, 8)
-                            Spacer()
-                        }
-                    } header: {
+                } header: {
+                    HStack(spacing: 8) {
                         Text("Changes")
                             .font(.system(size: 11, weight: .semibold))
                             .foregroundStyle(.secondary)
                             .textCase(nil)
+                        Spacer()
+                        if model.totalAdditions > 0 {
+                            Text("+\(model.totalAdditions)")
+                                .font(.caption.monospacedDigit())
+                                .foregroundStyle(.green)
+                        }
+                        if model.totalDeletions > 0 {
+                            Text("-\(model.totalDeletions)")
+                                .font(.caption.monospacedDigit())
+                                .foregroundStyle(.red)
+                        }
+                        Button {
+                            showDiscardAllConfirm = true
+                        } label: {
+                            Text("Discard All")
+                                .font(.system(size: 10))
+                                .foregroundStyle(.red.opacity(0.8))
+                        }
+                        .buttonStyle(.plain)
+                        .help("Discard all uncommitted changes (stashes first for recovery)")
+                        Button {
+                            model.stageAll()
+                        } label: {
+                            Text("Stage All")
+                                .font(.system(size: 10))
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
-
-                // Commit history section
-                if !model.recentCommits.isEmpty {
-                    Section {
-                        ForEach(Array(model.recentCommits.enumerated()), id: \.element.id) { index, commit in
-                            CommitRow(
-                                commit: commit,
-                                isLatest: index == 0,
-                                model: model,
-                                filePreview: filePreview,
-                                onUndoCommit: index == 0 ? { showUndoCommitConfirm = true } : nil
-                            )
+            } else if model.stagedFiles.isEmpty && !model.isLoading {
+                Section {
+                    HStack {
+                        Spacer()
+                        VStack(spacing: 4) {
+                            Image(systemName: "checkmark.circle")
+                                .font(.system(size: 16))
+                                .foregroundStyle(.green.opacity(0.6))
+                            Text("Working tree clean")
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
                         }
-                    } header: {
-                        Text("Recent Commits")
+                        .padding(.vertical, 8)
+                        Spacer()
+                    }
+                } header: {
+                    Text("Changes")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .textCase(nil)
+                }
+            }
+
+            // Commit history section
+            if !model.recentCommits.isEmpty {
+                Section {
+                    ForEach(Array(model.recentCommits.enumerated()), id: \.element.id) { index, commit in
+                        CommitRow(
+                            commit: commit,
+                            isLatest: index == 0,
+                            model: model,
+                            filePreview: filePreview,
+                            onUndoCommit: index == 0 ? { showUndoCommitConfirm = true } : nil
+                        )
+                    }
+                } header: {
+                    Text("Recent Commits")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .textCase(nil)
+                }
+            }
+
+            // Stashes section
+            if !model.stashes.isEmpty {
+                Section {
+                    ForEach(model.stashes) { stash in
+                        StashRow(
+                            stash: stash,
+                            model: model,
+                            filePreview: filePreview,
+                            onDropStash: { stashToDrop = stash }
+                        )
+                    }
+                } header: {
+                    HStack {
+                        Text("Stashes")
                             .font(.system(size: 11, weight: .semibold))
                             .foregroundStyle(.secondary)
                             .textCase(nil)
-                    }
-                }
-
-                // Stashes section
-                if !model.stashes.isEmpty {
-                    Section {
-                        ForEach(model.stashes) { stash in
-                            StashRow(
-                                stash: stash,
-                                model: model,
-                                filePreview: filePreview,
-                                onDropStash: { stashToDrop = stash }
-                            )
-                        }
-                    } header: {
-                        HStack {
-                            Text("Stashes")
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundStyle(.secondary)
-                                .textCase(nil)
-                            Spacer()
-                            Text("\(model.stashes.count)")
-                                .font(.system(size: 10, weight: .medium))
-                                .foregroundStyle(.white)
-                                .padding(.horizontal, 5)
-                                .padding(.vertical, 1)
-                                .background(Capsule().fill(Color.secondary.opacity(0.4)))
-                        }
+                        Spacer()
+                        Text("\(model.stashes.count)")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1)
+                            .background(Capsule().fill(Color.secondary.opacity(0.4)))
                     }
                 }
             }
-            .listStyle(.sidebar)
-            .onKeyPress { keyPress in
-                switch keyPress.characters {
-                case "]": model.focusNextFile(); return .handled
-                case "[": model.focusPreviousFile(); return .handled
-                case "j", "n": model.focusNextHunk(); return .handled
-                case "k", "p": model.focusPreviousHunk(); return .handled
-                case "s": model.stageFocusedHunk(); return .handled
-                case "d": model.discardFocusedHunk(); return .handled
-                case "r": model.toggleFocusedFileReviewed(); return .handled
-                default:
-                    if keyPress.key == .return {
-                        if let url = model.focusedFile?.url { filePreview.select(url) }
-                        return .handled
-                    }
-                    return .ignored
-                }
-            }
-            .focusedValue(\.nextReviewFile, !model.changedFiles.isEmpty ? { model.focusNextFile() } : nil)
-            .focusedValue(\.previousReviewFile, !model.changedFiles.isEmpty ? { model.focusPreviousFile() } : nil)
-            .focusedValue(\.nextHunk, !model.changedFiles.isEmpty ? { model.focusNextHunk() } : nil)
-            .focusedValue(\.previousHunk, !model.changedFiles.isEmpty ? { model.focusPreviousHunk() } : nil)
-            .focusedValue(\.stageFocusedHunk, model.focusedHunk != nil ? { model.stageFocusedHunk() } : nil)
-            .focusedValue(\.discardFocusedHunk, model.focusedHunk != nil ? { model.discardFocusedHunk() } : nil)
-            .focusedValue(\.toggleFocusedFileReviewed, model.focusedFile != nil ? { model.toggleFocusedFileReviewed() } : nil)
-            .focusedValue(\.openFocusedFile, model.focusedFile != nil ? { if let url = model.focusedFile?.url { filePreview.select(url) } } : nil)
-            .alert("Discard Changes?", isPresented: Binding(
-                get: { fileToDiscard != nil },
-                set: { if !$0 { fileToDiscard = nil } }
-            )) {
-                Button("Discard", role: .destructive) {
-                    if let file = fileToDiscard {
-                        model.discardChanges(for: file)
-                        if filePreview.selectedURL == file.url {
-                            filePreview.refresh()
-                        }
-                    }
-                    fileToDiscard = nil
-                }
-                Button("Cancel", role: .cancel) {
-                    fileToDiscard = nil
-                }
-            } message: {
-                if let file = fileToDiscard {
-                    Text("This will permanently discard all uncommitted changes to \"\(file.fileName)\". This cannot be undone.")
-                }
-            }
-            .alert("Discard All Changes?", isPresented: $showDiscardAllConfirm) {
-                Button("Discard All", role: .destructive) {
-                    model.discardAll()
-                }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text("This will discard all \(model.changedFiles.count) uncommitted changed file\(model.changedFiles.count == 1 ? "" : "s"). Changes are stashed so you can recover them.")
-            }
-            .alert("Undo Last Commit?", isPresented: $showUndoCommitConfirm) {
-                Button("Undo Commit", role: .destructive) {
-                    model.undoLastCommit()
-                }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                if let commit = model.recentCommits.first {
-                    Text("This will undo \"\(commit.message)\" (\(commit.shortSHA)). The changes will be moved back to the staging area — no work is lost.")
-                }
-            }
-            .alert("Drop Stash?", isPresented: Binding(
-                get: { stashToDrop != nil },
-                set: { if !$0 { stashToDrop = nil } }
-            )) {
-                Button("Drop", role: .destructive) {
-                    if let stash = stashToDrop {
-                        model.dropStash(sha: stash.sha)
-                    }
-                    stashToDrop = nil
-                }
-                Button("Cancel", role: .cancel) {
-                    stashToDrop = nil
-                }
-            } message: {
-                if let stash = stashToDrop {
-                    Text("This will permanently delete stash@{\(stash.index)} (\(stash.cleanMessage)). This cannot be undone.")
-                }
-            }
-            .overlay(alignment: .bottom) {
-                VStack(spacing: 0) {
-                    if model.lastStashError != nil {
-                        StashErrorBanner(model: model)
-                            .transition(.move(edge: .bottom).combined(with: .opacity))
-                    }
-                    if model.lastUndoneCommitSHA != nil {
-                        UndoCommitBanner(model: model)
-                            .transition(.move(edge: .bottom).combined(with: .opacity))
-                    }
-                    if model.lastDiscardStashRef != nil {
-                        DiscardRecoveryBanner(model: model)
-                            .transition(.move(edge: .bottom).combined(with: .opacity))
-                    }
-                }
-            }
-            .animation(.easeInOut(duration: 0.2), value: model.lastDiscardStashRef != nil)
-            .animation(.easeInOut(duration: 0.2), value: model.lastUndoneCommitSHA != nil)
-            .animation(.easeInOut(duration: 0.2), value: model.lastStashError != nil)
         }
+        .listStyle(.sidebar)
+        .onKeyPress { keyPress in
+            switch keyPress.characters {
+            case "]": model.focusNextFile(); return .handled
+            case "[": model.focusPreviousFile(); return .handled
+            case "j", "n": model.focusNextHunk(); return .handled
+            case "k", "p": model.focusPreviousHunk(); return .handled
+            case "s": model.stageFocusedHunk(); return .handled
+            case "d": model.discardFocusedHunk(); return .handled
+            case "r": model.toggleFocusedFileReviewed(); return .handled
+            default:
+                if keyPress.key == .return {
+                    if let url = model.focusedFile?.url { filePreview.select(url) }
+                    return .handled
+                }
+                return .ignored
+            }
+        }
+        .focusedValue(\.nextReviewFile, !model.changedFiles.isEmpty ? { model.focusNextFile() } : nil)
+        .focusedValue(\.previousReviewFile, !model.changedFiles.isEmpty ? { model.focusPreviousFile() } : nil)
+        .focusedValue(\.nextHunk, !model.changedFiles.isEmpty ? { model.focusNextHunk() } : nil)
+        .focusedValue(\.previousHunk, !model.changedFiles.isEmpty ? { model.focusPreviousHunk() } : nil)
+        .focusedValue(\.stageFocusedHunk, model.focusedHunk != nil ? { model.stageFocusedHunk() } : nil)
+        .focusedValue(\.discardFocusedHunk, model.focusedHunk != nil ? { model.discardFocusedHunk() } : nil)
+        .focusedValue(\.toggleFocusedFileReviewed, model.focusedFile != nil ? { model.toggleFocusedFileReviewed() } : nil)
+        .focusedValue(\.openFocusedFile, model.focusedFile != nil ? { if let url = model.focusedFile?.url { filePreview.select(url) } } : nil)
+        .alert("Discard Changes?", isPresented: Binding(
+            get: { fileToDiscard != nil },
+            set: { if !$0 { fileToDiscard = nil } }
+        )) {
+            Button("Discard", role: .destructive) {
+                if let file = fileToDiscard {
+                    model.discardChanges(for: file)
+                    if filePreview.selectedURL == file.url {
+                        filePreview.refresh()
+                    }
+                }
+                fileToDiscard = nil
+            }
+            Button("Cancel", role: .cancel) {
+                fileToDiscard = nil
+            }
+        } message: {
+            if let file = fileToDiscard {
+                Text("This will permanently discard all uncommitted changes to \"\(file.fileName)\". This cannot be undone.")
+            }
+        }
+        .alert("Discard All Changes?", isPresented: $showDiscardAllConfirm) {
+            Button("Discard All", role: .destructive) {
+                model.discardAll()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This will discard all \(model.changedFiles.count) uncommitted changed file\(model.changedFiles.count == 1 ? "" : "s"). Changes are stashed so you can recover them.")
+        }
+        .alert("Undo Last Commit?", isPresented: $showUndoCommitConfirm) {
+            Button("Undo Commit", role: .destructive) {
+                model.undoLastCommit()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            if let commit = model.recentCommits.first {
+                Text("This will undo \"\(commit.message)\" (\(commit.shortSHA)). The changes will be moved back to the staging area — no work is lost.")
+            }
+        }
+        .alert("Drop Stash?", isPresented: Binding(
+            get: { stashToDrop != nil },
+            set: { if !$0 { stashToDrop = nil } }
+        )) {
+            Button("Drop", role: .destructive) {
+                if let stash = stashToDrop {
+                    model.dropStash(sha: stash.sha)
+                }
+                stashToDrop = nil
+            }
+            Button("Cancel", role: .cancel) {
+                stashToDrop = nil
+            }
+        } message: {
+            if let stash = stashToDrop {
+                Text("This will permanently delete stash@{\(stash.index)} (\(stash.cleanMessage)). This cannot be undone.")
+            }
+        }
+        .overlay(alignment: .bottom) {
+            VStack(spacing: 0) {
+                if model.lastStashError != nil {
+                    StashErrorBanner(model: model)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+                if model.lastUndoneCommitSHA != nil {
+                    UndoCommitBanner(model: model)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+                if model.lastDiscardStashRef != nil {
+                    DiscardRecoveryBanner(model: model)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+            }
+        }
+        .animation(.easeInOut(duration: 0.2), value: model.lastDiscardStashRef != nil)
+        .animation(.easeInOut(duration: 0.2), value: model.lastUndoneCommitSHA != nil)
+        .animation(.easeInOut(duration: 0.2), value: model.lastStashError != nil)
     }
 
     @ViewBuilder
