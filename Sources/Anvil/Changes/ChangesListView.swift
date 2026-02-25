@@ -6,6 +6,7 @@ import AppKit
 struct ChangesListView: View {
     @ObservedObject var model: ChangesModel
     @ObservedObject var filePreview: FilePreviewModel
+    var onReviewAll: (() -> Void)?
     @EnvironmentObject var terminalProxy: TerminalInputProxy
     @State private var fileToDiscard: ChangedFile?
 
@@ -27,6 +28,28 @@ struct ChangesListView: View {
                 if !model.changedFiles.isEmpty {
                     Section {
                         CommitFormView(model: model)
+                    }
+
+                    // Review all button
+                    if let onReviewAll, model.changedFiles.count > 0 {
+                        Section {
+                            Button {
+                                onReviewAll()
+                            } label: {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "doc.text.magnifyingglass")
+                                        .font(.system(size: 11))
+                                    Text("Review All Changes")
+                                        .font(.system(size: 12, weight: .medium))
+                                    Spacer()
+                                    Text("⌘⇧D")
+                                        .font(.system(size: 10, design: .monospaced))
+                                        .foregroundStyle(.tertiary)
+                                }
+                                .padding(.vertical, 2)
+                            }
+                            .buttonStyle(.plain)
+                        }
                     }
                 }
 

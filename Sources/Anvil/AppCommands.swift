@@ -75,6 +75,10 @@ struct PreviousChangeKey: FocusedValueKey {
     typealias Value = () -> Void
 }
 
+struct ReviewAllChangesKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
 extension FocusedValues {
     var sidebarVisible: Binding<Bool>? {
         get { self[SidebarVisibleKey.self] }
@@ -165,6 +169,11 @@ extension FocusedValues {
         get { self[PreviousChangeKey.self] }
         set { self[PreviousChangeKey.self] = newValue }
     }
+
+    var reviewAllChanges: (() -> Void)? {
+        get { self[ReviewAllChangesKey.self] }
+        set { self[ReviewAllChangesKey.self] = newValue }
+    }
 }
 
 // MARK: - View Menu Commands
@@ -186,6 +195,7 @@ struct ViewCommands: Commands {
     @FocusedValue(\.showCommandPalette) var showCommandPalette
     @FocusedValue(\.nextChange) var nextChange
     @FocusedValue(\.previousChange) var previousChange
+    @FocusedValue(\.reviewAllChanges) var reviewAllChanges
     @AppStorage("autoLaunchCopilot") private var autoLaunchCopilot = true
     @AppStorage("notificationsEnabled") private var notificationsEnabled = true
 
@@ -294,6 +304,12 @@ struct ViewCommands: Commands {
             }
             .keyboardShortcut(.upArrow, modifiers: [.command, .control])
             .disabled(previousChange == nil)
+
+            Button("Review All Changes") {
+                reviewAllChanges?()
+            }
+            .keyboardShortcut("d", modifiers: [.command, .shift])
+            .disabled(reviewAllChanges == nil)
 
             Divider()
 

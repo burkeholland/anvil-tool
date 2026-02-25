@@ -26,6 +26,7 @@ struct ContentView: View {
     @State private var showQuickOpen = false
     @State private var showCommandPalette = false
     @State private var showBranchPicker = false
+    @State private var showDiffSummary = false
     @State private var isDroppingFolder = false
     @AppStorage("autoFollowChanges") private var autoFollow = true
     @AppStorage("terminalFontSize") private var terminalFontSize: Double = 14
@@ -106,7 +107,8 @@ struct ContentView: View {
                 showCommandPalette = true
             },
             onNextChange: hasChangesToNavigate ? { navigateToNextChange() } : nil,
-            onPreviousChange: hasChangesToNavigate ? { navigateToPreviousChange() } : nil
+            onPreviousChange: hasChangesToNavigate ? { navigateToPreviousChange() } : nil,
+            onReviewAllChanges: hasChangesToNavigate ? { showDiffSummary = true } : nil
         ))
         .onChange(of: workingDirectory.directoryURL) { _, newURL in
             filePreview.close()
@@ -145,7 +147,8 @@ struct ContentView: View {
                         changesModel: changesModel,
                         activityModel: activityModel,
                         searchModel: searchModel,
-                        activeTab: $sidebarTab
+                        activeTab: $sidebarTab,
+                        onReviewAll: { showDiffSummary = true }
                     )
                         .frame(width: max(sidebarWidth, 0))
 
@@ -193,7 +196,7 @@ struct ContentView: View {
                     )
                 }
 
-                if filePreview.selectedURL != nil {
+                if filePreview.selectedURL != nil || showDiffSummary {
                     PanelDivider(
                         width: $previewWidth,
                         minWidth: 200,
@@ -202,16 +205,27 @@ struct ContentView: View {
                     )
 
                     VStack(spacing: 0) {
-                        if let idx = currentChangeIndex {
-                            ChangesNavigationBar(
-                                currentIndex: idx,
-                                totalCount: changesModel.changedFiles.count,
-                                onPrevious: { navigateToPreviousChange() },
-                                onNext: { navigateToNextChange() }
+                        if showDiffSummary {
+                            DiffSummaryView(
+                                changesModel: changesModel,
+                                onSelectFile: { url in
+                                    showDiffSummary = false
+                                    filePreview.select(url)
+                                },
+                                onDismiss: { showDiffSummary = false }
                             )
-                        }
+                        } else {
+                            if let idx = currentChangeIndex {
+                                ChangesNavigationBar(
+                                    currentIndex: idx,
+                                    totalCount: changesModel.changedFiles.count,
+                                    onPrevious: { navigateToPreviousChange() },
+                                    onNext: { navigateToNextChange() }
+                                )
+                            }
 
-                        FilePreviewView(model: filePreview)
+                            FilePreviewView(model: filePreview)
+                        }
                     }
                     .frame(width: max(previewWidth, 0))
                 }
@@ -395,6 +409,12 @@ struct ContentView: View {
                 }
             },
 
+            PaletteCommand(id: "review-all", title: "Review All Changes", icon: "doc.text.magnifyingglass", shortcut: "⌘⇧D", category: "Actions") {
+                hasProject && !changesModel.changedFiles.isEmpty
+            } action: {
+                showDiffSummary = true
+            },
+
             PaletteCommand(id: "next-change", title: "Next Changed File", icon: "chevron.down", shortcut: "⌃⌘↓", category: "Actions") {
                 hasChangesToNavigate
             } action: {
@@ -418,6 +438,7 @@ struct ContentView: View {
 
     private func closeCurrentProject() {
         filePreview.close()
+        showDiffSummary = false
         changesModel.stop()
         activityModel.stop()
         searchModel.clear()
@@ -581,6 +602,7 @@ struct SidebarView: View {
     @ObservedObject var activityModel: ActivityFeedModel
     @ObservedObject var searchModel: SearchModel
     @Binding var activeTab: SidebarTab
+    var onReviewAll: (() -> Void)?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -652,7 +674,7 @@ struct SidebarView: View {
                 }
 
             case .changes:
-                ChangesListView(model: changesModel, filePreview: filePreview)
+                ChangesListView(model: changesModel, filePreview: filePreview, onReviewAll: onReviewAll)
 
             case .activity:
                 ActivityFeedView(model: activityModel, filePreview: filePreview)
@@ -724,6 +746,7 @@ private struct FocusedSceneModifier: ViewModifier {
     var onShowCommandPalette: () -> Void
     var onNextChange: (() -> Void)?
     var onPreviousChange: (() -> Void)?
+    var onReviewAllChanges: (() -> Void)?
 
     func body(content: Content) -> some View {
         content
@@ -749,7 +772,8 @@ private struct FocusedSceneModifier: ViewModifier {
                 onFindInTerminal: onFindInTerminal,
                 onShowCommandPalette: onShowCommandPalette,
                 onNextChange: onNextChange,
-                onPreviousChange: onPreviousChange
+                onPreviousChange: onPreviousChange,
+                onReviewAllChanges: onReviewAllChanges
             ))
     }
 }
@@ -799,6 +823,7 @@ private struct FocusedSceneModifierB: ViewModifier {
     var onShowCommandPalette: () -> Void
     var onNextChange: (() -> Void)?
     var onPreviousChange: (() -> Void)?
+    var onReviewAllChanges: (() -> Void)?
 
     func body(content: Content) -> some View {
         content
@@ -811,6 +836,7 @@ private struct FocusedSceneModifierB: ViewModifier {
             .focusedSceneValue(\.showCommandPalette, onShowCommandPalette)
             .focusedSceneValue(\.nextChange, onNextChange)
             .focusedSceneValue(\.previousChange, onPreviousChange)
+            .focusedSceneValue(\.reviewAllChanges, onReviewAllChanges)
     }
 }
 
