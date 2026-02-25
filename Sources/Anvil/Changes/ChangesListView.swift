@@ -53,6 +53,14 @@ struct ChangesListView: View {
                                 .padding(.vertical, 2)
                             }
                             .buttonStyle(.plain)
+
+                            // Review progress
+                            ReviewProgressBar(
+                                reviewed: model.reviewedCount,
+                                total: model.changedFiles.count,
+                                onMarkAll: { model.markAllReviewed() },
+                                onClearAll: { model.clearAllReviewed() }
+                            )
                         }
                     }
                 }
@@ -71,7 +79,8 @@ struct ChangesListView: View {
                             ChangedFileRow(
                                 file: file,
                                 isSelected: filePreview.selectedURL == file.url,
-                                isStaged: true
+                                isStaged: true,
+                                isReviewed: model.isReviewed(file)
                             )
                             .contentShape(Rectangle())
                             .onTapGesture {
@@ -108,7 +117,8 @@ struct ChangesListView: View {
                             ChangedFileRow(
                                 file: file,
                                 isSelected: filePreview.selectedURL == file.url,
-                                isStaged: false
+                                isStaged: false,
+                                isReviewed: model.isReviewed(file)
                             )
                             .contentShape(Rectangle())
                             .onTapGesture {
@@ -308,6 +318,19 @@ struct ChangesListView: View {
 
     @ViewBuilder
     private func changedFileContextMenu(file: ChangedFile, isStaged: Bool) -> some View {
+        // Review toggle
+        Button {
+            model.toggleReviewed(file)
+        } label: {
+            if model.isReviewed(file) {
+                Label("Mark as Unreviewed", systemImage: "eye.slash")
+            } else {
+                Label("Mark as Reviewed", systemImage: "eye")
+            }
+        }
+
+        Divider()
+
         if isStaged {
             Button {
                 model.unstageFile(file)
@@ -379,6 +402,74 @@ struct ChangesListView: View {
         } label: {
             Label("Discard Changes…", systemImage: "arrow.uturn.backward")
         }
+    }
+}
+
+// MARK: - Review Progress
+
+struct ReviewProgressBar: View {
+    let reviewed: Int
+    let total: Int
+    var onMarkAll: () -> Void
+    var onClearAll: () -> Void
+
+    private var progress: Double {
+        total > 0 ? Double(reviewed) / Double(total) : 0
+    }
+
+    private var isComplete: Bool { reviewed == total && total > 0 }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Image(systemName: isComplete ? "checkmark.circle.fill" : "eye")
+                    .font(.system(size: 10))
+                    .foregroundStyle(isComplete ? .green : .blue.opacity(0.7))
+
+                Text("\(reviewed)/\(total) reviewed")
+                    .font(.system(size: 11))
+                    .foregroundStyle(isComplete ? .green : .secondary)
+
+                Spacer()
+
+                if reviewed > 0 && !isComplete {
+                    Button {
+                        onMarkAll()
+                    } label: {
+                        Text("Mark All")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.blue.opacity(0.8))
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                if reviewed > 0 {
+                    Button {
+                        onClearAll()
+                    } label: {
+                        Text("Clear")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+
+            // Progress bar
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(Color.secondary.opacity(0.15))
+
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(isComplete ? Color.green : Color.blue.opacity(0.6))
+                        .frame(width: geo.size.width * progress)
+                        .animation(.easeInOut(duration: 0.2), value: progress)
+                }
+            }
+            .frame(height: 3)
+        }
+        .padding(.vertical, 2)
     }
 }
 
@@ -894,6 +985,7 @@ struct ChangedFileRow: View {
     let file: ChangedFile
     let isSelected: Bool
     var isStaged: Bool = false
+    var isReviewed: Bool = false
 
     var body: some View {
         HStack(spacing: 6) {
@@ -939,6 +1031,14 @@ struct ChangedFileRow: View {
                             .foregroundStyle(.red)
                     }
                 }
+            }
+
+            // Review indicator
+            if isReviewed {
+                Image(systemName: "eye.fill")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.blue.opacity(0.7))
+                    .help("Reviewed")
             }
 
             // Staging indicator

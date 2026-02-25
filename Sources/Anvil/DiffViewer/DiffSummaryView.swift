@@ -74,6 +74,12 @@ struct DiffSummaryView: View {
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
 
+                if changesModel.reviewedCount > 0 {
+                    Text("(\(changesModel.reviewedCount)/\(changesModel.changedFiles.count) reviewed)")
+                        .font(.system(size: 10))
+                        .foregroundStyle(changesModel.reviewedCount == changesModel.changedFiles.count ? .green : .blue.opacity(0.7))
+                }
+
                 Spacer()
 
                 if changesModel.totalAdditions > 0 {
@@ -241,6 +247,17 @@ struct DiffSummaryView: View {
                 }
                 .buttonStyle(.borderless)
                 .help("Open in Preview")
+
+                // Review toggle
+                Button {
+                    changesModel.toggleReviewed(file)
+                } label: {
+                    Image(systemName: changesModel.isReviewed(file) ? "eye.fill" : "eye")
+                        .font(.system(size: 10))
+                        .foregroundStyle(changesModel.isReviewed(file) ? .blue : .secondary)
+                }
+                .buttonStyle(.borderless)
+                .help(changesModel.isReviewed(file) ? "Mark as Unreviewed" : "Mark as Reviewed")
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 6)

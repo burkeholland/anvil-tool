@@ -42,6 +42,14 @@ final class ChangesModel: ObservableObject {
     /// Error message from the most recent hunk-level operation.
     @Published var lastHunkError: String?
 
+    // MARK: - Review Tracking
+
+    /// Relative paths the user has marked as reviewed in this session.
+    @Published private(set) var reviewedPaths: Set<String> = []
+    /// Fingerprints (adds:dels:staging) captured when each file was marked reviewed.
+    /// Used to auto-clear review marks when a file's diff changes.
+    private var reviewedFingerprints: [String: String] = [:]
+
     private(set) var rootDirectory: URL?
     private var refreshGeneration: UInt64 = 0
     private var commitGeneration: UInt64 = 0
@@ -70,6 +78,65 @@ final class ChangesModel: ObservableObject {
 
     var canCommit: Bool {
         !stagedFiles.isEmpty && !commitMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !isCommitting
+    }
+
+    // MARK: - Review Tracking Methods
+
+    var reviewedCount: Int {
+        changedFiles.filter { reviewedPaths.contains($0.relativePath) }.count
+    }
+
+    func isReviewed(_ file: ChangedFile) -> Bool {
+        reviewedPaths.contains(file.relativePath)
+    }
+
+    func toggleReviewed(_ file: ChangedFile) {
+        if reviewedPaths.contains(file.relativePath) {
+            reviewedPaths.remove(file.relativePath)
+            reviewedFingerprints.removeValue(forKey: file.relativePath)
+        } else {
+            reviewedPaths.insert(file.relativePath)
+            reviewedFingerprints[file.relativePath] = diffFingerprint(file)
+        }
+    }
+
+    func markAllReviewed() {
+        for file in changedFiles {
+            reviewedPaths.insert(file.relativePath)
+            reviewedFingerprints[file.relativePath] = diffFingerprint(file)
+        }
+    }
+
+    func clearAllReviewed() {
+        reviewedPaths.removeAll()
+        reviewedFingerprints.removeAll()
+    }
+
+    private func diffFingerprint(_ file: ChangedFile) -> String {
+        if let diff = file.diff {
+            // Include hunk headers for sensitivity to content changes, not just counts
+            let hunkSummary = diff.hunks.map(\.header).joined(separator: "|")
+            return "\(diff.additionCount):\(diff.deletionCount):\(file.staging):\(hunkSummary)"
+        }
+        // For files with no diff (e.g., untracked), use file size as a proxy
+        let size = (try? FileManager.default.attributesOfItem(atPath: file.url.path))?[.size] as? Int ?? 0
+        return "nodiff:\(file.status):\(size)"
+    }
+
+    /// Prunes review marks for files that no longer exist or whose diff changed.
+    private func pruneReviewedPaths(newFiles: [ChangedFile]) {
+        let currentPaths = Set(newFiles.map(\.relativePath))
+        // Remove paths that are no longer in the changed list
+        reviewedPaths = reviewedPaths.intersection(currentPaths)
+        reviewedFingerprints = reviewedFingerprints.filter { currentPaths.contains($0.key) }
+        // Clear marks where the diff changed since review
+        for file in newFiles {
+            if let fingerprint = reviewedFingerprints[file.relativePath],
+               fingerprint != diffFingerprint(file) {
+                reviewedPaths.remove(file.relativePath)
+                reviewedFingerprints.removeValue(forKey: file.relativePath)
+            }
+        }
     }
 
     func start(rootURL: URL) {
@@ -108,6 +175,8 @@ final class ChangesModel: ObservableObject {
         lastUndoneCommitSHA = nil
         lastHunkError = nil
         lastStashError = nil
+        reviewedPaths = []
+        reviewedFingerprints = [:]
     }
 
     func refresh() {
@@ -160,6 +229,7 @@ final class ChangesModel: ObservableObject {
 
             DispatchQueue.main.async {
                 guard let self = self, self.refreshGeneration == generation else { return }
+                self.pruneReviewedPaths(newFiles: files)
                 self.changedFiles = files
                 self.isLoading = false
             }
