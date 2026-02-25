@@ -104,7 +104,9 @@ struct ContentView: View {
             onShowCommandPalette: {
                 buildCommandPalette()
                 showCommandPalette = true
-            }
+            },
+            onNextChange: hasChangesToNavigate ? { navigateToNextChange() } : nil,
+            onPreviousChange: hasChangesToNavigate ? { navigateToPreviousChange() } : nil
         ))
         .onChange(of: workingDirectory.directoryURL) { _, newURL in
             filePreview.close()
@@ -199,8 +201,19 @@ struct ContentView: View {
                         edge: .trailing
                     )
 
-                    FilePreviewView(model: filePreview)
-                        .frame(width: max(previewWidth, 0))
+                    VStack(spacing: 0) {
+                        if let idx = currentChangeIndex {
+                            ChangesNavigationBar(
+                                currentIndex: idx,
+                                totalCount: changesModel.changedFiles.count,
+                                onPrevious: { navigateToPreviousChange() },
+                                onNext: { navigateToNextChange() }
+                            )
+                        }
+
+                        FilePreviewView(model: filePreview)
+                    }
+                    .frame(width: max(previewWidth, 0))
                 }
             }
 
@@ -382,6 +395,18 @@ struct ContentView: View {
                 }
             },
 
+            PaletteCommand(id: "next-change", title: "Next Changed File", icon: "chevron.down", shortcut: "⌃⌘↓", category: "Actions") {
+                hasChangesToNavigate
+            } action: {
+                navigateToNextChange()
+            },
+
+            PaletteCommand(id: "prev-change", title: "Previous Changed File", icon: "chevron.up", shortcut: "⌃⌘↑", category: "Actions") {
+                hasChangesToNavigate
+            } action: {
+                navigateToPreviousChange()
+            },
+
             // Git
             PaletteCommand(id: "switch-branch", title: "Switch Branch…", icon: "arrow.triangle.branch", shortcut: nil, category: "Git") {
                 hasProject && workingDirectory.gitBranch != nil
@@ -398,6 +423,46 @@ struct ContentView: View {
         searchModel.clear()
         terminalTabs.reset()
         workingDirectory.closeProject()
+    }
+
+    // MARK: - Changes Navigation
+
+    /// The index of the currently previewed file within the changed files list, or nil.
+    private var currentChangeIndex: Int? {
+        guard let selected = filePreview.selectedURL else { return nil }
+        return changesModel.changedFiles.firstIndex(where: { $0.url == selected })
+    }
+
+    private var hasChangesToNavigate: Bool {
+        !changesModel.changedFiles.isEmpty && workingDirectory.directoryURL != nil
+    }
+
+    private func navigateToNextChange() {
+        let files = changesModel.changedFiles
+        guard !files.isEmpty else { return }
+        let nextIndex: Int
+        if let current = currentChangeIndex {
+            nextIndex = (current + 1) % files.count
+        } else {
+            nextIndex = 0
+        }
+        showSidebar = true
+        sidebarTab = .changes
+        filePreview.select(files[nextIndex].url)
+    }
+
+    private func navigateToPreviousChange() {
+        let files = changesModel.changedFiles
+        guard !files.isEmpty else { return }
+        let prevIndex: Int
+        if let current = currentChangeIndex {
+            prevIndex = current > 0 ? current - 1 : files.count - 1
+        } else {
+            prevIndex = files.count - 1
+        }
+        showSidebar = true
+        sidebarTab = .changes
+        filePreview.select(files[prevIndex].url)
     }
 
     private func handleDrop(_ urls: [URL]) -> Bool {
@@ -657,6 +722,8 @@ private struct FocusedSceneModifier: ViewModifier {
     var onNewTerminalTab: () -> Void
     var onFindInTerminal: () -> Void
     var onShowCommandPalette: () -> Void
+    var onNextChange: (() -> Void)?
+    var onPreviousChange: (() -> Void)?
 
     func body(content: Content) -> some View {
         content
@@ -680,7 +747,9 @@ private struct FocusedSceneModifier: ViewModifier {
                 onResetFontSize: onResetFontSize,
                 onNewTerminalTab: onNewTerminalTab,
                 onFindInTerminal: onFindInTerminal,
-                onShowCommandPalette: onShowCommandPalette
+                onShowCommandPalette: onShowCommandPalette,
+                onNextChange: onNextChange,
+                onPreviousChange: onPreviousChange
             ))
     }
 }
@@ -728,6 +797,8 @@ private struct FocusedSceneModifierB: ViewModifier {
     var onNewTerminalTab: () -> Void
     var onFindInTerminal: () -> Void
     var onShowCommandPalette: () -> Void
+    var onNextChange: (() -> Void)?
+    var onPreviousChange: (() -> Void)?
 
     func body(content: Content) -> some View {
         content
@@ -738,5 +809,56 @@ private struct FocusedSceneModifierB: ViewModifier {
             .focusedSceneValue(\.newTerminalTab, hasProject ? onNewTerminalTab : nil)
             .focusedSceneValue(\.findInTerminal, hasProject ? onFindInTerminal : nil)
             .focusedSceneValue(\.showCommandPalette, onShowCommandPalette)
+            .focusedSceneValue(\.nextChange, onNextChange)
+            .focusedSceneValue(\.previousChange, onPreviousChange)
+    }
+}
+
+/// Compact navigation bar shown above the file preview when the selected file is a changed file.
+/// Shows position (e.g. "3 of 7 changes") with previous/next buttons.
+struct ChangesNavigationBar: View {
+    let currentIndex: Int
+    let totalCount: Int
+    let onPrevious: () -> Void
+    let onNext: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "arrow.triangle.2.circlepath")
+                .font(.system(size: 10))
+                .foregroundStyle(.orange)
+
+            Text("\(currentIndex + 1) of \(totalCount) change\(totalCount == 1 ? "" : "s")")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.secondary)
+
+            Spacer()
+
+            Button {
+                onPrevious()
+            } label: {
+                Image(systemName: "chevron.up")
+                    .font(.system(size: 10, weight: .semibold))
+                    .frame(width: 22, height: 18)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.borderless)
+            .help("Previous Changed File (⌃⌘↑)")
+
+            Button {
+                onNext()
+            } label: {
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 10, weight: .semibold))
+                    .frame(width: 22, height: 18)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.borderless)
+            .help("Next Changed File (⌃⌘↓)")
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 5)
+        .background(Color.orange.opacity(0.08))
+        .overlay(alignment: .bottom) { Divider() }
     }
 }

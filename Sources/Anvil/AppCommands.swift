@@ -67,6 +67,14 @@ struct ShowCommandPaletteKey: FocusedValueKey {
     typealias Value = () -> Void
 }
 
+struct NextChangeKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
+struct PreviousChangeKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
 extension FocusedValues {
     var sidebarVisible: Binding<Bool>? {
         get { self[SidebarVisibleKey.self] }
@@ -147,6 +155,16 @@ extension FocusedValues {
         get { self[ShowCommandPaletteKey.self] }
         set { self[ShowCommandPaletteKey.self] = newValue }
     }
+
+    var nextChange: (() -> Void)? {
+        get { self[NextChangeKey.self] }
+        set { self[NextChangeKey.self] = newValue }
+    }
+
+    var previousChange: (() -> Void)? {
+        get { self[PreviousChangeKey.self] }
+        set { self[PreviousChangeKey.self] = newValue }
+    }
 }
 
 // MARK: - View Menu Commands
@@ -166,6 +184,8 @@ struct ViewCommands: Commands {
     @FocusedValue(\.resetFontSize) var resetFontSize
     @FocusedValue(\.newTerminalTab) var newTerminalTab
     @FocusedValue(\.showCommandPalette) var showCommandPalette
+    @FocusedValue(\.nextChange) var nextChange
+    @FocusedValue(\.previousChange) var previousChange
     @AppStorage("autoLaunchCopilot") private var autoLaunchCopilot = true
     @AppStorage("notificationsEnabled") private var notificationsEnabled = true
 
@@ -260,6 +280,20 @@ struct ViewCommands: Commands {
             }
             .keyboardShortcut("r", modifiers: [.command, .shift])
             .disabled(refresh == nil)
+
+            Divider()
+
+            Button("Next Changed File") {
+                nextChange?()
+            }
+            .keyboardShortcut(.downArrow, modifiers: [.command, .control])
+            .disabled(nextChange == nil)
+
+            Button("Previous Changed File") {
+                previousChange?()
+            }
+            .keyboardShortcut(.upArrow, modifiers: [.command, .control])
+            .disabled(previousChange == nil)
 
             Divider()
 
