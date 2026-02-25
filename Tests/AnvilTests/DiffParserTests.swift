@@ -184,4 +184,87 @@ final class DiffParserTests: XCTestCase {
         XCTAssertEqual(diffs[0].additionCount, 3)
         XCTAssertEqual(diffs[0].deletionCount, 2)
     }
+
+    // MARK: - Inline Highlighting
+
+    func testComputeCharDiffSimple() {
+        let (oldHL, newHL) = DiffParser.computeCharDiff(old: "hello world", new: "hello earth")
+        // Common prefix: "hello ", common suffix: ""
+        // old change: 6..<11 ("world"), new change: 6..<11 ("earth")
+        XCTAssertEqual(oldHL, [6..<11])
+        XCTAssertEqual(newHL, [6..<11])
+    }
+
+    func testComputeCharDiffMiddleChange() {
+        let (oldHL, newHL) = DiffParser.computeCharDiff(old: "let userId = guid()", new: "let userID = guid()")
+        // Common prefix: "let user", common suffix: " = guid()"
+        // old change: 8..<10 ("Id"), new change: 8..<10 ("ID")
+        XCTAssertEqual(oldHL, [8..<10])
+        XCTAssertEqual(newHL, [8..<10])
+    }
+
+    func testComputeCharDiffEntirelyDifferent() {
+        let (oldHL, newHL) = DiffParser.computeCharDiff(old: "abc", new: "xyz")
+        // No common prefix or suffix → no highlights
+        XCTAssertTrue(oldHL.isEmpty)
+        XCTAssertTrue(newHL.isEmpty)
+    }
+
+    func testComputeCharDiffInsertion() {
+        let (oldHL, newHL) = DiffParser.computeCharDiff(old: "foo()", new: "foo(bar)")
+        // Common prefix: "foo(", common suffix: ")"
+        // old change: 4..<4 (empty), new change: 4..<7 ("bar")
+        XCTAssertTrue(oldHL.isEmpty)
+        XCTAssertEqual(newHL, [4..<7])
+    }
+
+    func testComputeCharDiffDeletion() {
+        let (oldHL, newHL) = DiffParser.computeCharDiff(old: "foo(bar)", new: "foo()")
+        // old change: 4..<7 ("bar"), new change: 4..<4 (empty)
+        XCTAssertEqual(oldHL, [4..<7])
+        XCTAssertTrue(newHL.isEmpty)
+    }
+
+    func testInlineHighlightsInParsedDiff() {
+        let diffOutput = """
+        diff --git a/test.swift b/test.swift
+        index 1234567..abcdefg 100644
+        --- a/test.swift
+        +++ b/test.swift
+        @@ -1,3 +1,3 @@
+         context line
+        -let value = oldFunc()
+        +let value = newFunc()
+        """
+
+        let diffs = DiffParser.parse(diffOutput)
+        let lines = diffs[0].hunks[0].lines
+
+        // Deletion line: "let value = oldFunc()" → highlight "old"
+        let deletionLine = lines.first { $0.kind == .deletion }!
+        XCTAssertNotNil(deletionLine.inlineHighlights)
+        XCTAssertEqual(deletionLine.inlineHighlights, [12..<15])
+
+        // Addition line: "let value = newFunc()" → highlight "new"
+        let additionLine = lines.first { $0.kind == .addition }!
+        XCTAssertNotNil(additionLine.inlineHighlights)
+        XCTAssertEqual(additionLine.inlineHighlights, [12..<15])
+    }
+
+    func testNoInlineHighlightsWhenUnpaired() {
+        let diffOutput = """
+        diff --git a/test.txt b/test.txt
+        index 1234567..abcdefg 100644
+        --- a/test.txt
+        +++ b/test.txt
+        @@ -1,2 +1,1 @@
+         keep
+        -removed line
+        """
+
+        let diffs = DiffParser.parse(diffOutput)
+        let lines = diffs[0].hunks[0].lines
+        let deletionLine = lines.first { $0.kind == .deletion }!
+        XCTAssertNil(deletionLine.inlineHighlights)
+    }
 }

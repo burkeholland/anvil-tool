@@ -16,13 +16,16 @@ struct DiffLine: Identifiable {
     let oldLineNumber: Int?
     /// Line number in the new file (nil for deletions and hunk headers).
     let newLineNumber: Int?
+    /// Character ranges within `text` that represent the actual inline change.
+    /// Non-nil only for addition/deletion lines that are part of a matched pair.
+    var inlineHighlights: [Range<Int>]?
 }
 
 /// A contiguous hunk of changes.
 struct DiffHunk: Identifiable {
     let id: Int
     let header: String
-    let lines: [DiffLine]
+    var lines: [DiffLine]
 }
 
 /// Parsed representation of a unified diff for a single file.
@@ -30,7 +33,7 @@ struct FileDiff: Identifiable {
     let id: String // file path
     let oldPath: String
     let newPath: String
-    let hunks: [DiffHunk]
+    var hunks: [DiffHunk]
 
     var additionCount: Int {
         hunks.flatMap(\.lines).filter { $0.kind == .addition }.count
@@ -62,6 +65,13 @@ enum DiffParser {
                 fileDiffs.append(fileDiff)
             }
             i = nextIndex
+        }
+
+        // Post-process: compute inline highlights for matched deletion→addition pairs
+        for fi in 0..<fileDiffs.count {
+            for hi in 0..<fileDiffs[fi].hunks.count {
+                computeInlineHighlights(for: &fileDiffs[fi].hunks[hi].lines)
+            }
         }
 
         return fileDiffs
@@ -186,5 +196,81 @@ enum DiffParser {
         let oldStart = Int(header[Range(match.range(at: 1), in: header)!]) ?? 1
         let newStart = Int(header[Range(match.range(at: 2), in: header)!]) ?? 1
         return (oldStart, newStart)
+    }
+
+    // MARK: - Inline Highlighting
+
+    /// Post-processes a hunk's lines to compute inline (character-level) highlights
+    /// for matched deletion→addition pairs.
+    static func computeInlineHighlights(for lines: inout [DiffLine]) {
+        var i = 0
+        while i < lines.count {
+            guard lines[i].kind == .deletion else {
+                i += 1
+                continue
+            }
+
+            var deletionIndices: [Int] = []
+            while i < lines.count && lines[i].kind == .deletion {
+                deletionIndices.append(i)
+                i += 1
+            }
+
+            var additionIndices: [Int] = []
+            while i < lines.count && lines[i].kind == .addition {
+                additionIndices.append(i)
+                i += 1
+            }
+
+            let pairCount = min(deletionIndices.count, additionIndices.count)
+            for p in 0..<pairCount {
+                let delIdx = deletionIndices[p]
+                let addIdx = additionIndices[p]
+                let (delHL, addHL) = computeCharDiff(
+                    old: lines[delIdx].text,
+                    new: lines[addIdx].text
+                )
+                if !delHL.isEmpty { lines[delIdx].inlineHighlights = delHL }
+                if !addHL.isEmpty { lines[addIdx].inlineHighlights = addHL }
+            }
+        }
+    }
+
+    /// Computes character-level diff between two strings by finding the common
+    /// prefix and suffix, marking the middle as the changed region.
+    static func computeCharDiff(old: String, new: String) -> ([Range<Int>], [Range<Int>]) {
+        let oldChars = Array(old)
+        let newChars = Array(new)
+
+        var prefixLen = 0
+        while prefixLen < oldChars.count && prefixLen < newChars.count
+              && oldChars[prefixLen] == newChars[prefixLen] {
+            prefixLen += 1
+        }
+
+        var suffixLen = 0
+        while suffixLen < (oldChars.count - prefixLen)
+              && suffixLen < (newChars.count - prefixLen)
+              && oldChars[oldChars.count - 1 - suffixLen] == newChars[newChars.count - 1 - suffixLen] {
+            suffixLen += 1
+        }
+
+        let oldChangeStart = prefixLen
+        let oldChangeEnd = oldChars.count - suffixLen
+        let newChangeStart = prefixLen
+        let newChangeEnd = newChars.count - suffixLen
+
+        // Only highlight if the change is partial (not the entire line)
+        guard prefixLen > 0 || suffixLen > 0 else { return ([], []) }
+
+        var oldRanges: [Range<Int>] = []
+        var newRanges: [Range<Int>] = []
+        if oldChangeEnd > oldChangeStart {
+            oldRanges.append(oldChangeStart..<oldChangeEnd)
+        }
+        if newChangeEnd > newChangeStart {
+            newRanges.append(newChangeStart..<newChangeEnd)
+        }
+        return (oldRanges, newRanges)
     }
 }
