@@ -14,6 +14,11 @@ struct SettingsView: View {
                     Label("Terminal", systemImage: "terminal")
                 }
 
+            EditorSettingsTab()
+                .tabItem {
+                    Label("Editor", systemImage: "square.and.pencil")
+                }
+
             NotificationsSettingsTab()
                 .tabItem {
                     Label("Notifications", systemImage: "bell")
@@ -71,6 +76,39 @@ private struct TerminalSettingsTab: View {
                 .settingsDescription()
         }
         .padding(20)
+    }
+}
+
+// MARK: - Editor
+
+private struct EditorSettingsTab: View {
+    @AppStorage("preferredEditorID") private var preferredEditorID: String = ""
+    private var installed: [ExternalEditor] { ExternalEditorManager.installedEditors }
+
+    var body: some View {
+        Form {
+            if installed.isEmpty {
+                Text("No supported editors detected.")
+                    .foregroundStyle(.secondary)
+                Text("Install VS Code, Cursor, Zed, or Sublime Text to enable \"Open in Editor\" from context menus. Files will open with the system default app in the meantime.")
+                    .settingsDescription()
+            } else {
+                Picker("External editor", selection: $preferredEditorID) {
+                    ForEach(installed) { editor in
+                        Text(editor.name).tag(editor.id)
+                    }
+                }
+                Text("The editor used when opening files from context menus and the preview toolbar.")
+                    .settingsDescription()
+            }
+        }
+        .padding(20)
+        .onAppear {
+            // Default to first installed editor if no preference set
+            if preferredEditorID.isEmpty, let first = installed.first {
+                preferredEditorID = first.id
+            }
+        }
     }
 }
 

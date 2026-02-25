@@ -58,6 +58,19 @@ struct FilePreviewView: View {
 
                 Button {
                     if let url = model.selectedURL {
+                        ExternalEditorManager.openFile(url)
+                    }
+                } label: {
+                    Image(systemName: "square.and.pencil")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.borderless)
+                .help(ExternalEditorManager.preferred.map { "Open in \($0.name)" } ?? "Open in Default App")
+                .disabled(model.selectedURL == nil)
+
+                Button {
+                    if let url = model.selectedURL {
                         model.closeTab(url)
                     }
                 } label: {

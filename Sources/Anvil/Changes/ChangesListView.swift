@@ -7,6 +7,7 @@ struct ChangesListView: View {
     @ObservedObject var model: ChangesModel
     @ObservedObject var filePreview: FilePreviewModel
     @EnvironmentObject var terminalProxy: TerminalInputProxy
+    @State private var fileToDiscard: ChangedFile?
 
     var body: some View {
         if model.isLoading && model.changedFiles.isEmpty && model.recentCommits.isEmpty {
@@ -99,6 +100,28 @@ struct ChangesListView: View {
                 }
             }
             .listStyle(.sidebar)
+            .alert("Discard Changes?", isPresented: Binding(
+                get: { fileToDiscard != nil },
+                set: { if !$0 { fileToDiscard = nil } }
+            )) {
+                Button("Discard", role: .destructive) {
+                    if let file = fileToDiscard {
+                        model.discardChanges(for: file)
+                        // Close preview if showing this file's diff
+                        if filePreview.selectedURL == file.url {
+                            filePreview.refresh()
+                        }
+                    }
+                    fileToDiscard = nil
+                }
+                Button("Cancel", role: .cancel) {
+                    fileToDiscard = nil
+                }
+            } message: {
+                if let file = fileToDiscard {
+                    Text("This will permanently discard all uncommitted changes to \"\(file.fileName)\". This cannot be undone.")
+                }
+            }
         }
     }
 
@@ -108,6 +131,18 @@ struct ChangesListView: View {
             terminalProxy.mentionFile(relativePath: file.relativePath)
         } label: {
             Label("Mention in Terminal", systemImage: "terminal")
+        }
+
+        Divider()
+
+        Button {
+            ExternalEditorManager.openFile(file.url)
+        } label: {
+            if let editor = ExternalEditorManager.preferred {
+                Label("Open in \(editor.name)", systemImage: "square.and.pencil")
+            } else {
+                Label("Open in Default App", systemImage: "square.and.pencil")
+            }
         }
 
         Divider()
@@ -132,6 +167,14 @@ struct ChangesListView: View {
             NSWorkspace.shared.activateFileViewerSelecting([file.url])
         } label: {
             Label("Reveal in Finder", systemImage: "folder")
+        }
+
+        Divider()
+
+        Button(role: .destructive) {
+            fileToDiscard = file
+        } label: {
+            Label("Discard Changes…", systemImage: "arrow.uturn.backward")
         }
     }
 }

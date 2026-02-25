@@ -203,6 +203,18 @@ struct ActivityEventRow: View {
                 } label: {
                     Label("Reveal in Finder", systemImage: "folder")
                 }
+
+                Divider()
+
+                Button {
+                    ExternalEditorManager.openFile(url)
+                } label: {
+                    if let editor = ExternalEditorManager.preferred {
+                        Label("Open in \(editor.name)", systemImage: "square.and.pencil")
+                    } else {
+                        Label("Open in Default App", systemImage: "square.and.pencil")
+                    }
+                }
             }
         }
     }

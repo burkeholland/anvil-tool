@@ -159,6 +159,39 @@ final class ChangesModel: ObservableObject {
         }
     }
 
+    /// Discard all uncommitted changes to a file.
+    /// Handles different git statuses appropriately.
+    func discardChanges(for file: ChangedFile) {
+        guard let rootURL = rootDirectory else { return }
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            switch file.status {
+            case .untracked:
+                // Remove untracked file from disk
+                Self.runGitSync(args: ["clean", "-f", "--", file.relativePath], at: rootURL)
+            case .added:
+                // Unstage and remove a newly added file
+                Self.runGitSync(args: ["rm", "-f", "--", file.relativePath], at: rootURL)
+            default:
+                // For modified, deleted, renamed, conflicted: restore from HEAD
+                Self.runGitSync(args: ["checkout", "HEAD", "--", file.relativePath], at: rootURL)
+            }
+            DispatchQueue.main.async {
+                self?.refresh()
+            }
+        }
+    }
+
+    private static func runGitSync(args: [String], at directory: URL) {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+        process.arguments = args
+        process.currentDirectoryURL = directory
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try? process.run()
+        process.waitUntilExit()
+    }
+
     private static func findGitRoot(for directory: URL) -> URL? {
         let process = Process()
         let pipe = Pipe()
