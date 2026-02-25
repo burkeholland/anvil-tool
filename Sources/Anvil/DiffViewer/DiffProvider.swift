@@ -85,6 +85,74 @@ enum DiffProvider {
         return diff
     }
 
+    // MARK: - Branch Diff (PR Preview)
+
+    /// Returns the merge-base SHA between `base` and HEAD, or nil if there is
+    /// no common ancestor (e.g., unrelated histories, detached HEAD with no base).
+    static func mergeBase(_ base: String, in directory: URL) -> String? {
+        guard let sha = runGitDiff(args: ["merge-base", base, "HEAD"], at: directory)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !sha.isEmpty else {
+            return nil
+        }
+        return sha
+    }
+
+    /// Returns the raw diff between `baseSHA` and HEAD (the full branch diff).
+    static func branchDiff(baseSHA: String, in directory: URL) -> [FileDiff] {
+        guard let output = runGitDiff(args: ["diff", "--no-renames", baseSHA, "HEAD"], at: directory),
+              !output.isEmpty else {
+            return []
+        }
+        return DiffParser.parse(output)
+    }
+
+    /// Returns a list of changed files between `baseSHA` and HEAD with addition/deletion stats.
+    static func branchChangedFiles(baseSHA: String, in directory: URL) -> [BranchDiffFile] {
+        // Use --no-renames to avoid {old => new} path format mismatches
+        guard let numstatOutput = runGitDiff(args: ["diff", "--numstat", "--no-renames", baseSHA, "HEAD"], at: directory),
+              !numstatOutput.isEmpty else {
+            return []
+        }
+        let statusOutput = runGitDiff(args: ["diff", "--name-status", "--no-renames", baseSHA, "HEAD"], at: directory) ?? ""
+
+        var statusMap: [String: String] = [:]
+        for line in statusOutput.components(separatedBy: "\n") where !line.isEmpty {
+            let parts = line.split(separator: "\t", maxSplits: 1)
+            guard parts.count == 2 else { continue }
+            let status = String(parts[0].prefix(1))
+            let path = String(parts[1])
+            statusMap[path] = status
+        }
+
+        var files: [BranchDiffFile] = []
+        for line in numstatOutput.components(separatedBy: "\n") where !line.isEmpty {
+            let parts = line.split(separator: "\t", maxSplits: 2)
+            guard parts.count == 3 else { continue }
+            let adds = Int(parts[0]) ?? 0
+            let dels = Int(parts[1]) ?? 0
+            let path = String(parts[2])
+            let status = statusMap[path] ?? "M"
+            files.append(BranchDiffFile(
+                path: path, additions: adds, deletions: dels, status: status
+            ))
+        }
+
+        return files.sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
+    }
+
+    /// Detects the default branch name (main or master) if it exists.
+    static func defaultBranch(in directory: URL) -> String? {
+        for candidate in ["main", "master"] {
+            if let sha = runGitDiff(args: ["rev-parse", "--verify", candidate], at: directory)?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+               !sha.isEmpty {
+                return candidate
+            }
+        }
+        return nil
+    }
+
     // MARK: - Private
 
     private static func runGitDiff(args: [String], at directory: URL) -> String? {

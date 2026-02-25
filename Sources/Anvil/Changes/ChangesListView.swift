@@ -8,6 +8,7 @@ struct ChangesListView: View {
     @ObservedObject var filePreview: FilePreviewModel
     @ObservedObject var workingDirectory: WorkingDirectoryModel
     var onReviewAll: (() -> Void)?
+    var onBranchDiff: (() -> Void)?
     @EnvironmentObject var terminalProxy: TerminalInputProxy
     @State private var fileToDiscard: ChangedFile?
     @State private var showDiscardAllConfirm = false
@@ -62,6 +63,29 @@ struct ChangesListView: View {
                                 onClearAll: { model.clearAllReviewed() }
                             )
                         }
+                    }
+                }
+
+                // Branch diff button (PR preview)
+                if let onBranchDiff, workingDirectory.gitBranch != nil {
+                    Section {
+                        Button {
+                            onBranchDiff()
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: "arrow.triangle.pull")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(.purple)
+                                Text("Branch Diff")
+                                    .font(.system(size: 12, weight: .medium))
+                                Spacer()
+                                Text("PR Preview")
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(.tertiary)
+                            }
+                            .padding(.vertical, 2)
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
 

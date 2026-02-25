@@ -19,6 +19,7 @@ struct ContentView: View {
     @StateObject private var terminalTabs = TerminalTabsModel()
     @StateObject private var commandPalette = CommandPaletteModel()
     @StateObject private var fileTreeModel = FileTreeModel()
+    @StateObject private var branchDiffModel = BranchDiffModel()
     @State private var notificationManager = AgentNotificationManager()
     @AppStorage("sidebarWidth") private var sidebarWidth: Double = 240
     @AppStorage("previewWidth") private var previewWidth: Double = 400
@@ -38,6 +39,7 @@ struct ContentView: View {
     @State private var showInstructions = false
     @State private var showCopilotActions = false
     @State private var showProjectSwitcher = false
+    @State private var showBranchDiff = false
 
     var body: some View {
         ZStack {
@@ -208,7 +210,14 @@ struct ContentView: View {
                         searchModel: searchModel,
                         fileTreeModel: fileTreeModel,
                         activeTab: $sidebarTab,
-                        onReviewAll: { showDiffSummary = true }
+                        onReviewAll: { showDiffSummary = true },
+                        onBranchDiff: {
+                            if let url = workingDirectory.directoryURL {
+                                branchDiffModel.load(rootURL: url)
+                            }
+                            showDiffSummary = false
+                            showBranchDiff = true
+                        }
                     )
                         .frame(width: max(sidebarWidth, 0))
 
@@ -308,7 +317,7 @@ struct ContentView: View {
                     )
                 }
 
-                if filePreview.selectedURL != nil || showDiffSummary {
+                if filePreview.selectedURL != nil || showDiffSummary || showBranchDiff {
                     PanelDivider(
                         width: $previewWidth,
                         minWidth: 200,
@@ -317,7 +326,19 @@ struct ContentView: View {
                     )
 
                     VStack(spacing: 0) {
-                        if showDiffSummary {
+                        if showBranchDiff {
+                            BranchDiffView(
+                                model: branchDiffModel,
+                                onSelectFile: { path, _ in
+                                    showBranchDiff = false
+                                    if let root = workingDirectory.directoryURL {
+                                        let url = root.appendingPathComponent(path)
+                                        filePreview.select(url)
+                                    }
+                                },
+                                onDismiss: { showBranchDiff = false }
+                            )
+                        } else if showDiffSummary {
                             DiffSummaryView(
                                 changesModel: changesModel,
                                 onSelectFile: { url in
@@ -604,6 +625,16 @@ struct ContentView: View {
                 showDiffSummary = true
             },
 
+            PaletteCommand(id: "branch-diff", title: "Branch Diff (PR Preview)", icon: "arrow.triangle.pull", shortcut: nil, category: "Actions") {
+                hasProject && workingDirectory.gitBranch != nil
+            } action: { [weak branchDiffModel, weak workingDirectory] in
+                if let url = workingDirectory?.directoryURL {
+                    branchDiffModel?.load(rootURL: url)
+                }
+                showDiffSummary = false
+                showBranchDiff = true
+            },
+
             PaletteCommand(id: "next-change", title: "Next Changed File", icon: "chevron.down", shortcut: "⌃⌘↓", category: "Actions") {
                 hasChangesToNavigate
             } action: {
@@ -722,6 +753,7 @@ struct ContentView: View {
         showTaskBanner = false
         filePreview.close()
         showDiffSummary = false
+        showBranchDiff = false
         changesModel.stop()
         activityModel.stop()
         searchModel.clear()
@@ -1100,6 +1132,7 @@ struct SidebarView: View {
     @ObservedObject var fileTreeModel: FileTreeModel
     @Binding var activeTab: SidebarTab
     var onReviewAll: (() -> Void)?
+    var onBranchDiff: (() -> Void)?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -1171,7 +1204,7 @@ struct SidebarView: View {
                 }
 
             case .changes:
-                ChangesListView(model: changesModel, filePreview: filePreview, workingDirectory: model, onReviewAll: onReviewAll)
+                ChangesListView(model: changesModel, filePreview: filePreview, workingDirectory: model, onReviewAll: onReviewAll, onBranchDiff: onBranchDiff)
 
             case .activity:
                 ActivityFeedView(model: activityModel, filePreview: filePreview)
