@@ -17,6 +17,8 @@ final class FileTreeModel: ObservableObject {
     private var indexGeneration: UInt64 = 0
     /// Cached flat list of all files under root for fast search.
     private var allFiles: [FileSearchResult] = []
+    /// Gitignore-aware filter for hiding ignored files and directories.
+    private var gitIgnoreFilter: GitIgnoreFilter?
 
     deinit {
         fileWatcher?.stop()
@@ -28,6 +30,18 @@ final class FileTreeModel: ObservableObject {
 
     func start(rootURL: URL) {
         self.rootURL = rootURL
+        let filter = GitIgnoreFilter(rootURL: rootURL)
+        self.gitIgnoreFilter = filter
+        // Run initial git filter refresh off main thread, then build the tree
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            filter.refresh()
+            DispatchQueue.main.async {
+                self?.rebuildFileIndex()
+                self?.rebuildEntries()
+                self?.refreshGitStatus()
+            }
+        }
+        // Show tree immediately with fallback filter while git loads
         rebuildFileIndex()
         rebuildEntries()
         refreshGitStatus()
@@ -128,9 +142,21 @@ final class FileTreeModel: ObservableObject {
     // MARK: - Private
 
     private func onFileSystemChange() {
-        rebuildFileIndex()
-        rebuildEntries()
-        refreshGitStatus()
+        // Refresh gitignore filter on a background thread, then rebuild
+        if rootURL != nil {
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                self?.gitIgnoreFilter?.refresh()
+                DispatchQueue.main.async {
+                    self?.rebuildFileIndex()
+                    self?.rebuildEntries()
+                    self?.refreshGitStatus()
+                }
+            }
+        } else {
+            rebuildFileIndex()
+            rebuildEntries()
+            refreshGitStatus()
+        }
     }
 
     private func rebuildEntries() {
@@ -148,7 +174,7 @@ final class FileTreeModel: ObservableObject {
     }
 
     private func buildEntries(for directory: URL, depth: Int, into entries: inout [FileEntry]) {
-        let children = FileEntry.loadChildren(of: directory, depth: depth)
+        let children = FileEntry.loadChildren(of: directory, depth: depth, filter: gitIgnoreFilter)
         for child in children {
             entries.append(child)
             if child.isDirectory && expandedDirs.contains(child.url) {
@@ -175,9 +201,10 @@ final class FileTreeModel: ObservableObject {
         guard let rootURL = rootURL else { return }
         indexGeneration &+= 1
         let generation = indexGeneration
+        let filter = gitIgnoreFilter
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             var results: [FileSearchResult] = []
-            Self.indexFiles(at: rootURL, rootURL: rootURL, into: &results)
+            Self.indexFiles(at: rootURL, rootURL: rootURL, filter: filter, into: &results)
             DispatchQueue.main.async {
                 guard let self = self, self.indexGeneration == generation else { return }
                 self.allFiles = results
@@ -188,28 +215,36 @@ final class FileTreeModel: ObservableObject {
         }
     }
 
-    private static func indexFiles(at directory: URL, rootURL: URL, into results: inout [FileSearchResult]) {
+    private static func indexFiles(at directory: URL, rootURL: URL, filter: GitIgnoreFilter?, into results: inout [FileSearchResult]) {
+        let options: FileManager.DirectoryEnumerationOptions = filter?.isGitRepo == true ? [] : [.skipsHiddenFiles]
         guard let contents = try? FileManager.default.contentsOfDirectory(
             at: directory,
             includingPropertiesForKeys: [.isDirectoryKey],
-            options: [.skipsHiddenFiles]
+            options: options
         ) else { return }
 
-        let hidden: Set<String> = [".git", ".build", ".DS_Store", ".swiftpm", "node_modules"]
+        let rootPath = rootURL.standardizedFileURL.path
+
         for url in contents {
             let name = url.lastPathComponent
-            if hidden.contains(name) { continue }
             let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
-            if isDir {
-                Self.indexFiles(at: url, rootURL: rootURL, into: &results)
+            let absPath = url.standardizedFileURL.path
+            var relPath = absPath
+            if absPath.hasPrefix(rootPath) {
+                relPath = String(absPath.dropFirst(rootPath.count))
+                if relPath.hasPrefix("/") { relPath = String(relPath.dropFirst()) }
+            }
+
+            if let filter = filter {
+                guard filter.shouldShow(name: name, relativePath: relPath, isDirectory: isDir) else { continue }
             } else {
-                let rootPath = rootURL.standardizedFileURL.path
-                let absPath = url.standardizedFileURL.path
-                var relPath = absPath
-                if absPath.hasPrefix(rootPath) {
-                    relPath = String(absPath.dropFirst(rootPath.count))
-                    if relPath.hasPrefix("/") { relPath = String(relPath.dropFirst()) }
-                }
+                let hidden: Set<String> = [".git", ".build", ".DS_Store", ".swiftpm", "node_modules"]
+                if hidden.contains(name) { continue }
+            }
+
+            if isDir {
+                Self.indexFiles(at: url, rootURL: rootURL, filter: filter, into: &results)
+            } else {
                 results.append(FileSearchResult(url: url, name: name, relativePath: relPath))
             }
         }

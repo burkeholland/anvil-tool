@@ -12,6 +12,7 @@ final class QuickOpenModel: ObservableObject {
     private var allFiles: [IndexedFile] = []
     private var rootURL: URL?
     private var indexGeneration: UInt64 = 0
+    private var gitIgnoreFilter: GitIgnoreFilter?
 
     struct IndexedFile {
         let url: URL
@@ -23,16 +24,18 @@ final class QuickOpenModel: ObservableObject {
 
     func index(rootURL: URL) {
         if rootURL == self.rootURL {
-            // Same project — just refresh results without re-indexing
             performSearch()
             return
         }
         self.rootURL = rootURL
+        let filter = GitIgnoreFilter(rootURL: rootURL)
+        self.gitIgnoreFilter = filter
         indexGeneration &+= 1
         let generation = indexGeneration
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            filter.refresh()
             var files: [IndexedFile] = []
-            Self.indexFiles(at: rootURL, rootURL: rootURL, into: &files)
+            Self.indexFiles(at: rootURL, rootURL: rootURL, filter: filter, into: &files)
             DispatchQueue.main.async {
                 guard let self = self, self.indexGeneration == generation else { return }
                 self.allFiles = files
@@ -145,33 +148,39 @@ final class QuickOpenModel: ObservableObject {
 
     // MARK: - File Indexing
 
-    private static let hiddenNames: Set<String> = [
-        ".git", ".build", ".DS_Store", ".swiftpm", "node_modules",
-        ".Trash", "DerivedData", "xcuserdata"
-    ]
-
-    private static func indexFiles(at directory: URL, rootURL: URL, into results: inout [IndexedFile]) {
+    private static func indexFiles(at directory: URL, rootURL: URL, filter: GitIgnoreFilter?, into results: inout [IndexedFile]) {
+        let options: FileManager.DirectoryEnumerationOptions = filter?.isGitRepo == true ? [] : [.skipsHiddenFiles]
         guard let contents = try? FileManager.default.contentsOfDirectory(
             at: directory,
             includingPropertiesForKeys: [.isDirectoryKey],
-            options: [.skipsHiddenFiles]
+            options: options
         ) else { return }
 
         let rootPath = rootURL.standardizedFileURL.path
 
         for url in contents {
             let name = url.lastPathComponent
-            if hiddenNames.contains(name) { continue }
             let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
-            if isDir {
-                indexFiles(at: url, rootURL: rootURL, into: &results)
+            let absPath = url.standardizedFileURL.path
+            var relPath = absPath
+            if absPath.hasPrefix(rootPath) {
+                relPath = String(absPath.dropFirst(rootPath.count))
+                if relPath.hasPrefix("/") { relPath = String(relPath.dropFirst()) }
+            }
+
+            if let filter = filter {
+                guard filter.shouldShow(name: name, relativePath: relPath, isDirectory: isDir) else { continue }
             } else {
-                let absPath = url.standardizedFileURL.path
-                var relPath = absPath
-                if absPath.hasPrefix(rootPath) {
-                    relPath = String(absPath.dropFirst(rootPath.count))
-                    if relPath.hasPrefix("/") { relPath = String(relPath.dropFirst()) }
-                }
+                let hidden: Set<String> = [
+                    ".git", ".build", ".DS_Store", ".swiftpm", "node_modules",
+                    ".Trash", "DerivedData", "xcuserdata"
+                ]
+                if hidden.contains(name) { continue }
+            }
+
+            if isDir {
+                indexFiles(at: url, rootURL: rootURL, filter: filter, into: &results)
+            } else {
                 results.append(IndexedFile(
                     url: url,
                     name: name,

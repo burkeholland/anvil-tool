@@ -39,20 +39,30 @@ struct FileEntry: Identifiable {
         }
     }
 
-    /// Hidden directories and files that clutter the file tree
+    /// Hidden directories and files that clutter the file tree (fallback when no filter provided)
     private static let hiddenPrefixes: Set<String> = [".git", ".build", ".DS_Store", ".swiftpm"]
 
-    static func loadChildren(of url: URL, depth: Int = 0) -> [FileEntry] {
+    static func loadChildren(of url: URL, depth: Int = 0, filter: GitIgnoreFilter? = nil) -> [FileEntry] {
+        let options: FileManager.DirectoryEnumerationOptions = filter?.isGitRepo == true ? [] : [.skipsHiddenFiles]
         guard let contents = try? FileManager.default.contentsOfDirectory(
             at: url,
             includingPropertiesForKeys: [.isDirectoryKey],
-            options: [.skipsHiddenFiles]
+            options: options
         ) else {
             return []
         }
 
         return contents
-            .filter { !hiddenPrefixes.contains($0.lastPathComponent) }
+            .filter { childURL in
+                let name = childURL.lastPathComponent
+                if let filter = filter {
+                    let isDir = (try? childURL.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
+                    let relPath = filter.relativePath(for: childURL)
+                    return filter.shouldShow(name: name, relativePath: relPath, isDirectory: isDir)
+                } else {
+                    return !hiddenPrefixes.contains(name)
+                }
+            }
             .sorted { lhs, rhs in
                 let lhsIsDir = (try? lhs.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
                 let rhsIsDir = (try? rhs.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
