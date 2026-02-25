@@ -275,6 +275,9 @@ struct FilePreviewView: View {
                     .transition(.move(edge: .top).combined(with: .opacity))
                 }
             }
+
+            // Copilot prompt bar
+            CopilotPromptBar(relativePath: model.relativePath)
         }
         .background(Color(nsColor: .textBackgroundColor))
         .onChange(of: model.showGoToLine) { _, show in
@@ -380,6 +383,102 @@ struct GoToLineBar: View {
         .shadow(color: .black.opacity(0.2), radius: 8, y: 4)
         .onAppear {
             isFocused = true
+        }
+    }
+}
+
+/// Compact input bar at the bottom of file preview for sending prompts to the Copilot CLI
+/// with the current file as context (e.g. "@filename fix the alignment on line 42").
+struct CopilotPromptBar: View {
+    let relativePath: String
+    @EnvironmentObject var terminalProxy: TerminalInputProxy
+    @State private var promptText = ""
+    @State private var isExpanded = false
+    @FocusState private var isFocused: Bool
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Divider()
+
+            if isExpanded {
+                HStack(spacing: 8) {
+                    Text("@\(fileName)")
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .foregroundStyle(.cyan)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+
+                    TextField("Ask Copilot about this file…", text: $promptText)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 12))
+                        .focused($isFocused)
+                        .onSubmit { sendPrompt() }
+                        .onExitCommand { collapse() }
+
+                    if !promptText.isEmpty {
+                        Button { sendPrompt() } label: {
+                            Image(systemName: "arrow.up.circle.fill")
+                                .font(.system(size: 16))
+                                .foregroundStyle(Color.accentColor)
+                        }
+                        .buttonStyle(.borderless)
+                        .help("Send to Copilot (↵)")
+                    }
+
+                    Button { collapse() } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(.tertiary)
+                    }
+                    .buttonStyle(.borderless)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
+                .onAppear { isFocused = true }
+            } else {
+                Button { expand() } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "terminal")
+                            .font(.system(size: 10))
+                        Text("Ask Copilot about this file…")
+                            .font(.system(size: 11))
+                        Spacer()
+                    }
+                    .foregroundStyle(.tertiary)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .background(Color(nsColor: .controlBackgroundColor).opacity(0.3))
+            }
+        }
+    }
+
+    private var fileName: String {
+        (relativePath as NSString).lastPathComponent
+    }
+
+    private func sendPrompt() {
+        let text = promptText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        terminalProxy.mentionFile(relativePath: relativePath)
+        terminalProxy.send(text + "\n")
+        promptText = ""
+        collapse()
+    }
+
+    private func expand() {
+        withAnimation(.easeOut(duration: 0.15)) {
+            isExpanded = true
+        }
+    }
+
+    private func collapse() {
+        withAnimation(.easeOut(duration: 0.15)) {
+            isExpanded = false
+            promptText = ""
         }
     }
 }
