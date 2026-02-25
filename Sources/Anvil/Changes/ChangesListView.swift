@@ -100,15 +100,21 @@ struct ChangesListView: View {
                 if !model.stagedFiles.isEmpty {
                     Section {
                         ForEach(model.stagedFiles) { file in
+                            let fileIdx = model.changedFiles.firstIndex(where: { $0.id == file.id })
                             ChangedFileRow(
                                 file: file,
                                 isSelected: filePreview.selectedURL == file.url,
                                 isStaged: true,
-                                isReviewed: model.isReviewed(file)
+                                isReviewed: model.isReviewed(file),
+                                isFocused: fileIdx == model.focusedFileIndex
                             )
                             .contentShape(Rectangle())
                             .onTapGesture {
                                 filePreview.select(file.url)
+                                if let idx = fileIdx {
+                                    model.focusedFileIndex = idx
+                                    model.focusedHunkIndex = nil
+                                }
                             }
                             .contextMenu {
                                 changedFileContextMenu(file: file, isStaged: true)
@@ -138,15 +144,21 @@ struct ChangesListView: View {
                 if !model.unstagedFiles.isEmpty {
                     Section {
                         ForEach(model.unstagedFiles) { file in
+                            let fileIdx = model.changedFiles.firstIndex(where: { $0.id == file.id })
                             ChangedFileRow(
                                 file: file,
                                 isSelected: filePreview.selectedURL == file.url,
                                 isStaged: false,
-                                isReviewed: model.isReviewed(file)
+                                isReviewed: model.isReviewed(file),
+                                isFocused: fileIdx == model.focusedFileIndex
                             )
                             .contentShape(Rectangle())
                             .onTapGesture {
                                 filePreview.select(file.url)
+                                if let idx = fileIdx {
+                                    model.focusedFileIndex = idx
+                                    model.focusedHunkIndex = nil
+                                }
                             }
                             .contextMenu {
                                 changedFileContextMenu(file: file, isStaged: false)
@@ -261,6 +273,31 @@ struct ChangesListView: View {
                 }
             }
             .listStyle(.sidebar)
+            .onKeyPress { keyPress in
+                switch keyPress.characters {
+                case "]": model.focusNextFile(); return .handled
+                case "[": model.focusPreviousFile(); return .handled
+                case "j", "n": model.focusNextHunk(); return .handled
+                case "k", "p": model.focusPreviousHunk(); return .handled
+                case "s": model.stageFocusedHunk(); return .handled
+                case "d": model.discardFocusedHunk(); return .handled
+                case "r": model.toggleFocusedFileReviewed(); return .handled
+                default:
+                    if keyPress.key == .return {
+                        if let url = model.focusedFile?.url { filePreview.select(url) }
+                        return .handled
+                    }
+                    return .ignored
+                }
+            }
+            .focusedValue(\.nextReviewFile, !model.changedFiles.isEmpty ? { model.focusNextFile() } : nil)
+            .focusedValue(\.previousReviewFile, !model.changedFiles.isEmpty ? { model.focusPreviousFile() } : nil)
+            .focusedValue(\.nextHunk, !model.changedFiles.isEmpty ? { model.focusNextHunk() } : nil)
+            .focusedValue(\.previousHunk, !model.changedFiles.isEmpty ? { model.focusPreviousHunk() } : nil)
+            .focusedValue(\.stageFocusedHunk, model.focusedHunk != nil ? { model.stageFocusedHunk() } : nil)
+            .focusedValue(\.discardFocusedHunk, model.focusedHunk != nil ? { model.discardFocusedHunk() } : nil)
+            .focusedValue(\.toggleFocusedFileReviewed, model.focusedFile != nil ? { model.toggleFocusedFileReviewed() } : nil)
+            .focusedValue(\.openFocusedFile, model.focusedFile != nil ? { if let url = model.focusedFile?.url { filePreview.select(url) } } : nil)
             .alert("Discard Changes?", isPresented: Binding(
                 get: { fileToDiscard != nil },
                 set: { if !$0 { fileToDiscard = nil } }
@@ -1024,6 +1061,7 @@ struct ChangedFileRow: View {
     let isSelected: Bool
     var isStaged: Bool = false
     var isReviewed: Bool = false
+    var isFocused: Bool = false
 
     var body: some View {
         HStack(spacing: 6) {
@@ -1091,6 +1129,11 @@ struct ChangedFileRow: View {
         .background(
             isSelected
                 ? RoundedRectangle(cornerRadius: 4).fill(Color.accentColor.opacity(0.2))
+                : nil
+        )
+        .overlay(
+            isFocused && !isSelected
+                ? RoundedRectangle(cornerRadius: 4).strokeBorder(Color.accentColor.opacity(0.7), lineWidth: 1.5)
                 : nil
         )
     }

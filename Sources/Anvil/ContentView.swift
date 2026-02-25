@@ -669,6 +669,56 @@ struct ContentView: View {
                 navigateToPreviousChange()
             },
 
+            PaletteCommand(id: "next-review-file", title: "Next File in Review", icon: "chevron.right.2", shortcut: "]", category: "Review") {
+                hasProject && !changesModel.changedFiles.isEmpty
+            } action: { [weak changesModel] in
+                changesModel?.focusNextFile()
+            },
+
+            PaletteCommand(id: "prev-review-file", title: "Previous File in Review", icon: "chevron.left.2", shortcut: "[", category: "Review") {
+                hasProject && !changesModel.changedFiles.isEmpty
+            } action: { [weak changesModel] in
+                changesModel?.focusPreviousFile()
+            },
+
+            PaletteCommand(id: "next-hunk", title: "Next Hunk", icon: "arrow.down.to.line", shortcut: "j", category: "Review") {
+                hasProject && changesModel.focusedFile != nil
+            } action: { [weak changesModel] in
+                changesModel?.focusNextHunk()
+            },
+
+            PaletteCommand(id: "prev-hunk", title: "Previous Hunk", icon: "arrow.up.to.line", shortcut: "k", category: "Review") {
+                hasProject && changesModel.focusedFile != nil
+            } action: { [weak changesModel] in
+                changesModel?.focusPreviousHunk()
+            },
+
+            PaletteCommand(id: "stage-focused-hunk", title: "Stage Focused Hunk", icon: "plus.circle", shortcut: "s", category: "Review") {
+                changesModel.focusedHunk != nil
+            } action: { [weak changesModel] in
+                changesModel?.stageFocusedHunk()
+            },
+
+            PaletteCommand(id: "discard-focused-hunk", title: "Discard Focused Hunk", icon: "arrow.uturn.backward.circle", shortcut: "⌦", category: "Review") {
+                changesModel.focusedHunk != nil
+            } action: { [weak changesModel] in
+                changesModel?.discardFocusedHunk()
+            },
+
+            PaletteCommand(id: "toggle-file-reviewed", title: "Toggle File Reviewed", icon: "eye", shortcut: "r", category: "Review") {
+                changesModel.focusedFile != nil
+            } action: { [weak changesModel] in
+                changesModel?.toggleFocusedFileReviewed()
+            },
+
+            PaletteCommand(id: "open-focused-file", title: "Open File in Preview", icon: "arrow.up.right.square", shortcut: "↵", category: "Review") {
+                changesModel.focusedFile != nil
+            } action: { [weak changesModel, weak filePreview] in
+                if let url = changesModel?.focusedFile?.url {
+                    filePreview?.select(url)
+                }
+            },
+
             // Git
             PaletteCommand(id: "switch-branch", title: "Switch Branch…", icon: "arrow.triangle.branch", shortcut: nil, category: "Git") {
                 hasProject && workingDirectory.gitBranch != nil

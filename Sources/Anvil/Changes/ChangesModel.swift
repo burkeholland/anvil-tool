@@ -46,6 +46,27 @@ final class ChangesModel: ObservableObject {
 
     /// Relative paths the user has marked as reviewed in this session.
     @Published private(set) var reviewedPaths: Set<String> = []
+
+    // MARK: - Keyboard Navigation State
+
+    /// Index of the currently keyboard-focused file in changedFiles.
+    @Published var focusedFileIndex: Int? = nil
+    /// Index of the currently keyboard-focused hunk within the focused file's diff.
+    @Published var focusedHunkIndex: Int? = nil
+
+    var focusedFile: ChangedFile? {
+        guard let idx = focusedFileIndex, changedFiles.indices.contains(idx) else { return nil }
+        return changedFiles[idx]
+    }
+
+    var focusedHunk: DiffHunk? {
+        guard let file = focusedFile,
+              let idx = focusedHunkIndex,
+              let hunks = file.diff?.hunks,
+              hunks.indices.contains(idx) else { return nil }
+        return hunks[idx]
+    }
+
     /// Fingerprints (adds:dels:staging) captured when each file was marked reviewed.
     /// Used to auto-clear review marks when a file's diff changes.
     private var reviewedFingerprints: [String: String] = [:]
@@ -187,6 +208,71 @@ final class ChangesModel: ObservableObject {
         reviewedFingerprints.removeAll()
     }
 
+    // MARK: - Keyboard Navigation
+
+    func focusNextFile() {
+        guard !changedFiles.isEmpty else { return }
+        if let current = focusedFileIndex {
+            focusedFileIndex = min(current + 1, changedFiles.count - 1)
+        } else {
+            focusedFileIndex = 0
+        }
+        focusedHunkIndex = nil
+    }
+
+    func focusPreviousFile() {
+        guard !changedFiles.isEmpty else { return }
+        if let current = focusedFileIndex {
+            focusedFileIndex = max(current - 1, 0)
+        } else {
+            focusedFileIndex = changedFiles.count - 1
+        }
+        focusedHunkIndex = nil
+    }
+
+    func focusNextHunk() {
+        guard let file = focusedFile,
+              let hunks = file.diff?.hunks,
+              !hunks.isEmpty else {
+            if focusedFileIndex == nil { focusNextFile() }
+            return
+        }
+        if let current = focusedHunkIndex {
+            focusedHunkIndex = min(current + 1, hunks.count - 1)
+        } else {
+            focusedHunkIndex = 0
+        }
+    }
+
+    func focusPreviousHunk() {
+        guard let file = focusedFile,
+              let hunks = file.diff?.hunks,
+              !hunks.isEmpty else {
+            if focusedFileIndex == nil { focusPreviousFile() }
+            return
+        }
+        if let current = focusedHunkIndex {
+            focusedHunkIndex = max(current - 1, 0)
+        } else {
+            focusedHunkIndex = hunks.count - 1
+        }
+    }
+
+    func stageFocusedHunk() {
+        guard let file = focusedFile, let hunk = focusedHunk, let diff = file.diff else { return }
+        stageHunk(patch: DiffParser.reconstructPatch(fileDiff: diff, hunk: hunk))
+    }
+
+    func discardFocusedHunk() {
+        guard let file = focusedFile, let hunk = focusedHunk, let diff = file.diff else { return }
+        discardHunk(patch: DiffParser.reconstructPatch(fileDiff: diff, hunk: hunk))
+    }
+
+    func toggleFocusedFileReviewed() {
+        guard let file = focusedFile else { return }
+        toggleReviewed(file)
+    }
+
     private func diffFingerprint(_ file: ChangedFile) -> String {
         if let diff = file.diff {
             // Include hunk headers for sensitivity to content changes, not just counts
@@ -252,6 +338,8 @@ final class ChangesModel: ObservableObject {
         lastStashError = nil
         reviewedPaths = []
         reviewedFingerprints = [:]
+        focusedFileIndex = nil
+        focusedHunkIndex = nil
     }
 
     func refresh() {
@@ -316,6 +404,16 @@ final class ChangesModel: ObservableObject {
                 self.pruneReviewedPaths(newFiles: files)
                 self.changedFiles = files
                 self.isLoading = false
+                // Clamp focused index to valid range after refresh
+                if let idx = self.focusedFileIndex {
+                    if files.isEmpty {
+                        self.focusedFileIndex = nil
+                        self.focusedHunkIndex = nil
+                    } else if idx >= files.count {
+                        self.focusedFileIndex = files.count - 1
+                        self.focusedHunkIndex = nil
+                    }
+                }
             }
         }
     }

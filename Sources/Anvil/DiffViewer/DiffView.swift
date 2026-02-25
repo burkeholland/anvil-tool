@@ -91,6 +91,7 @@ struct DiffHunkView: View {
     var syntaxHighlights: [Int: AttributedString] = [:]
     var onStage: (() -> Void)?
     var onDiscard: (() -> Void)?
+    var isFocused: Bool = false
     @State private var isHovered = false
 
     private var hasActions: Bool {
@@ -112,6 +113,13 @@ struct DiffHunkView: View {
                 } else {
                     DiffLineView(line: line, syntaxHighlight: syntaxHighlights[line.id])
                 }
+            }
+        }
+        .overlay(alignment: .leading) {
+            if isFocused {
+                Rectangle()
+                    .fill(Color.accentColor.opacity(0.7))
+                    .frame(width: 3)
             }
         }
         .onHover { hovering in
