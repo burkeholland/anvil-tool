@@ -7,8 +7,31 @@ struct CommandPaletteView: View {
     var onDismiss: () -> Void
 
     @FocusState private var isSearchFocused: Bool
+    @FocusState private var isArgumentFocused: Bool
 
     var body: some View {
+        VStack(spacing: 0) {
+            if let pending = model.pendingCommand {
+                argumentPromptView(for: pending)
+            } else {
+                searchView
+            }
+        }
+        .frame(width: 520)
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(Color(nsColor: .windowBackgroundColor))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(Color(nsColor: .separatorColor), lineWidth: 0.5)
+        )
+        .shadow(color: .black.opacity(0.3), radius: 20, y: 10)
+    }
+
+    // MARK: - Command search view
+
+    private var searchView: some View {
         VStack(spacing: 0) {
             // Search field
             HStack(spacing: 8) {
@@ -89,16 +112,6 @@ struct CommandPaletteView: View {
             .padding(.vertical, 8)
             .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
         }
-        .frame(width: 520)
-        .background(
-            RoundedRectangle(cornerRadius: 10)
-                .fill(Color(nsColor: .windowBackgroundColor))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 10)
-                .stroke(Color(nsColor: .separatorColor), lineWidth: 0.5)
-        )
-        .shadow(color: .black.opacity(0.3), radius: 20, y: 10)
         .onAppear {
             isSearchFocused = true
         }
@@ -116,8 +129,74 @@ struct CommandPaletteView: View {
         }
     }
 
+    // MARK: - Argument prompt view
+
+    private func argumentPromptView(for command: PaletteCommand) -> some View {
+        VStack(spacing: 0) {
+            // Command header
+            HStack(spacing: 8) {
+                Image(systemName: command.icon)
+                    .font(.system(size: 14))
+                    .foregroundStyle(.secondary)
+
+                Text(command.title)
+                    .font(.system(size: 15, weight: .medium))
+
+                Spacer()
+            }
+            .padding(.horizontal, 14)
+            .padding(.top, 12)
+            .padding(.bottom, 6)
+
+            Divider()
+
+            // Argument input
+            HStack(spacing: 8) {
+                Image(systemName: "text.cursor")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+
+                TextField(command.argumentPrompt ?? "Argument…", text: $model.argumentInput)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 15))
+                    .focused($isArgumentFocused)
+                    .onSubmit { confirmAndDismiss() }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+
+            Divider()
+
+            // Footer hint
+            HStack(spacing: 16) {
+                KeyHint(keys: ["↩"], label: "confirm")
+                KeyHint(keys: ["esc"], label: "back")
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
+        }
+        .onAppear {
+            isArgumentFocused = true
+        }
+        .onKeyPress(.escape) {
+            model.cancelArgument()
+            return .handled
+        }
+    }
+
+    // MARK: - Helpers
+
     private func executeAndDismiss() {
         model.executeSelected()
+        // If executeSelected entered the argument phase, don't dismiss yet.
+        if model.pendingCommand == nil {
+            onDismiss()
+        }
+    }
+
+    private func confirmAndDismiss() {
+        model.confirmArgument()
         onDismiss()
     }
 }
@@ -146,7 +225,11 @@ struct CommandResultRow: View {
 
             Spacer()
 
-            if let shortcut = result.command.shortcut {
+            if result.command.argumentPrompt != nil {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.tertiary)
+            } else if let shortcut = result.command.shortcut {
                 Text(shortcut)
                     .font(.system(size: 11, design: .monospaced))
                     .foregroundStyle(.tertiary)

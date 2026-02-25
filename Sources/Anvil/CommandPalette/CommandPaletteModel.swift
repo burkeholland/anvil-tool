@@ -7,8 +7,36 @@ struct PaletteCommand: Identifiable {
     let icon: String
     let shortcut: String?
     let category: String
+    /// When non-nil, the palette shows a secondary text-input prompt before executing.
+    /// The placeholder text describes the expected argument (e.g. "Model name (optional)").
+    let argumentPrompt: String?
     let isAvailable: () -> Bool
     let action: () -> Void
+    /// Called instead of `action` when the command has an `argumentPrompt`.
+    /// Receives the text the user typed (may be empty).
+    let actionWithArgument: ((String) -> Void)?
+
+    init(
+        id: String,
+        title: String,
+        icon: String,
+        shortcut: String?,
+        category: String,
+        argumentPrompt: String? = nil,
+        isAvailable: @escaping () -> Bool,
+        action: @escaping () -> Void,
+        actionWithArgument: ((String) -> Void)? = nil
+    ) {
+        self.id = id
+        self.title = title
+        self.icon = icon
+        self.shortcut = shortcut
+        self.category = category
+        self.argumentPrompt = argumentPrompt
+        self.isAvailable = isAvailable
+        self.action = action
+        self.actionWithArgument = actionWithArgument
+    }
 }
 
 /// A matched command with a fuzzy search score.
@@ -26,6 +54,10 @@ final class CommandPaletteModel: ObservableObject {
     }
     @Published private(set) var results: [PaletteResult] = []
     @Published var selectedIndex: Int = 0
+    /// Set when the selected command requires an argument before executing.
+    @Published var pendingCommand: PaletteCommand? = nil
+    /// The argument text typed in the secondary input prompt.
+    @Published var argumentInput: String = ""
 
     private var commands: [PaletteCommand] = []
 
@@ -42,6 +74,8 @@ final class CommandPaletteModel: ObservableObject {
     func reset() {
         query = ""
         selectedIndex = 0
+        pendingCommand = nil
+        argumentInput = ""
     }
 
     var selectedResult: PaletteResult? {
@@ -49,9 +83,33 @@ final class CommandPaletteModel: ObservableObject {
         return results[selectedIndex]
     }
 
+    /// Executes the selected command, or enters the argument-prompt phase if the command requires one.
     func executeSelected() {
         guard let result = selectedResult else { return }
-        result.command.action()
+        if result.command.argumentPrompt != nil {
+            pendingCommand = result.command
+            argumentInput = ""
+        } else {
+            result.command.action()
+        }
+    }
+
+    /// Confirms the argument input and executes the pending command.
+    func confirmArgument() {
+        guard let cmd = pendingCommand else { return }
+        if let handler = cmd.actionWithArgument {
+            handler(argumentInput)
+        } else {
+            cmd.action()
+        }
+        pendingCommand = nil
+        argumentInput = ""
+    }
+
+    /// Cancels the argument-prompt phase and returns to the command list.
+    func cancelArgument() {
+        pendingCommand = nil
+        argumentInput = ""
     }
 
     // MARK: - Fuzzy Search
