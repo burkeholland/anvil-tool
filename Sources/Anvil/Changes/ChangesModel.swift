@@ -291,12 +291,21 @@ final class ChangesModel: ObservableObject {
                     relativePath = url.lastPathComponent
                 }
 
+                let fileDiff: FileDiff?
+                if let mapped = diffMap[relativePath] {
+                    fileDiff = mapped
+                } else if detail.status == .untracked {
+                    fileDiff = DiffProvider.newFileDiff(for: url, relativePath: relativePath)
+                } else {
+                    fileDiff = nil
+                }
+
                 files.append(ChangedFile(
                     url: url,
                     relativePath: relativePath,
                     status: detail.status,
                     staging: detail.staging,
-                    diff: diffMap[relativePath]
+                    diff: fileDiff
                 ))
             }
 

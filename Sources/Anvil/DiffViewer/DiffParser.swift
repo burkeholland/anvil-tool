@@ -41,6 +41,8 @@ struct FileDiff: Identifiable {
     let oldPath: String
     let newPath: String
     var hunks: [DiffHunk]
+    /// True when the new file content does not end with a newline (synthetic diffs only).
+    var noTrailingNewline: Bool = false
 
     var additionCount: Int {
         hunks.flatMap(\.lines).filter { $0.kind == .addition }.count
@@ -288,9 +290,13 @@ enum DiffParser {
     /// New-file and deleted-file diffs are not candidates for hunk-level staging.
     static func reconstructPatch(fileDiff: FileDiff, hunk: DiffHunk) -> String {
         var lines: [String] = []
-        lines.append("diff --git a/\(fileDiff.oldPath) b/\(fileDiff.newPath)")
-        lines.append("--- a/\(fileDiff.oldPath)")
-        lines.append("+++ b/\(fileDiff.newPath)")
+        let isNewFile = fileDiff.oldPath == "/dev/null"
+        let oldRef = isNewFile ? "/dev/null" : "a/\(fileDiff.oldPath)"
+        let newRef = "b/\(fileDiff.newPath)"
+        lines.append("diff --git a/\(fileDiff.newPath) \(newRef)")
+        if isNewFile { lines.append("new file mode 100644") }
+        lines.append("--- \(isNewFile ? "/dev/null" : oldRef)")
+        lines.append("+++ \(newRef)")
         lines.append(hunk.header)
 
         for line in hunk.lines {
@@ -306,7 +312,11 @@ enum DiffParser {
             }
         }
 
-        return lines.joined(separator: "\n") + "\n"
+        var result = lines.joined(separator: "\n") + "\n"
+        if fileDiff.noTrailingNewline {
+            result += "\\ No newline at end of file\n"
+        }
+        return result
     }
 
     // MARK: - Gutter Change Map
