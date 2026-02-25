@@ -75,6 +75,9 @@ struct ContentView: View {
             },
             onNewTerminalTab: {
                 terminalTabs.addTab()
+            },
+            onFindInTerminal: {
+                terminalProxy.showFindBar()
             }
         ))
         .onChange(of: workingDirectory.directoryURL) { _, newURL in
@@ -460,6 +463,7 @@ struct SidebarTabButton: View {
 }
 
 /// Extracts focusedSceneValue modifiers to reduce type-checker complexity in ContentView.body.
+/// Split into two modifiers so neither exceeds the Swift type-checker expression limit.
 private struct FocusedSceneModifier: ViewModifier {
     @Binding var showSidebar: Bool
     @Binding var sidebarTab: SidebarTab
@@ -476,6 +480,45 @@ private struct FocusedSceneModifier: ViewModifier {
     var onDecreaseFontSize: () -> Void
     var onResetFontSize: () -> Void
     var onNewTerminalTab: () -> Void
+    var onFindInTerminal: () -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .modifier(FocusedSceneModifierA(
+                showSidebar: $showSidebar,
+                sidebarTab: $sidebarTab,
+                autoFollow: $autoFollow,
+                filePreview: filePreview,
+                changesModel: changesModel,
+                workingDirectory: workingDirectory,
+                hasProject: hasProject,
+                onShowQuickOpen: onShowQuickOpen,
+                onFindInProject: onFindInProject,
+                onBrowse: onBrowse
+            ))
+            .modifier(FocusedSceneModifierB(
+                hasProject: hasProject,
+                onCloseProject: onCloseProject,
+                onIncreaseFontSize: onIncreaseFontSize,
+                onDecreaseFontSize: onDecreaseFontSize,
+                onResetFontSize: onResetFontSize,
+                onNewTerminalTab: onNewTerminalTab,
+                onFindInTerminal: onFindInTerminal
+            ))
+    }
+}
+
+private struct FocusedSceneModifierA: ViewModifier {
+    @Binding var showSidebar: Bool
+    @Binding var sidebarTab: SidebarTab
+    @Binding var autoFollow: Bool
+    var filePreview: FilePreviewModel
+    var changesModel: ChangesModel
+    var workingDirectory: WorkingDirectoryModel
+    var hasProject: Bool
+    var onShowQuickOpen: () -> Void
+    var onFindInProject: () -> Void
+    var onBrowse: () -> Void
 
     func body(content: Content) -> some View {
         content
@@ -496,10 +539,25 @@ private struct FocusedSceneModifier: ViewModifier {
             .focusedSceneValue(\.quickOpen, hasProject ? onShowQuickOpen : nil)
             .focusedSceneValue(\.autoFollow, $autoFollow)
             .focusedSceneValue(\.findInProject, hasProject ? onFindInProject : nil)
+    }
+}
+
+private struct FocusedSceneModifierB: ViewModifier {
+    var hasProject: Bool
+    var onCloseProject: () -> Void
+    var onIncreaseFontSize: () -> Void
+    var onDecreaseFontSize: () -> Void
+    var onResetFontSize: () -> Void
+    var onNewTerminalTab: () -> Void
+    var onFindInTerminal: () -> Void
+
+    func body(content: Content) -> some View {
+        content
             .focusedSceneValue(\.closeProject, hasProject ? onCloseProject : nil)
             .focusedSceneValue(\.increaseFontSize, onIncreaseFontSize)
             .focusedSceneValue(\.decreaseFontSize, onDecreaseFontSize)
             .focusedSceneValue(\.resetFontSize, onResetFontSize)
             .focusedSceneValue(\.newTerminalTab, hasProject ? onNewTerminalTab : nil)
+            .focusedSceneValue(\.findInTerminal, hasProject ? onFindInTerminal : nil)
     }
 }

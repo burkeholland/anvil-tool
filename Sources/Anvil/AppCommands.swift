@@ -59,6 +59,10 @@ struct NewTerminalTabKey: FocusedValueKey {
     typealias Value = () -> Void
 }
 
+struct FindInTerminalKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
 extension FocusedValues {
     var sidebarVisible: Binding<Bool>? {
         get { self[SidebarVisibleKey.self] }
@@ -129,6 +133,11 @@ extension FocusedValues {
         get { self[NewTerminalTabKey.self] }
         set { self[NewTerminalTabKey.self] = newValue }
     }
+
+    var findInTerminal: (() -> Void)? {
+        get { self[FindInTerminalKey.self] }
+        set { self[FindInTerminalKey.self] = newValue }
+    }
 }
 
 // MARK: - View Menu Commands
@@ -142,6 +151,7 @@ struct ViewCommands: Commands {
     @FocusedValue(\.quickOpen) var quickOpen
     @FocusedValue(\.autoFollow) var autoFollow
     @FocusedValue(\.findInProject) var findInProject
+    @FocusedValue(\.findInTerminal) var findInTerminal
     @FocusedValue(\.increaseFontSize) var increaseFontSize
     @FocusedValue(\.decreaseFontSize) var decreaseFontSize
     @FocusedValue(\.resetFontSize) var resetFontSize
@@ -162,6 +172,12 @@ struct ViewCommands: Commands {
             }
             .keyboardShortcut("f", modifiers: [.command, .shift])
             .disabled(findInProject == nil)
+
+            Button("Find in Terminal…") {
+                findInTerminal?()
+            }
+            .keyboardShortcut("f", modifiers: .command)
+            .disabled(findInTerminal == nil)
 
             Divider()
 

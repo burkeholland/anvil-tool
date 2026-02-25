@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 import SwiftTerm
 
 /// Allows other views to send text to the embedded terminal.
@@ -17,5 +18,13 @@ final class TerminalInputProxy: ObservableObject {
             .filter { $0.value >= 0x20 && $0 != "\u{7F}" }
             .map { Character($0) }
         send("@\(String(sanitized)) ")
+    }
+
+    /// Shows the terminal's built-in find bar (⌘F).
+    func showFindBar() {
+        guard let tv = terminalView else { return }
+        let item = NSMenuItem()
+        item.tag = Int(NSFindPanelAction.showFindPanel.rawValue)
+        tv.performFindPanelAction(item)
     }
 }
