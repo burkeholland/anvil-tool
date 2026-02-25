@@ -38,6 +38,20 @@ final class SearchModel: ObservableObject {
     /// Non-nil when the regex pattern is invalid; displayed in the UI.
     @Published private(set) var regexError: String?
 
+    // MARK: - Replace
+
+    @Published var replaceText: String = ""
+    @Published var showReplace: Bool = false
+    /// True while a replacement operation is in progress.
+    @Published private(set) var isReplacing = false
+    /// Summary of the last replacement operation.
+    @Published var lastReplaceResult: ReplaceResult?
+
+    struct ReplaceResult: Equatable {
+        let filesChanged: Int
+        let replacementsCount: Int
+    }
+
     private var rootURL: URL?
     private var cancellables = Set<AnyCancellable>()
     private var searchGeneration: UInt64 = 0
@@ -62,6 +76,9 @@ final class SearchModel: ObservableObject {
 
     func setRoot(_ url: URL) {
         rootURL = url
+        results = []
+        totalMatches = 0
+        lastReplaceResult = nil
         if !query.isEmpty {
             performSearch(query: query, caseSensitive: caseSensitive, useRegex: useRegex, wholeWord: wholeWord, fileFilter: fileFilter)
         }
@@ -70,9 +87,140 @@ final class SearchModel: ObservableObject {
     func clear() {
         query = ""
         fileFilter = ""
+        replaceText = ""
         results = []
         totalMatches = 0
         regexError = nil
+        lastReplaceResult = nil
+    }
+
+    // MARK: - Replace
+
+    /// Replace all occurrences of the search query in a single file.
+    func replaceInFile(_ fileResult: SearchFileResult) {
+        let trimmed = query.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty, let rootURL = rootURL else { return }
+        // Safety: verify the file is under the current project root
+        guard fileResult.url.standardizedFileURL.path.hasPrefix(rootURL.standardizedFileURL.path) else { return }
+        isReplacing = true
+        let r = replaceText
+        let cs = caseSensitive
+        let regex = useRegex
+        let ww = wholeWord
+        workQueue.async { [weak self] in
+            let count = Self.performReplace(
+                in: fileResult.url, query: trimmed, replacement: r,
+                caseSensitive: cs, useRegex: regex, wholeWord: ww
+            )
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                self.isReplacing = false
+                if count > 0 {
+                    self.lastReplaceResult = ReplaceResult(filesChanged: 1, replacementsCount: count)
+                    self.refreshSearch()
+                }
+            }
+        }
+    }
+
+    /// Replace all occurrences of the search query across all result files.
+    func replaceAll() {
+        let trimmed = query.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty, let rootURL = rootURL else { return }
+        let rootPath = rootURL.standardizedFileURL.path
+        let files = results.filter { $0.url.standardizedFileURL.path.hasPrefix(rootPath) }
+        isReplacing = true
+        let r = replaceText
+        let cs = caseSensitive
+        let regex = useRegex
+        let ww = wholeWord
+        workQueue.async { [weak self] in
+            var totalCount = 0
+            var filesChanged = 0
+            for fileResult in files {
+                let count = Self.performReplace(
+                    in: fileResult.url, query: trimmed, replacement: r,
+                    caseSensitive: cs, useRegex: regex, wholeWord: ww
+                )
+                if count > 0 {
+                    totalCount += count
+                    filesChanged += 1
+                }
+            }
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                self.isReplacing = false
+                if totalCount > 0 {
+                    self.lastReplaceResult = ReplaceResult(filesChanged: filesChanged, replacementsCount: totalCount)
+                    self.refreshSearch()
+                }
+            }
+        }
+    }
+
+    /// Perform text replacement in a file, returning the number of replacements made.
+    static func performReplace(
+        in url: URL, query: String, replacement: String,
+        caseSensitive: Bool, useRegex: Bool, wholeWord: Bool
+    ) -> Int {
+        guard let data = try? Data(contentsOf: url),
+              let content = String(data: data, encoding: .utf8) else {
+            return 0
+        }
+
+        let (newContent, count) = applyReplacement(
+            content: content, query: query, replacement: replacement,
+            caseSensitive: caseSensitive, useRegex: useRegex, wholeWord: wholeWord
+        )
+
+        guard count > 0, newContent != content else { return 0 }
+
+        do {
+            try newContent.write(to: url, atomically: true, encoding: .utf8)
+            return count
+        } catch {
+            return 0
+        }
+    }
+
+    /// Pure function: apply replacements to a string, returning the new string and count.
+    static func applyReplacement(
+        content: String, query: String, replacement: String,
+        caseSensitive: Bool, useRegex: Bool, wholeWord: Bool
+    ) -> (String, Int) {
+        if useRegex {
+            let options: NSRegularExpression.Options = caseSensitive ? [] : [.caseInsensitive]
+            guard let regex = try? NSRegularExpression(pattern: query, options: options) else {
+                return (content, 0)
+            }
+            let nsRange = NSRange(content.startIndex..., in: content)
+            let count = regex.numberOfMatches(in: content, range: nsRange)
+            guard count > 0 else { return (content, 0) }
+            let result = regex.stringByReplacingMatches(in: content, range: nsRange, withTemplate: replacement)
+            return (result, count)
+        }
+
+        // Build a pattern for fixed-string matching
+        let escaped = NSRegularExpression.escapedPattern(for: query)
+        var pattern = escaped
+        if wholeWord {
+            pattern = "\\b\(pattern)\\b"
+        }
+        let options: NSRegularExpression.Options = caseSensitive ? [] : [.caseInsensitive]
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: options) else {
+            return (content, 0)
+        }
+        let nsRange = NSRange(content.startIndex..., in: content)
+        let count = regex.numberOfMatches(in: content, range: nsRange)
+        guard count > 0 else { return (content, 0) }
+        let escaped_replacement = NSRegularExpression.escapedTemplate(for: replacement)
+        let result = regex.stringByReplacingMatches(in: content, range: nsRange, withTemplate: escaped_replacement)
+        return (result, count)
+    }
+
+    /// Re-run the current search to refresh results after a replacement.
+    func refreshSearch() {
+        performSearch(query: query, caseSensitive: caseSensitive, useRegex: useRegex, wholeWord: wholeWord, fileFilter: fileFilter)
     }
 
     // MARK: - Search Execution

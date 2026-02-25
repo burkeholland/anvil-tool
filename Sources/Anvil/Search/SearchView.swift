@@ -86,6 +86,28 @@ struct SearchView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Spacer()
+
+                if model.isReplacing {
+                    ProgressView()
+                        .controlSize(.mini)
+                        .scaleEffect(0.7)
+                }
+
+                if model.showReplace && model.totalMatches > 0 {
+                    Button {
+                        model.replaceAll()
+                    } label: {
+                        Text("Replace All")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 2)
+                            .background(Capsule().fill(Color.accentColor))
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Replace all \(model.totalMatches) match\(model.totalMatches == 1 ? "" : "es")")
+                }
+
                 Button {
                     model.clear()
                 } label: {
@@ -100,6 +122,31 @@ struct SearchView: View {
             .padding(.vertical, 6)
             .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
 
+            // Replace result banner
+            if let result = model.lastReplaceResult {
+                HStack(spacing: 6) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.green)
+                    Text("Replaced \(result.replacementsCount) match\(result.replacementsCount == 1 ? "" : "es") in \(result.filesChanged) file\(result.filesChanged == 1 ? "" : "s")")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button {
+                        model.lastReplaceResult = nil
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 8, weight: .bold))
+                            .foregroundStyle(.tertiary)
+                    }
+                    .buttonStyle(.borderless)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 5)
+                .background(Color.green.opacity(0.06))
+                .transition(.move(edge: .top).combined(with: .opacity))
+            }
+
             Divider()
 
             ScrollView {
@@ -110,7 +157,8 @@ struct SearchView: View {
                             query: model.query,
                             caseSensitive: model.caseSensitive,
                             useRegex: model.useRegex,
-                            filePreview: filePreview
+                            filePreview: filePreview,
+                            model: model
                         )
                     }
                 }
@@ -143,6 +191,18 @@ struct SearchInputBar: View {
                     }
                     .buttonStyle(.borderless)
                 }
+
+                Button {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        model.showReplace.toggle()
+                    }
+                } label: {
+                    Image(systemName: "arrow.2.squarepath")
+                        .font(.system(size: 11))
+                        .foregroundStyle(model.showReplace ? Color.accentColor : Color.secondary)
+                }
+                .buttonStyle(.borderless)
+                .help("Toggle Replace")
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 6)
@@ -154,6 +214,41 @@ struct SearchInputBar: View {
                 RoundedRectangle(cornerRadius: 6)
                     .strokeBorder(Color(nsColor: .separatorColor), lineWidth: 0.5)
             )
+
+            // Replace field
+            if model.showReplace {
+                HStack(spacing: 6) {
+                    Image(systemName: "arrow.2.squarepath")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.tertiary)
+
+                    TextField("Replace", text: $model.replaceText)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 13))
+
+                    if model.totalMatches > 0 {
+                        Button {
+                            model.replaceAll()
+                        } label: {
+                            Image(systemName: "text.badge.checkmark")
+                                .font(.system(size: 11))
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.borderless)
+                        .help("Replace All (\(model.totalMatches) match\(model.totalMatches == 1 ? "" : "es") in \(model.results.count) file\(model.results.count == 1 ? "" : "s"))")
+                    }
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                .background(
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(Color(nsColor: .textBackgroundColor))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .strokeBorder(Color(nsColor: .separatorColor), lineWidth: 0.5)
+                )
+            }
 
             // Files to include filter
             HStack(spacing: 6) {
@@ -239,6 +334,7 @@ struct SearchFileSection: View {
     let caseSensitive: Bool
     let useRegex: Bool
     @ObservedObject var filePreview: FilePreviewModel
+    @ObservedObject var model: SearchModel
     @EnvironmentObject var terminalProxy: TerminalInputProxy
     @State private var isExpanded = true
 
@@ -274,6 +370,18 @@ struct SearchFileSection: View {
                     }
 
                     Spacer()
+
+                    if model.showReplace {
+                        Button {
+                            model.replaceInFile(fileResult)
+                        } label: {
+                            Image(systemName: "arrow.2.squarepath")
+                                .font(.system(size: 10))
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.borderless)
+                        .help("Replace all in this file")
+                    }
 
                     Text("\(fileResult.matches.count)")
                         .font(.system(size: 10, weight: .medium))
