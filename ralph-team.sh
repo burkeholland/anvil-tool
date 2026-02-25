@@ -105,14 +105,14 @@ CONTEXT_EOF
 phase_merge() {
   log "📦 Phase 1: MERGE — checking for mergeable PRs..."
 
-  # Get open PRs authored by Copilot, oldest first, excluding build-failed
+  # Get Copilot PRs that are ready (not WIP, no build-failed label), oldest first
   local pr_numbers
   pr_numbers="$(gh pr list --repo "$REPO" --state open \
-    --json number,author,createdAt,labels \
-    --jq '[.[] | select(.author.login == "Copilot" or .author.login == "copilot[bot]") | select(([.labels[]?.name] | index("build-failed")) | not)] | sort_by(.createdAt) | .[].number')" || return 0
+    --json number,author,title,createdAt,labels \
+    --jq '[.[] | select(.author.login == "app/copilot-swe-agent") | select(.title | startswith("[WIP]") | not) | select(([.labels[]?.name] | index("build-failed")) | not)] | sort_by(.createdAt) | .[].number')" || return 0
 
   if [ -z "$pr_numbers" ]; then
-    log "   No open Copilot PRs found."
+    log "   No ready Copilot PRs found (WIP PRs are skipped)."
     return 0
   fi
 
@@ -153,8 +153,10 @@ phase_merge() {
 
     log "   🔨 Building PR #$pr_num..."
     if swift build 2>&1 | tail -3; then
-      log "   ✅ Build passed for PR #$pr_num. Merging..."
+      log "   ✅ Build passed for PR #$pr_num. Marking ready and merging..."
       git checkout main --quiet 2>/dev/null || true
+      # Mark as ready (PRs from Copilot arrive as drafts)
+      gh pr ready "$pr_num" --repo "$REPO" 2>/dev/null || true
       gh pr merge "$pr_num" --repo "$REPO" --squash --delete-branch \
         --body "Merged by ralph-team.sh after local build verification." || {
         log "   ❌ Merge failed for PR #$pr_num."
@@ -187,7 +189,7 @@ phase_triage() {
   local conflicting_prs
   conflicting_prs="$(gh pr list --repo "$REPO" --state open \
     --json number,author,comments \
-    --jq '[.[] | select(.author.login == "Copilot" or .author.login == "copilot[bot]") | select(.comments | length > 0)] | .[].number')" || true
+    --jq '[.[] | select(.author.login == "app/copilot-swe-agent") | select(.comments | length > 0)] | .[].number')" || true
 
   local pr_num
   while IFS= read -r pr_num; do
@@ -232,7 +234,7 @@ phase_triage() {
     local closed_by_prs
     closed_by_prs="$(gh pr list --repo "$REPO" --state merged \
       --limit 20 --json author,closingIssuesReferences \
-      --jq '[.[] | select(.author.login == "Copilot" or .author.login == "copilot[bot]") | .closingIssuesReferences[].number] | unique | .[]' 2>/dev/null)" || closed_by_prs=""
+      --jq '[.[] | select(.author.login == "app/copilot-swe-agent") | .closingIssuesReferences[].number] | unique | .[]' 2>/dev/null)" || closed_by_prs=""
 
     local issue_num issue_title
     while IFS=$'\t' read -r issue_num issue_title; do
@@ -426,7 +428,7 @@ phase_assign() {
   local open_pr_count
   open_pr_count="$(gh pr list --repo "$REPO" --state open \
     --json number,author \
-    --jq '[.[] | select(.author.login == "Copilot" or .author.login == "copilot[bot]")] | length' 2>/dev/null)" || open_pr_count=0
+    --jq '[.[] | select(.author.login == "app/copilot-swe-agent")] | length' 2>/dev/null)" || open_pr_count=0
 
   # Use the higher of the two as "active"
   local effective_active=$active_count
