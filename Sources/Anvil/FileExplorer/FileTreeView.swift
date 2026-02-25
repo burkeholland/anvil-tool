@@ -19,6 +19,9 @@ struct FileTreeView: View {
         }
         .listStyle(.sidebar)
         .onAppear { model.start(rootURL: rootURL) }
+        .onChange(of: model.gitStatuses) { _, _ in
+            filePreview.refreshDiff()
+        }
     }
 
     private func handleTap(_ entry: FileEntry) {

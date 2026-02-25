@@ -20,8 +20,8 @@ let package = Package(
             ],
             path: "Sources/Anvil"
         ),
-        // Test target requires Xcode (XCTest/Testing framework).
-        // Uncomment when Xcode is available:
+        // Test target requires Xcode (XCTest/Testing unavailable with CLI tools).
+        // Run with `swift test` from Xcode or `xcodebuild test`.
         // .testTarget(
         //     name: "AnvilTests",
         //     dependencies: ["Anvil"],

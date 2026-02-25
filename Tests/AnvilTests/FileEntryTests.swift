@@ -1,8 +1,7 @@
-import Testing
+import XCTest
 @testable import Anvil
 
-@Suite("FileEntry Tests")
-struct FileEntryTests {
+final class FileEntryTests: XCTestCase {
 
     private func makeTempDir() throws -> URL {
         let url = FileManager.default.temporaryDirectory
@@ -15,8 +14,7 @@ struct FileEntryTests {
         try? FileManager.default.removeItem(at: url)
     }
 
-    @Test("Loads files and directories, dirs first")
-    func loadChildrenReturnsFilesAndDirs() throws {
+    func testLoadChildrenReturnsFilesAndDirs() throws {
         let tempDir = try makeTempDir()
         defer { cleanup(tempDir) }
 
@@ -27,13 +25,12 @@ struct FileEntryTests {
 
         let entries = FileEntry.loadChildren(of: tempDir)
 
-        #expect(entries.first?.name == "src")
-        #expect(entries.first?.isDirectory == true)
-        #expect(entries.count == 3)
+        XCTAssertEqual(entries.first?.name, "src")
+        XCTAssertEqual(entries.first?.isDirectory, true)
+        XCTAssertEqual(entries.count, 3)
     }
 
-    @Test("Hides .git directory")
-    func loadChildrenHidesGitDir() throws {
+    func testLoadChildrenHidesGitDir() throws {
         let tempDir = try makeTempDir()
         defer { cleanup(tempDir) }
 
@@ -43,49 +40,45 @@ struct FileEntryTests {
 
         let entries = FileEntry.loadChildren(of: tempDir)
 
-        #expect(entries.count == 1)
-        #expect(entries.first?.name == "Package.swift")
+        XCTAssertEqual(entries.count, 1)
+        XCTAssertEqual(entries.first?.name, "Package.swift")
     }
 
-    @Test("Swift file gets swift icon")
-    func iconForSwiftFile() {
+    func testIconForSwiftFile() {
         let entry = FileEntry(
             url: URL(fileURLWithPath: "/test/file.swift"),
             name: "file.swift",
             isDirectory: false,
             depth: 0
         )
-        #expect(entry.icon == "swift")
+        XCTAssertEqual(entry.icon, "swift")
     }
 
-    @Test("Directory gets folder icon")
-    func iconForDirectory() {
+    func testIconForDirectory() {
         let entry = FileEntry(
             url: URL(fileURLWithPath: "/test/src"),
             name: "src",
             isDirectory: true,
             depth: 0
         )
-        #expect(entry.icon == "folder.fill")
+        XCTAssertEqual(entry.icon, "folder.fill")
     }
 
-    @Test("Depth is preserved")
-    func depthPreserved() {
+    func testDepthPreserved() {
         let entry = FileEntry(
             url: URL(fileURLWithPath: "/test/a/b/c.txt"),
             name: "c.txt",
             isDirectory: false,
             depth: 3
         )
-        #expect(entry.depth == 3)
+        XCTAssertEqual(entry.depth, 3)
     }
 
-    @Test("Empty directory returns empty array")
-    func emptyDirectoryReturnsEmptyArray() throws {
+    func testEmptyDirectoryReturnsEmptyArray() throws {
         let tempDir = try makeTempDir()
         defer { cleanup(tempDir) }
 
         let entries = FileEntry.loadChildren(of: tempDir)
-        #expect(entries.isEmpty)
+        XCTAssertTrue(entries.isEmpty)
     }
 }

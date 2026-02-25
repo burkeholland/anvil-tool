@@ -20,6 +20,23 @@ struct FilePreviewView: View {
 
                 Spacer()
 
+                // Source / Changes tab picker (only when diff is available)
+                if model.hasDiff {
+                    Picker("", selection: $model.activeTab) {
+                        Text("Source").tag(PreviewTab.source)
+                        HStack(spacing: 4) {
+                            Text("Changes")
+                            if let diff = model.fileDiff {
+                                Text("+\(diff.additionCount)/-\(diff.deletionCount)")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }.tag(PreviewTab.changes)
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(width: 200)
+                }
+
                 Button {
                     model.close()
                 } label: {
@@ -42,6 +59,8 @@ struct FilePreviewView: View {
                 ProgressView()
                     .controlSize(.small)
                 Spacer()
+            } else if model.activeTab == .changes, let diff = model.fileDiff {
+                DiffView(diff: diff)
             } else if let content = model.fileContent {
                 HighlightedTextView(
                     content: content,

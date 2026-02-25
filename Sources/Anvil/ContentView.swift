@@ -34,8 +34,12 @@ struct ContentView: View {
         }
         .frame(minWidth: 800, minHeight: 500)
         .background(Color(nsColor: .windowBackgroundColor))
-        .onChange(of: workingDirectory.directoryURL) { _, _ in
+        .onChange(of: workingDirectory.directoryURL) { _, newURL in
             filePreview.close()
+            filePreview.rootDirectory = newURL
+        }
+        .onAppear {
+            filePreview.rootDirectory = workingDirectory.directoryURL
         }
     }
 }
