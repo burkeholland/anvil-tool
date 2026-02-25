@@ -7,6 +7,7 @@ struct WelcomeView: View {
     var isDroppingFolder: Bool
     var onOpen: (URL) -> Void
     var onBrowse: () -> Void
+    @State private var copilotAvailable: Bool?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -24,6 +25,9 @@ struct WelcomeView: View {
                 Text("Open a project to get started with Copilot CLI")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
+
+                // Copilot CLI status
+                copilotStatusView
             }
 
             Spacer()
@@ -77,6 +81,61 @@ struct WelcomeView: View {
                     .background(Color.accentColor.opacity(0.06).clipShape(RoundedRectangle(cornerRadius: 12)))
                     .padding(12)
                     .allowsHitTesting(false)
+            }
+        }
+        .onAppear {
+            checkCopilotAvailability()
+        }
+    }
+
+    @ViewBuilder
+    private var copilotStatusView: some View {
+        switch copilotAvailable {
+        case .none:
+            HStack(spacing: 6) {
+                ProgressView()
+                    .controlSize(.mini)
+                Text("Checking Copilot CLI…")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(.top, 4)
+        case .some(true):
+            HStack(spacing: 5) {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.green)
+                Text("Copilot CLI ready")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.top, 4)
+        case .some(false):
+            VStack(spacing: 6) {
+                HStack(spacing: 5) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.yellow)
+                    Text("Copilot CLI not found")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Text("Install it to enable auto-launch in the terminal.")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(.top, 4)
+        }
+    }
+
+    private func checkCopilotAvailability() {
+        copilotAvailable = nil
+        DispatchQueue.global(qos: .userInitiated).async {
+            let available = CopilotDetector.isAvailable()
+            DispatchQueue.main.async {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    copilotAvailable = available
+                }
             }
         }
     }

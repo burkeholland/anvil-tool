@@ -21,6 +21,7 @@ struct EmbeddedTerminalView: View {
     @State private var processRunning = true
     @State private var lastExitCode: Int32?
     @State private var terminalID = UUID()
+    @State private var copilotNotFound = false
 
     private var shouldLaunchCopilot: Bool {
         // Only launch Copilot if the tab allows it AND the global setting is on
@@ -59,14 +60,74 @@ struct EmbeddedTerminalView: View {
                     processRunning = false
                 },
                 onTitleChange: onTitleChange,
-                onOpenFile: onOpenFile
+                onOpenFile: onOpenFile,
+                onCopilotNotFound: {
+                    copilotNotFound = true
+                }
             )
             .id(terminalID)
 
             if !processRunning {
                 terminalRestartOverlay
             }
+
+            if copilotNotFound && shouldLaunchCopilot {
+                copilotNotFoundBanner
+            }
         }
+    }
+
+    private var copilotNotFoundBanner: some View {
+        VStack(spacing: 0) {
+            Spacer()
+            HStack(spacing: 10) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.yellow)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Copilot CLI not found")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.primary)
+                    Text("Install with: npm install -g @githubnext/github-copilot-cli")
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
+                Spacer()
+                Button {
+                    // Re-check — only dismiss if copilot is now available
+                    DispatchQueue.global(qos: .userInitiated).async {
+                        let available = CopilotDetector.isAvailable()
+                        DispatchQueue.main.async {
+                            if available {
+                                copilotNotFound = false
+                                // Send directly via proxy (best effort for current tab)
+                                terminalProxy.send("copilot\n")
+                            }
+                        }
+                    }
+                } label: {
+                    Text("Retry")
+                        .font(.system(size: 11, weight: .medium))
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                Button {
+                    copilotNotFound = false
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(.tertiary)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(.ultraThinMaterial)
+            .overlay(alignment: .top) { Divider() }
+        }
+        .transition(.move(edge: .bottom).combined(with: .opacity))
+        .animation(.easeInOut(duration: 0.25), value: copilotNotFound)
     }
 
     private var terminalRestartOverlay: some View {
@@ -122,6 +183,7 @@ private struct TerminalNSView: NSViewRepresentable {
     var onProcessExit: (Int32?) -> Void
     var onTitleChange: ((String) -> Void)?
     var onOpenFile: ((URL) -> Void)?
+    var onCopilotNotFound: (() -> Void)?
 
     func makeNSView(context: Context) -> LocalProcessTerminalView {
         let terminalView = LocalProcessTerminalView(frame: .zero)
@@ -186,19 +248,21 @@ private struct TerminalNSView: NSViewRepresentable {
     }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onProcessExit: onProcessExit, onTitleChange: onTitleChange)
+        Coordinator(onProcessExit: onProcessExit, onTitleChange: onTitleChange, onCopilotNotFound: onCopilotNotFound)
     }
 
     final class Coordinator: NSObject, LocalProcessTerminalViewDelegate {
         let onProcessExit: (Int32?) -> Void
         let onTitleChange: ((String) -> Void)?
+        let onCopilotNotFound: (() -> Void)?
         let filePathDetector = TerminalFilePathDetector()
         var lastFontSize: Double = 14
         var lastThemeID: String = TerminalTheme.defaultDark.id
 
-        init(onProcessExit: @escaping (Int32?) -> Void, onTitleChange: ((String) -> Void)?) {
+        init(onProcessExit: @escaping (Int32?) -> Void, onTitleChange: ((String) -> Void)?, onCopilotNotFound: (() -> Void)?) {
             self.onProcessExit = onProcessExit
             self.onTitleChange = onTitleChange
+            self.onCopilotNotFound = onCopilotNotFound
         }
 
         deinit {
@@ -208,8 +272,13 @@ private struct TerminalNSView: NSViewRepresentable {
         /// Detects whether the Copilot CLI is installed, then sends the launch
         /// command to the terminal after the shell has had time to initialize.
         func scheduleAutoLaunch(_ terminalView: LocalProcessTerminalView) {
-            DispatchQueue.global(qos: .userInitiated).async { [weak terminalView] in
-                guard CopilotDetector.isAvailable() else { return }
+            DispatchQueue.global(qos: .userInitiated).async { [weak self, weak terminalView] in
+                guard CopilotDetector.isAvailable() else {
+                    DispatchQueue.main.async { [weak self] in
+                        self?.onCopilotNotFound?()
+                    }
+                    return
+                }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak terminalView] in
                     terminalView?.send(txt: "copilot\n")
                 }
