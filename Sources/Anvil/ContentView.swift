@@ -61,6 +61,7 @@ struct ContentView: View {
     @StateObject private var mergeConflictModel = MergeConflictModel()
     @StateObject private var promptHistoryStore = PromptHistoryStore()
     @StateObject private var promptMarkerStore = PromptMarkerStore()
+    @StateObject private var sessionTranscriptStore = SessionTranscriptStore()
     @StateObject private var sessionHealthMonitor = SessionHealthMonitor()
     @StateObject private var diffAnnotationStore = DiffAnnotationStore()
     @StateObject private var contextStore = ContextStore()
@@ -222,6 +223,9 @@ struct ContentView: View {
             onToggleSplitPreview: workingDirectory.directoryURL != nil ? {
                 splitPreview.toggle()
             } : nil,
+            onExportSession: workingDirectory.directoryURL != nil ? {
+                exportSessionAsMarkdown()
+            } : nil,
             recentProjects: recentProjects,
             onOpenRecentProject: { url in openDirectory(url) }
         ))
@@ -245,6 +249,7 @@ struct ContentView: View {
             fileTreeModel.clearAgentReferences()
             contextStore.clear()
             promptHistoryStore.configure(projectPath: newURL?.standardizedFileURL.path)
+            sessionTranscriptStore.configure(projectPath: newURL?.standardizedFileURL.path)
             if let url = newURL {
                 recentProjects.recordOpen(url)
                 changesModel.start(rootURL: url)
@@ -379,6 +384,7 @@ struct ContentView: View {
             terminalProxy.markerStore = promptMarkerStore
             terminalProxy.contextStore = contextStore
             promptHistoryStore.configure(projectPath: workingDirectory.directoryURL?.standardizedFileURL.path)
+            sessionTranscriptStore.configure(projectPath: workingDirectory.directoryURL?.standardizedFileURL.path)
             if let url = workingDirectory.directoryURL {
                 recentProjects.recordOpen(url)
                 changesModel.start(rootURL: url)
@@ -489,6 +495,9 @@ struct ContentView: View {
             onDismiss: {
                 showTaskBanner = false
             },
+            onExportSession: workingDirectory.directoryURL != nil ? {
+                exportSessionAsMarkdown()
+            } : nil,
             taskPrompt: promptHistoryStore.entries.first?.text,
             changedFiles: changesModel.changedFiles,
             onOpenFileDiff: { file in
@@ -1605,6 +1614,21 @@ struct ContentView: View {
         // Non-project files fall through to standard drop behavior
         return handleDrop(urls)
     }
+
+    /// Reads the active terminal's scrollback, generates a markdown document, saves it
+    /// to the PromptHistory directory, and reveals it in Finder.
+    private func exportSessionAsMarkdown() {
+        let transcript = terminalProxy.readTranscript()
+        let markdown = SessionTranscriptStore.makeMarkdown(
+            transcript: transcript,
+            prompts: promptMarkerStore.markers,
+            projectName: workingDirectory.projectName
+        )
+        guard let path = workingDirectory.directoryURL?.standardizedFileURL.path else { return }
+        if let url = sessionTranscriptStore.save(markdown: markdown, projectPath: path) {
+            NSWorkspace.shared.activateFileViewerSelecting([url])
+        }
+    }
 }
 
 struct ToolbarView: View {
@@ -2140,6 +2164,7 @@ private struct FocusedSceneModifier: ViewModifier {
     var onShowPromptHistory: (() -> Void)?
     var onGoToTestFile: (() -> Void)?
     var onToggleSplitPreview: (() -> Void)?
+    var onExportSession: (() -> Void)?
     var recentProjects: RecentProjectsModel
     var onOpenRecentProject: ((URL) -> Void)?
 
@@ -2187,6 +2212,7 @@ private struct FocusedSceneModifier: ViewModifier {
                 onNextPreviewTab: onNextPreviewTab,
                 onPreviousPreviewTab: onPreviousPreviewTab,
                 onShowPromptHistory: onShowPromptHistory,
+                onExportSession: onExportSession,
                 onGoToTestFile: onGoToTestFile,
                 onToggleSplitPreview: onToggleSplitPreview,
                 recentProjects: recentProjects,
@@ -2289,6 +2315,7 @@ private struct FocusedSceneModifierD: ViewModifier {
     var onNextPreviewTab: (() -> Void)?
     var onPreviousPreviewTab: (() -> Void)?
     var onShowPromptHistory: (() -> Void)?
+    var onExportSession: (() -> Void)?
     var onGoToTestFile: (() -> Void)?
     var onToggleSplitPreview: (() -> Void)?
     var recentProjects: RecentProjectsModel
@@ -2299,6 +2326,7 @@ private struct FocusedSceneModifierD: ViewModifier {
             .focusedSceneValue(\.nextPreviewTab, onNextPreviewTab)
             .focusedSceneValue(\.previousPreviewTab, onPreviousPreviewTab)
             .focusedSceneValue(\.showPromptHistory, onShowPromptHistory)
+            .focusedSceneValue(\.exportSession, onExportSession)
             .focusedSceneValue(\.goToTestFile, onGoToTestFile)
             .focusedSceneValue(\.toggleSplitPreview, onToggleSplitPreview)
             .focusedSceneObject(recentProjects)

@@ -171,6 +171,10 @@ struct ShowPromptHistoryKey: FocusedValueKey {
     typealias Value = () -> Void
 }
 
+struct ExportSessionKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
 struct GoToTestFileKey: FocusedValueKey {
     typealias Value = () -> Void
 }
@@ -398,6 +402,11 @@ extension FocusedValues {
         set { self[ShowPromptHistoryKey.self] = newValue }
     }
 
+    var exportSession: (() -> Void)? {
+        get { self[ExportSessionKey.self] }
+        set { self[ExportSessionKey.self] = newValue }
+    }
+
     var goToTestFile: (() -> Void)? {
         get { self[GoToTestFileKey.self] }
         set { self[GoToTestFileKey.self] = newValue }
@@ -460,6 +469,7 @@ struct ViewCommands: Commands {
     @FocusedValue(\.nextPreviewTab) var nextPreviewTab
     @FocusedValue(\.previousPreviewTab) var previousPreviewTab
     @FocusedValue(\.showPromptHistory) var showPromptHistory
+    @FocusedValue(\.exportSession) var exportSession
     @FocusedValue(\.goToTestFile) var goToTestFile
     @FocusedValue(\.toggleDiffViewMode) var toggleDiffViewMode
     @FocusedValue(\.toggleSplitPreview) var toggleSplitPreview
@@ -535,6 +545,12 @@ struct ViewCommands: Commands {
             }
             .keyboardShortcut("y", modifiers: .command)
             .disabled(showPromptHistory == nil)
+
+            Button("Export Session as Markdown") {
+                exportSession?()
+            }
+            .keyboardShortcut("e", modifiers: [.command, .shift])
+            .disabled(exportSession == nil)
 
             Divider()
 
