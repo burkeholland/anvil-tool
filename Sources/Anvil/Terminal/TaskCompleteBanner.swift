@@ -276,7 +276,7 @@ struct TaskCompleteBanner: View {
                 ScrollView {
                     LazyVStack(spacing: 0) {
                         ForEach(changedFiles) { file in
-                            ChangedFileRow(file: file) {
+                            BannerFileRow(file: file) {
                                 onOpenFileDiff?(file)
                             }
                             Divider().padding(.leading, 32)
@@ -474,7 +474,7 @@ private struct DiagnosticRow: View {
 }
 
 /// A single row in the changed-files list showing status badge, path, and diff stats.
-private struct ChangedFileRow: View {
+private struct BannerFileRow: View {
     let file: ChangedFile
     let onTap: () -> Void
 
