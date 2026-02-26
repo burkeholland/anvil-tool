@@ -1841,35 +1841,36 @@ struct SidebarTabButton: View {
     var badge: Int? = nil
     let action: () -> Void
 
+    @State private var isHovering = false
+
     var body: some View {
         Button(action: action) {
-            VStack(spacing: 0) {
-                HStack(spacing: 4) {
-                    Image(systemName: systemImage)
-                        .font(.system(size: 11))
-                    Text(title)
-                        .font(.system(size: 12, weight: isActive ? .semibold : .regular))
+            ZStack(alignment: .topTrailing) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 14, weight: isActive ? .semibold : .regular))
+                    .foregroundStyle(isActive ? Color.accentColor : (isHovering ? .primary : .secondary))
+                    .frame(width: 32, height: 28)
 
-                    if let badge = badge {
-                        Text("\(badge)")
-                            .font(.system(size: 10, weight: .medium))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 1)
-                            .background(Capsule().fill(Color.accentColor))
-                    }
+                if let badge = badge {
+                    Text("\(min(badge, 99))")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 3)
+                        .padding(.vertical, 1)
+                        .background(Capsule().fill(Color.accentColor))
+                        .offset(x: 6, y: -4)
                 }
-                .foregroundStyle(isActive ? .primary : .secondary)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 6)
-
-                Rectangle()
-                    .fill(isActive ? Color.accentColor : Color.clear)
-                    .frame(height: 2)
-                    .clipShape(RoundedRectangle(cornerRadius: 1))
             }
+            .background(
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(isActive
+                        ? Color.accentColor.opacity(0.12)
+                        : (isHovering ? Color.primary.opacity(0.06) : Color.clear))
+            )
         }
         .buttonStyle(.plain)
+        .help(title)
+        .onHover { isHovering = $0 }
     }
 }
 
