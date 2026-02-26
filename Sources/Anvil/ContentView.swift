@@ -2682,11 +2682,10 @@ private struct AgentModePill: View {
                             .font(.system(size: 12, design: .monospaced))
                             .foregroundStyle(.primary)
                         Spacer()
-                        if name == model {
-                            Image(systemName: "checkmark")
-                                .font(.system(size: 10, weight: .semibold))
-                                .foregroundStyle(.accentColor)
-                        }
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(Color.accentColor)
+                            .opacity(name == model ? 1 : 0)
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 6)
