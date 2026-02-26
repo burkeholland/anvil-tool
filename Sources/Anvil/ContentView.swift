@@ -889,6 +889,7 @@ struct ContentView: View {
                                 } else if showDiffSummary {
                                     DiffSummaryView(
                                         changesModel: changesModel,
+                                        annotationStore: diffAnnotationStore,
                                         onSelectFile: { url in
                                             showDiffSummary = false
                                             filePreview.select(url)

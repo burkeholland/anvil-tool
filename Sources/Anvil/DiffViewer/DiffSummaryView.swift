@@ -5,6 +5,7 @@ import SwiftUI
 /// Includes staging controls and a commit form for a complete review-to-commit workflow.
 struct DiffSummaryView: View {
     @ObservedObject var changesModel: ChangesModel
+    @ObservedObject var annotationStore: DiffAnnotationStore
     var onSelectFile: ((URL) -> Void)?
     var onDismiss: (() -> Void)?
     /// Called with `(url, lineNumber)` when the user taps "Show in Preview" on a hunk.
@@ -14,6 +15,7 @@ struct DiffSummaryView: View {
     @AppStorage("diffViewMode") private var diffMode: String = DiffViewMode.unified.rawValue
     @State private var showCommitForm = false
     @State private var requestFixContext: RequestFixContext?
+    @State private var showAnnotationsList = false
     @EnvironmentObject var terminalProxy: TerminalInputProxy
 
     private var filesWithDiffs: [ChangedFile] {
@@ -212,6 +214,32 @@ struct DiffSummaryView: View {
                     }
                     .pickerStyle(.segmented)
                     .frame(width: 180)
+
+                    if !annotationStore.isEmpty {
+                        Button {
+                            showAnnotationsList = true
+                        } label: {
+                            let count = annotationStore.annotations.count
+                            HStack(spacing: 3) {
+                                Image(systemName: "note.text")
+                                    .font(.system(size: 10))
+                                Text("\(count)")
+                                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                            }
+                            .foregroundStyle(.yellow)
+                        }
+                        .buttonStyle(.borderless)
+                        .help("View \(annotationStore.annotations.count) inline annotation\(annotationStore.annotations.count == 1 ? "" : "s")")
+                        .sheet(isPresented: $showAnnotationsList) {
+                            AnnotationsListView(
+                                annotationStore: annotationStore,
+                                onSend: {
+                                    terminalProxy.sendPrompt(annotationStore.buildPrompt())
+                                    showAnnotationsList = false
+                                }
+                            )
+                        }
+                    }
 
                     Button {
                         if collapsedFiles.count == filesWithDiffs.count {
@@ -454,7 +482,15 @@ struct DiffSummaryView: View {
                                     onShowInPreview: onShowFileAtLine.map { handler in
                                         { handler(file.url, hunk.newFileStartLine ?? 1) }
                                     },
-                                    isFocused: isFocusedFile && changesModel.focusedHunkIndex == hunkIdx
+                                    isFocused: isFocusedFile && changesModel.focusedHunkIndex == hunkIdx,
+                                    filePath: file.relativePath,
+                                    lineAnnotations: annotationStore.lineAnnotations(forFile: file.relativePath),
+                                    onAddAnnotation: { lineNum, comment in
+                                        annotationStore.add(filePath: file.relativePath, lineNumber: lineNum, comment: comment)
+                                    },
+                                    onRemoveAnnotation: { lineNum in
+                                        annotationStore.remove(filePath: file.relativePath, lineNumber: lineNum)
+                                    }
                                 )
                             }
                         }
@@ -662,5 +698,135 @@ private struct ReviewCommitForm: View {
                 onCommitted?()
             }
         }
+    }
+}
+
+// MARK: - Annotations List
+
+/// A filterable list of all inline diff annotations for the current review session.
+/// Accessible from the Changes panel header via the annotation badge button.
+struct AnnotationsListView: View {
+    @ObservedObject var annotationStore: DiffAnnotationStore
+    var onSend: () -> Void
+
+    @State private var filterText = ""
+    @Environment(\.dismiss) private var dismiss
+
+    private var filteredAnnotations: [DiffAnnotation] {
+        let sorted = annotationStore.annotations.sorted {
+            if $0.filePath != $1.filePath { return $0.filePath < $1.filePath }
+            return $0.lineNumber < $1.lineNumber
+        }
+        guard !filterText.isEmpty else { return sorted }
+        let query = filterText.lowercased()
+        return sorted.filter {
+            $0.filePath.lowercased().contains(query) || $0.comment.lowercased().contains(query)
+        }
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Header
+            HStack(spacing: 8) {
+                Image(systemName: "note.text")
+                    .foregroundStyle(.yellow)
+                    .font(.system(size: 12))
+                Text("Annotations")
+                    .font(.system(size: 13, weight: .semibold))
+                Text("(\(annotationStore.annotations.count))")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button {
+                    onSend()
+                } label: {
+                    Label("Send to Agent", systemImage: "arrow.up.circle.fill")
+                        .font(.system(size: 11, weight: .medium))
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .tint(.yellow)
+                .disabled(annotationStore.isEmpty)
+                .help("Send all annotations to the Copilot terminal")
+                Button {
+                    dismiss()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.borderless)
+                .help("Close")
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(.bar)
+
+            Divider()
+
+            // Filter field
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.tertiary)
+                TextField("Filter by file or note…", text: $filterText)
+                    .font(.system(size: 12))
+                    .textFieldStyle(.plain)
+                if !filterText.isEmpty {
+                    Button { filterText = "" } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.tertiary)
+                    }
+                    .buttonStyle(.borderless)
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 7)
+            .background(Color(nsColor: .controlBackgroundColor).opacity(0.6))
+
+            Divider()
+
+            if filteredAnnotations.isEmpty {
+                Spacer()
+                Text(annotationStore.isEmpty ? "No annotations yet" : "No results for \"\(filterText)\"")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                Spacer()
+            } else {
+                List(filteredAnnotations) { annotation in
+                    HStack(alignment: .top, spacing: 8) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack(spacing: 4) {
+                                Text(annotation.filePath)
+                                    .font(.system(size: 11, design: .monospaced))
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                                Text("L\(annotation.lineNumber)")
+                                    .font(.system(size: 10, design: .monospaced))
+                                    .foregroundStyle(.tertiary)
+                            }
+                            Text(annotation.comment)
+                                .font(.system(size: 12))
+                                .foregroundStyle(.primary)
+                        }
+                        Spacer()
+                        Button {
+                            annotationStore.remove(filePath: annotation.filePath, lineNumber: annotation.lineNumber)
+                        } label: {
+                            Image(systemName: "trash")
+                                .font(.system(size: 11))
+                                .foregroundStyle(.red.opacity(0.7))
+                        }
+                        .buttonStyle(.borderless)
+                        .help("Remove annotation")
+                    }
+                    .padding(.vertical, 2)
+                }
+                .listStyle(.plain)
+            }
+        }
+        .frame(width: 480, height: 360)
     }
 }
