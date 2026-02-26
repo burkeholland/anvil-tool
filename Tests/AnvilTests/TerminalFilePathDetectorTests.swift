@@ -102,4 +102,63 @@ final class TerminalFilePathDetectorTests: XCTestCase {
         let url = detector.extractURL(from: line, column: 20)
         XCTAssertEqual(url?.absoluteString, "https://example.com/search?q=test&page=1")
     }
+
+    // MARK: - scanOutputLine
+
+    func testScanOutputLineNilRootURL() {
+        let line = "Writing Sources/Anvil/ContentView.swift..."
+        let url = detector.scanOutputLine(line, rootURL: nil)
+        XCTAssertNil(url, "Should return nil when no root URL is provided")
+    }
+
+    func testScanOutputLineEmptyLine() {
+        let tmp = FileManager.default.temporaryDirectory
+        let url = detector.scanOutputLine("", rootURL: tmp)
+        XCTAssertNil(url, "Should return nil for an empty line")
+    }
+
+    func testScanOutputLineNoPathLikeContent() {
+        let tmp = FileManager.default.temporaryDirectory
+        let url = detector.scanOutputLine("just some plain text", rootURL: tmp)
+        XCTAssertNil(url, "Should return nil when no file-path-like tokens are present")
+    }
+
+    func testScanOutputLineWithExistingFile() throws {
+        let tmp = FileManager.default.temporaryDirectory
+        let fileName = "test_scan_\(UUID().uuidString).txt"
+        let fileURL = tmp.appendingPathComponent(fileName)
+        FileManager.default.createFile(atPath: fileURL.path, contents: Data())
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
+        let line = "Writing \(fileName) to disk"
+        let result = detector.scanOutputLine(line, rootURL: tmp)
+        XCTAssertEqual(result?.standardizedFileURL, fileURL.standardizedFileURL,
+                       "Should resolve an existing file mentioned in a terminal output line")
+    }
+
+    func testScanOutputLineWithNonExistentFile() {
+        let tmp = FileManager.default.temporaryDirectory
+        let line = "Writing nonexistent_file_abc123.swift to disk"
+        let result = detector.scanOutputLine(line, rootURL: tmp)
+        XCTAssertNil(result, "Should return nil when mentioned file does not exist on disk")
+    }
+
+    func testScanOutputLinePicksFirstMatch() throws {
+        let tmp = FileManager.default.temporaryDirectory
+        let file1 = "first_\(UUID().uuidString).txt"
+        let file2 = "second_\(UUID().uuidString).txt"
+        let url1 = tmp.appendingPathComponent(file1)
+        let url2 = tmp.appendingPathComponent(file2)
+        FileManager.default.createFile(atPath: url1.path, contents: Data())
+        FileManager.default.createFile(atPath: url2.path, contents: Data())
+        defer {
+            try? FileManager.default.removeItem(at: url1)
+            try? FileManager.default.removeItem(at: url2)
+        }
+
+        let line = "Wrote \(file1) and also \(file2)"
+        let result = detector.scanOutputLine(line, rootURL: tmp)
+        XCTAssertEqual(result?.standardizedFileURL, url1.standardizedFileURL,
+                       "Should return the first matching file in the line")
+    }
 }

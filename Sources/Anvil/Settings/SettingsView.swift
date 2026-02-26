@@ -43,8 +43,8 @@ private struct GeneralSettingsTab: View {
 
             Spacer().frame(height: 8)
 
-            Toggle("Auto-follow agent changes", isOn: $autoFollow)
-            Text("Preview files in the side panel as the agent modifies them.")
+            Toggle("Follow Agent", isOn: $autoFollow)
+            Text("Auto-navigate the file tree and preview pane to files as the agent modifies them. Use ⌘⇧A to toggle.")
                 .settingsDescription()
 
             Spacer().frame(height: 8)

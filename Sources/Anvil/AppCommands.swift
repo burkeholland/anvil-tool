@@ -498,7 +498,8 @@ struct ViewCommands: Commands {
             Toggle("Agent Notifications", isOn: $notificationsEnabled)
 
             if let autoFollow = autoFollow {
-                Toggle("Auto-Follow Changes", isOn: autoFollow)
+                Toggle("Follow Agent", isOn: autoFollow)
+                    .keyboardShortcut("a", modifiers: [.command, .shift])
             }
 
             Divider()
