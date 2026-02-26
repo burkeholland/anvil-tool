@@ -34,6 +34,7 @@ struct SettingsView: View {
 private struct GeneralSettingsTab: View {
     @AppStorage("autoLaunchCopilot") private var autoLaunchCopilot = true
     @AppStorage("autoFollowChanges") private var autoFollow = true
+    @AppStorage("autoDiffToasts") private var autoDiffToasts = true
     @AppStorage("autoBuildOnTaskComplete") private var autoBuildOnTaskComplete = true
     @AppStorage("branchGuardBehavior") private var branchGuardBehavior = "warn"
 
@@ -47,6 +48,12 @@ private struct GeneralSettingsTab: View {
 
             Toggle("Follow Agent", isOn: $autoFollow)
             Text("Auto-navigate the file tree and preview pane to files as the agent modifies them. Use ⌘⇧A to toggle.")
+                .settingsDescription()
+
+            Spacer().frame(height: 8)
+
+            Toggle("Show diff toasts", isOn: $autoDiffToasts)
+            Text("Display a floating diff preview in the bottom-right corner whenever the agent writes a file. Click to open in the Changes panel.")
                 .settingsDescription()
 
             Spacer().frame(height: 8)

@@ -70,6 +70,9 @@ struct ContentView: View {
     /// Debounces auto-follow navigation to avoid thrashing the preview pane
     /// during burst file writes.
     @StateObject private var followAgent = FollowAgentController()
+    /// Floating diff toast stack shown on every agent file write.
+    @StateObject private var diffToastController = DiffToastController()
+    @AppStorage("autoDiffToasts") private var autoDiffToasts = true
 
     private var overlayStack: some View {
         ZStack {
@@ -111,6 +114,22 @@ struct ContentView: View {
                     .onTapGesture { showKeyboardShortcuts = false }
 
                 KeyboardShortcutsView(onDismiss: { showKeyboardShortcuts = false })
+            }
+
+            // Floating diff toasts (bottom-right, only when a project is open)
+            if workingDirectory.directoryURL != nil {
+                DiffToastOverlay(
+                    controller: diffToastController,
+                    onOpenInChanges: { item in
+                        if let idx = changesModel.changedFiles.firstIndex(where: { $0.url == item.fileURL }) {
+                            changesModel.focusedFileIndex = idx
+                        }
+                        sidebarTab = .changes
+                        showSidebar = true
+                        showDiffSummary = true
+                        diffToastController.dismiss(id: item.id)
+                    }
+                )
             }
         }
         .dropDestination(for: URL.self) { urls, _ in
@@ -269,6 +288,7 @@ struct ContentView: View {
                 fileTreeModel.start(rootURL: url)
                 commitHistoryModel.start(rootURL: url)
             }
+            diffToastController.dismissAll()
         }
         .onChange(of: activityModel.latestFileChange) { _, change in
             guard autoFollow, let change = change else { return }
@@ -282,6 +302,15 @@ struct ContentView: View {
         .onChange(of: activityModel.latestFileChange) { _, change in
             guard change != nil else { return }
             checkBranchGuard()
+        }
+        .onChange(of: activityModel.latestFileChange) { _, change in
+            // Only show diff toasts during active agent sessions (after the user
+            // has sent at least one prompt), so startup filesystem scans don't
+            // trigger spurious toasts on project open.
+            guard autoDiffToasts, let change = change,
+                  let rootURL = workingDirectory.directoryURL,
+                  terminalProxy.promptSentCount > 0 else { return }
+            diffToastController.reportFileChange(change.url, rootURL: rootURL)
         }
         .onChange(of: filePreview.selectedURL) { _, newURL in
             // Keep tree expanded to the selected file regardless of how it was opened
