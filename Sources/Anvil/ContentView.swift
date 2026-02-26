@@ -257,6 +257,68 @@ struct ContentView: View {
         }
     }
 
+    @ViewBuilder private var taskCompleteBannerView: some View {
+        let sensitiveCount = changesModel.changedFiles.filter { SensitiveFileClassifier.isSensitive($0.relativePath) }.count
+        TaskCompleteBanner(
+            changedFileCount: changesModel.changedFiles.count,
+            totalAdditions: changesModel.totalAdditions,
+            totalDeletions: changesModel.totalDeletions,
+            buildStatus: buildVerifier.status,
+            sensitiveFileCount: sensitiveCount,
+            buildDiagnostics: buildVerifier.diagnostics,
+            onOpenDiagnostic: { diagnostic in
+                let rootURL = workingDirectory.directoryURL
+                let url: URL
+                if (diagnostic.filePath as NSString).isAbsolutePath {
+                    url = URL(fileURLWithPath: diagnostic.filePath)
+                } else if let root = rootURL {
+                    url = root.appendingPathComponent(diagnostic.filePath)
+                } else {
+                    return
+                }
+                filePreview.select(url, line: diagnostic.line)
+            },
+            testStatus: testRunner.status,
+            onRunTests: workingDirectory.directoryURL != nil ? {
+                if let url = workingDirectory.directoryURL {
+                    testRunner.run(at: url)
+                }
+            } : nil,
+            onFixTestFailure: { output in
+                let prompt = "The test suite failed. Please fix the failing tests.\n\nTest output:\n\(output)"
+                terminalProxy.send(prompt + "\n")
+                showTaskBanner = false
+            },
+            changedFiles: changesModel.changedFiles,
+            onOpenFileDiff: { file in
+                if let idx = changesModel.changedFiles.firstIndex(where: { $0.id == file.id }) {
+                    changesModel.focusedFileIndex = idx
+                }
+                showDiffSummary = true
+                showTaskBanner = false
+            },
+            onReviewAll: {
+                showDiffSummary = true
+                showTaskBanner = false
+            },
+            onStageAllAndCommit: {
+                changesModel.commitMessage = changesModel.generateCommitMessage(allFiles: true)
+                changesModel.stageAll()
+                sidebarTab = .changes
+                showTaskBanner = false
+            },
+            onNewTask: {
+                if let tv = terminalProxy.terminalView {
+                    tv.window?.makeFirstResponder(tv)
+                }
+                showTaskBanner = false
+            },
+            onDismiss: {
+                showTaskBanner = false
+            }
+        )
+    }
+
     private var projectView: some View {
         ZStack {
             HStack(spacing: 0) {
@@ -445,65 +507,8 @@ struct ContentView: View {
                     }
 
                     if showTaskBanner {
-                        TaskCompleteBanner(
-                            changedFileCount: changesModel.changedFiles.count,
-                            totalAdditions: changesModel.totalAdditions,
-                            totalDeletions: changesModel.totalDeletions,
-                            buildStatus: buildVerifier.status,
-                            sensitiveFileCount: changesModel.changedFiles.filter { SensitiveFileClassifier.isSensitive($0.relativePath) }.count,
-                            buildDiagnostics: buildVerifier.diagnostics,
-                            onOpenDiagnostic: { diagnostic in
-                                let rootURL = workingDirectory.directoryURL
-                                let url: URL
-                                if (diagnostic.filePath as NSString).isAbsolutePath {
-                                    url = URL(fileURLWithPath: diagnostic.filePath)
-                                } else if let root = rootURL {
-                                    url = root.appendingPathComponent(diagnostic.filePath)
-                                } else {
-                                    return
-                                }
-                                filePreview.select(url, line: diagnostic.line)
-                            },
-                            testStatus: testRunner.status,
-                            onRunTests: workingDirectory.directoryURL != nil ? {
-                                if let url = workingDirectory.directoryURL {
-                                    testRunner.run(at: url)
-                                }
-                            } : nil,
-                            onFixTestFailure: { output in
-                                let prompt = "The test suite failed. Please fix the failing tests.\n\nTest output:\n\(output)"
-                                terminalProxy.send(prompt + "\n")
-                                showTaskBanner = false
-                            },
-                            changedFiles: changesModel.changedFiles,
-                            onOpenFileDiff: { file in
-                                if let idx = changesModel.changedFiles.firstIndex(where: { $0.id == file.id }) {
-                                    changesModel.focusedFileIndex = idx
-                                }
-                                showDiffSummary = true
-                                showTaskBanner = false
-                            },
-                            onReviewAll: {
-                                showDiffSummary = true
-                                showTaskBanner = false
-                            },
-                            onStageAllAndCommit: {
-                                changesModel.commitMessage = changesModel.generateCommitMessage(allFiles: true)
-                                changesModel.stageAll()
-                                sidebarTab = .changes
-                                showTaskBanner = false
-                            },
-                            onNewTask: {
-                                if let tv = terminalProxy.terminalView {
-                                    tv.window?.makeFirstResponder(tv)
-                                }
-                                showTaskBanner = false
-                            },
-                            onDismiss: {
-                                showTaskBanner = false
-                            }
-                        )
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                        taskCompleteBannerView
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
                     }
 
                     StatusBarView(
