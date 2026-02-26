@@ -872,6 +872,26 @@ final class ChangesModel: ObservableObject {
 
     // MARK: - Stash Management
 
+    /// Stash all uncommitted changes (staged and unstaged) with an optional message.
+    func stashAll(message: String = "") {
+        guard let rootURL = rootDirectory, !changedFiles.isEmpty else { return }
+        lastStashError = nil
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let msg = message.trimmingCharacters(in: .whitespacesAndNewlines)
+            let (success, error) = GitStashProvider.push(
+                message: msg.isEmpty ? nil : msg,
+                in: rootURL
+            )
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                if !success { self.lastStashError = error ?? "Failed to stash" }
+                self.refresh()
+                self.refreshStashes()
+            }
+        }
+    }
+
     func refreshStashes() {
         guard let rootURL = rootDirectory else { return }
         isLoadingStashes = true

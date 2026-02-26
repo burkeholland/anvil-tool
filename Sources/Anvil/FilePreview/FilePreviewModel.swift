@@ -33,6 +33,8 @@ final class FilePreviewModel: ObservableObject {
     @Published private(set) var fileHistory: [GitCommit] = []
     /// When set, the preview shows a commit-specific diff instead of working directory diff.
     private(set) var commitDiffContext: (sha: String, filePath: String)?
+    /// When set, the preview shows a stash-entry diff instead of working directory diff.
+    private(set) var stashDiffContext: (stashIndex: Int, filePath: String)?
     /// Per-line blame annotations for the current file.
     @Published private(set) var blameLines: [BlameLine] = []
     /// Whether blame annotations are shown in the source view gutter.
@@ -95,8 +97,9 @@ final class FilePreviewModel: ObservableObject {
 
     func select(_ url: URL, line: Int? = nil) {
         guard !url.hasDirectoryPath else { return }
-        let wasCommitDiff = commitDiffContext != nil
+        let wasCommitDiff = commitDiffContext != nil || stashDiffContext != nil
         commitDiffContext = nil
+        stashDiffContext = nil
         showSymbolOutline = false
         // Track in recent files
         trackRecent(url)
@@ -147,6 +150,7 @@ final class FilePreviewModel: ObservableObject {
     func selectCommitFile(path: String, commitSHA: String, rootURL: URL) {
         let url = URL(fileURLWithPath: rootURL.path).appendingPathComponent(path)
         commitDiffContext = (sha: commitSHA, filePath: path)
+        stashDiffContext = nil
         // Blame is not meaningful for commit diffs
         blameLines = []
         blameGeneration &+= 1
@@ -157,6 +161,22 @@ final class FilePreviewModel: ObservableObject {
         selectedURL = url
         lastNavigatedLine = 1
         loadCommitFile(url: url, sha: commitSHA, filePath: path, rootURL: rootURL)
+    }
+
+    /// Open a file showing the diff from a specific stash entry.
+    func selectStashFile(path: String, stashIndex: Int, rootURL: URL) {
+        let url = URL(fileURLWithPath: rootURL.path).appendingPathComponent(path)
+        stashDiffContext = (stashIndex: stashIndex, filePath: path)
+        commitDiffContext = nil
+        blameLines = []
+        blameGeneration &+= 1
+        if !openTabs.contains(url) {
+            openTabs.append(url)
+            saveOpenTabs()
+        }
+        selectedURL = url
+        lastNavigatedLine = 1
+        loadStashFile(url: url, stashIndex: stashIndex, filePath: path, rootURL: rootURL)
     }
 
     func closeTab(_ url: URL) {
@@ -196,6 +216,7 @@ final class FilePreviewModel: ObservableObject {
         blameLines = []
         activeTab = .source
         commitDiffContext = nil
+        stashDiffContext = nil
         showSymbolOutline = false
         showBlame = false
         isWatching = false
@@ -284,6 +305,35 @@ final class FilePreviewModel: ObservableObject {
                 self?.fileContent = content
                 self?.lineCount = content?.components(separatedBy: "\n").count ?? 0
                 self?.fileDiff = diff
+                self?.stagedFileDiff = nil
+                self?.previewImage = nil
+                self?.imageSize = nil
+                self?.imageFileSize = nil
+                self?.isLoading = false
+                self?.activeTab = diff != nil ? .changes : .source
+            }
+        }
+    }
+
+    private func loadStashFile(url: URL, stashIndex: Int, filePath: String, rootURL: URL) {
+        isLoading = true
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let diff = DiffProvider.stashFileDiff(stashIndex: stashIndex, filePath: filePath, in: rootURL)
+            let content: String?
+            if FileManager.default.fileExists(atPath: url.path),
+               let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+               let size = attrs[.size] as? Int, size <= 1_048_576 {
+                content = try? String(contentsOf: url, encoding: .utf8)
+            } else {
+                content = nil
+            }
+
+            DispatchQueue.main.async {
+                guard self?.selectedURL == url else { return }
+                self?.fileContent = content
+                self?.lineCount = content?.components(separatedBy: "\n").count ?? 0
+                self?.fileDiff = diff
+                self?.stagedFileDiff = nil
                 self?.previewImage = nil
                 self?.imageSize = nil
                 self?.imageFileSize = nil

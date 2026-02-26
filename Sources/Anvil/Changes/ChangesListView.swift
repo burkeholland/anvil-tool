@@ -283,7 +283,7 @@ struct ChangesListView: View {
                     .textCase(nil)
             }
         }
-        if !model.stashes.isEmpty {
+        if !model.stashes.isEmpty || !model.changedFiles.isEmpty {
             Section {
                 ForEach(model.stashes) { stash in
                     StashRow(
@@ -299,13 +299,26 @@ struct ChangesListView: View {
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(.secondary)
                         .textCase(nil)
+                    if !model.stashes.isEmpty {
+                        Text("\(model.stashes.count)")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1)
+                            .background(Capsule().fill(Color.secondary.opacity(0.4)))
+                    }
                     Spacer()
-                    Text("\(model.stashes.count)")
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 1)
-                        .background(Capsule().fill(Color.secondary.opacity(0.4)))
+                    if !model.changedFiles.isEmpty {
+                        Button {
+                            model.stashAll()
+                        } label: {
+                            Text("Stash All")
+                                .font(.system(size: 10))
+                                .foregroundStyle(.teal.opacity(0.9))
+                        }
+                        .buttonStyle(.plain)
+                        .help("Stash all uncommitted changes")
+                    }
                 }
             }
         }
@@ -1023,7 +1036,12 @@ struct StashRow: View {
                         .padding(.vertical, 6)
 
                         ForEach(files) { file in
-                            StashFileRow(file: file)
+                            StashFileRow(
+                                file: file,
+                                stashIndex: stash.index,
+                                model: model,
+                                filePreview: filePreview
+                            )
                         }
                     }
                     .padding(.leading, 18)
@@ -1045,6 +1063,9 @@ struct StashRow: View {
 
 struct StashFileRow: View {
     let file: CommitFile
+    let stashIndex: Int
+    @ObservedObject var model: ChangesModel
+    @ObservedObject var filePreview: FilePreviewModel
 
     var body: some View {
         HStack(spacing: 6) {
@@ -1089,6 +1110,15 @@ struct StashFileRow: View {
         }
         .padding(.vertical, 3)
         .padding(.horizontal, 4)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            guard let rootURL = model.rootDirectory else { return }
+            filePreview.selectStashFile(
+                path: file.path,
+                stashIndex: stashIndex,
+                rootURL: rootURL
+            )
+        }
         .contextMenu {
             Button {
                 NSPasteboard.general.clearContents()

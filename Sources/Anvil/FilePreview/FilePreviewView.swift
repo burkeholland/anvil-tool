@@ -25,9 +25,9 @@ struct FilePreviewView: View {
         model.changeRegions(from: currentGutterChanges).count
     }
 
-    /// True when viewing a working-tree diff (not commit history).
+    /// True when viewing a working-tree diff (not commit history or stash).
     private var isLiveDiffAvailable: Bool {
-        model.commitDiffContext == nil && model.fileDiff != nil
+        model.commitDiffContext == nil && model.stashDiffContext == nil && model.fileDiff != nil
     }
 
     /// Dynamic width for the segmented tab picker based on visible tabs.
@@ -66,6 +66,14 @@ struct FilePreviewView: View {
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
                         .background(Capsule().fill(.purple.opacity(0.7)))
+                }
+                if let ctx = model.stashDiffContext {
+                    Text("stash@{\(ctx.stashIndex)}")
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Capsule().fill(.teal.opacity(0.7)))
                 }
 
                 Spacer()
@@ -263,8 +271,8 @@ struct FilePreviewView: View {
                         fileSize: model.imageFileSize
                     )
                 } else if model.activeTab == .changes, let diff = model.fileDiff {
-                    // Only show hunk actions for working tree diffs, not commit history
-                    let isLiveDiff = model.commitDiffContext == nil
+                    // Only show hunk actions for working tree diffs, not commit history or stash
+                    let isLiveDiff = model.commitDiffContext == nil && model.stashDiffContext == nil
                     let stagedIDs: Set<Int> = isLiveDiff
                         ? model.stagedFileDiff.map { DiffParser.stagedHunkIDs(combinedDiff: diff, stagedDiff: $0) } ?? []
                         : []
