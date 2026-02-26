@@ -8,6 +8,8 @@ struct CommitHistoryView: View {
     @ObservedObject var model: CommitHistoryModel
     @ObservedObject var filePreview: FilePreviewModel
     var rootURL: URL
+    /// Called when the user requests the full diff for a commit.
+    var onViewCommitDiff: ((GitCommit) -> Void)?
 
     /// Set of commit SHAs that are currently expanded to show their file list.
     @State private var expandedSHAs: Set<String> = []
@@ -144,7 +146,8 @@ struct CommitHistoryView: View {
                                 commitSHA: commit.sha,
                                 rootURL: rootURL
                             )
-                        }
+                        },
+                        onViewDiff: { onViewCommitDiff?(commit) }
                     )
                     Divider().padding(.leading, 12)
                 }
@@ -218,6 +221,9 @@ private struct CommitRowView: View {
     let rootURL: URL
     let onToggle: () -> Void
     let onSelectFile: (String) -> Void
+    var onViewDiff: (() -> Void)?
+
+    @State private var isHeaderHovered = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -274,7 +280,28 @@ private struct CommitRowView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .onHover { isHeaderHovered = $0 }
+            .overlay(alignment: .topTrailing) {
+                if let onViewDiff, isHeaderHovered {
+                    Button(action: onViewDiff) {
+                        Label("View Diff", systemImage: "doc.text.magnifyingglass")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.borderless)
+                    .help("View full diff for this commit")
+                    .padding(.trailing, 10)
+                    .padding(.top, 8)
+                }
+            }
             .contextMenu {
+                if let onViewDiff {
+                    Button(action: onViewDiff) {
+                        Label("View Diff", systemImage: "doc.text.magnifyingglass")
+                    }
+                    Divider()
+                }
+
                 Button {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(commit.sha, forType: .string)

@@ -22,6 +22,7 @@ struct ContentView: View {
     @StateObject private var fileTreeModel = FileTreeModel()
     @StateObject private var branchDiffModel = BranchDiffModel()
     @StateObject private var commitHistoryModel = CommitHistoryModel()
+    @StateObject private var commitDiffModel = CommitDiffModel()
     @State private var notificationManager = AgentNotificationManager()
     @AppStorage("sidebarWidth") private var sidebarWidth: Double = 240
     @AppStorage("previewWidth") private var previewWidth: Double = 400
@@ -47,6 +48,7 @@ struct ContentView: View {
     @State private var showCopilotActions = false
     @State private var showProjectSwitcher = false
     @State private var showBranchDiff = false
+    @State private var showCommitDiff = false
     @State private var showCloneSheet = false
     @State private var showCreatePR = false
     @State private var showMergeConflict = false
@@ -435,6 +437,14 @@ struct ContentView: View {
                             showDiffSummary = false
                             showBranchDiff = false
                             showMergeConflict = true
+                        },
+                        onViewCommitDiff: { commit in
+                            if let url = workingDirectory.directoryURL {
+                                commitDiffModel.load(commit: commit, rootURL: url)
+                            }
+                            showBranchDiff = false
+                            showDiffSummary = false
+                            showCommitDiff = true
                         }
                     )
                         .frame(width: max(sidebarWidth, 0))
@@ -631,7 +641,7 @@ struct ContentView: View {
                     )
                 }
 
-                if filePreview.selectedURL != nil || showDiffSummary || showBranchDiff || showMergeConflict {
+                if filePreview.selectedURL != nil || showDiffSummary || showBranchDiff || showCommitDiff || showMergeConflict {
                     PanelDivider(
                         width: $previewWidth,
                         minWidth: 200,
@@ -652,6 +662,19 @@ struct ContentView: View {
                                         mergeConflictModel.load(fileURL: fileURL, rootURL: rootURL, allConflictURLs: mergeConflictModel.allConflictURLs)
                                     }
                                 }
+                            )
+                        } else if showCommitDiff {
+                            CommitDiffView(
+                                model: commitDiffModel,
+                                onSelectFile: { path, _ in
+                                    showCommitDiff = false
+                                    if let root = workingDirectory.directoryURL {
+                                        let url = root.appendingPathComponent(path)
+                                        filePreview.select(url)
+                                    }
+                                },
+                                onDismiss: { showCommitDiff = false },
+                                rootURL: workingDirectory.directoryURL
                             )
                         } else if showBranchDiff {
                             BranchDiffView(
@@ -1694,6 +1717,7 @@ struct SidebarView: View {
     var onBranchDiff: (() -> Void)?
     var onCreatePR: (() -> Void)?
     var onResolveConflicts: ((URL) -> Void)?
+    var onViewCommitDiff: ((GitCommit) -> Void)?
 
     @State private var changesUnread: Int = 0
     @State private var activityUnread: Int = 0
@@ -1790,7 +1814,8 @@ struct SidebarView: View {
                     CommitHistoryView(
                         model: commitHistoryModel,
                         filePreview: filePreview,
-                        rootURL: rootURL
+                        rootURL: rootURL,
+                        onViewCommitDiff: onViewCommitDiff
                     )
                 } else {
                     VStack(spacing: 12) {
