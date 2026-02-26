@@ -411,8 +411,8 @@ struct DiffSummaryView: View {
                                     onDiscard: {
                                         changesModel.discardHunk(patch: DiffParser.reconstructPatch(fileDiff: diff, hunk: hunk))
                                     },
-                                    onRequestFix: {
-                                        requestFix(for: file, hunk: hunk)
+                                    onRequestFix: { prompt in
+                                        terminalProxy.sendPrompt(prompt)
                                     },
                                     onShowInPreview: onShowFileAtLine.map { handler in
                                         { handler(file.url, hunk.newFileStartLine ?? 1) }

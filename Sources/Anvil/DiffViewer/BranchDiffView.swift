@@ -319,11 +319,8 @@ struct BranchDiffView: View {
                                 DiffHunkView(
                                     hunk: hunk,
                                     syntaxHighlights: highlights,
-                                    onRequestFix: {
-                                        requestFixContext = RequestFixContext(
-                                            filePath: file.path,
-                                            lineRange: hunk.newFileLineRange
-                                        )
+                                    onRequestFix: { prompt in
+                                        terminalProxy.sendPrompt(prompt)
                                     },
                                     onShowInPreview: onShowInPreview.map { handler in
                                         { handler(file.path, hunk.newFileStartLine ?? 1) }

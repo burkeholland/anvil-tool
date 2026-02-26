@@ -177,7 +177,9 @@ struct DiffHunkView: View {
     var onStage: (() -> Void)?
     var onUnstage: (() -> Void)?
     var onDiscard: (() -> Void)?
-    var onRequestFix: (() -> Void)?
+    /// Called with the fully-composed prompt string (including code context) when the user
+    /// submits the hunk-level "Fix this" popover.
+    var onRequestFix: ((String) -> Void)?
     var onShowInPreview: (() -> Void)?
     var isFocused: Bool = false
     /// File path used to wire up inline annotation support. `nil` disables annotation UI.
@@ -187,6 +189,7 @@ struct DiffHunkView: View {
     var onAddAnnotation: ((Int, String) -> Void)? = nil
     var onRemoveAnnotation: ((Int) -> Void)? = nil
     @State private var isHovered = false
+    @State private var showFixPopover = false
 
     private var hasActions: Bool {
         onStage != nil || onUnstage != nil || onDiscard != nil || onRequestFix != nil || onShowInPreview != nil
@@ -289,6 +292,21 @@ struct DiffHunkView: View {
         return { handler(num) }
     }
 
+    /// The hunk's non-header lines formatted as a unified diff snippet ("+"/"-"/" " prefix).
+    private var hunkCodeContext: String {
+        hunk.lines
+            .filter { $0.kind != .hunkHeader }
+            .map { line in
+                switch line.kind {
+                case .addition:   return "+\(line.text)"
+                case .deletion:   return "-\(line.text)"
+                case .context:    return " \(line.text)"
+                case .hunkHeader: return ""
+                }
+            }
+            .joined(separator: "\n")
+    }
+
     @ViewBuilder
     private var hunkActions: some View {
         HStack(spacing: 2) {
@@ -320,13 +338,25 @@ struct DiffHunkView: View {
                 .help("Discard this hunk")
             }
             if let onRequestFix {
-                Button { onRequestFix() } label: {
+                Button { showFixPopover = true } label: {
                     Image(systemName: "wrench.and.screwdriver.fill")
                         .font(.system(size: 14))
                         .foregroundStyle(.orange)
                 }
                 .buttonStyle(.borderless)
-                .help("Request Fix for this hunk")
+                .help("Fix this hunk")
+                .popover(isPresented: $showFixPopover, arrowEdge: .trailing) {
+                    HunkFixPopoverView(
+                        filePath: filePath,
+                        lineRange: hunk.newFileLineRange,
+                        codeContext: hunkCodeContext,
+                        onSubmit: { prompt in
+                            onRequestFix(prompt)
+                            showFixPopover = false
+                        },
+                        onCancel: { showFixPopover = false }
+                    )
+                }
             }
             if let onShowInPreview {
                 Button { onShowInPreview() } label: {
@@ -713,5 +743,97 @@ struct AnnotationPopoverView: View {
         let trimmed = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         onSubmit(trimmed)
+    }
+}
+
+/// A compact popover for sending a hunk-level corrective prompt to the agent terminal.
+/// Pre-filled with the hunk's file path, line range, and code context so the agent has
+/// precise information about which code needs to be changed and why.
+struct HunkFixPopoverView: View {
+    var filePath: String?
+    var lineRange: String?
+    var codeContext: String
+    var onSubmit: (String) -> Void
+    var onCancel: () -> Void
+
+    @State private var instruction = ""
+    @FocusState private var isFocused: Bool
+
+    private var mentionPrefix: String {
+        if let path = filePath, let range = lineRange {
+            return "@\(path)#\(range)"
+        } else if let path = filePath {
+            return "@\(path)"
+        }
+        return ""
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            // Header: file + line range reference
+            HStack(spacing: 4) {
+                Image(systemName: "wrench.and.screwdriver")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.orange)
+                Text("Fix this hunk")
+                    .font(.system(size: 11, weight: .semibold))
+                if !mentionPrefix.isEmpty {
+                    Text(mentionPrefix)
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(.blue)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+            }
+
+            // Code context preview
+            if !codeContext.isEmpty {
+                ScrollView([.horizontal, .vertical]) {
+                    Text(codeContext)
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .frame(maxHeight: 120)
+                .padding(6)
+                .background(Color(nsColor: .controlBackgroundColor))
+                .clipShape(RoundedRectangle(cornerRadius: 4))
+            }
+
+            // Instruction field
+            TextField("Describe the fix (e.g. add nil check)…", text: $instruction)
+                .font(.system(size: 12))
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 280)
+                .focused($isFocused)
+                .onSubmit { submit() }
+                .onKeyPress(.escape) { onCancel(); return .handled }
+
+            HStack(spacing: 6) {
+                Button("Send Fix") { submit() }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                    .tint(.orange)
+                    .disabled(instruction.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                Button("Cancel") { onCancel() }
+                    .buttonStyle(.borderless)
+                    .controlSize(.small)
+            }
+        }
+        .padding(12)
+        .onAppear { isFocused = true }
+    }
+
+    private func submit() {
+        let trimmed = instruction.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        let prompt: String
+        if !codeContext.isEmpty {
+            prompt = "\(mentionPrefix) \(trimmed)\n```diff\n\(codeContext)\n```"
+        } else {
+            prompt = "\(mentionPrefix) \(trimmed)"
+        }
+        onSubmit(prompt)
     }
 }
