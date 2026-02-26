@@ -1829,20 +1829,37 @@ struct ChangesNavigationBar: View {
     }
 }
 
-/// Compact indicator in the toolbar showing whether the agent is actively making changes.
+/// Compact status pill in the toolbar showing the current agent state.
+/// Always visible; clicking expands a popover with activity details.
 struct AgentActivityIndicator: View {
     @ObservedObject var activityModel: ActivityFeedModel
+    @EnvironmentObject var terminalProxy: TerminalInputProxy
     @State private var isPulsing = false
+    @State private var showPopover = false
+
+    private enum AgentState {
+        case idle       // no file changes this session yet
+        case working    // changes detected within the last 10 s
+        case completed  // was working, now quiet, with changes recorded
+    }
+
+    private var currentState: AgentState {
+        if activityModel.isAgentActive { return .working }
+        if activityModel.sessionStats.isActive { return .completed }
+        return .idle
+    }
 
     var body: some View {
-        if activityModel.sessionStats.isActive {
+        Button {
+            showPopover.toggle()
+        } label: {
             HStack(spacing: 5) {
                 Circle()
-                    .fill(activityModel.isAgentActive ? Color.green : Color.secondary.opacity(0.3))
+                    .fill(dotColor)
                     .frame(width: 7, height: 7)
-                    .scaleEffect(isPulsing && activityModel.isAgentActive ? 1.3 : 1.0)
+                    .scaleEffect(isPulsing && currentState == .working ? 1.3 : 1.0)
                     .animation(
-                        activityModel.isAgentActive
+                        currentState == .working
                             ? .easeInOut(duration: 0.8).repeatForever(autoreverses: true)
                             : .default,
                         value: isPulsing
@@ -1850,29 +1867,81 @@ struct AgentActivityIndicator: View {
                     .onChange(of: activityModel.isAgentActive) { _, active in
                         isPulsing = active
                     }
+                    .onAppear { isPulsing = activityModel.isAgentActive }
 
-                VStack(alignment: .leading, spacing: 0) {
-                    if activityModel.isAgentActive, let change = activityModel.latestFileChange {
-                        Text(change.url.lastPathComponent)
-                            .font(.system(size: 10))
-                            .lineLimit(1)
-                            .foregroundStyle(.primary)
-                    } else {
-                        Text(summaryText)
-                            .font(.system(size: 10))
-                            .foregroundStyle(.secondary)
-                    }
+                Text(pillLabel)
+                    .font(.system(size: 10))
+                    .lineLimit(1)
+                    .foregroundStyle(currentState == .idle ? .tertiary : .secondary)
+
+                if currentState != .idle {
+                    Text("\(activityModel.sessionStats.totalFilesTouched)")
+                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(currentState == .working ? .green : .secondary)
+                        .accessibilityLabel("\(activityModel.sessionStats.totalFilesTouched) files changed")
                 }
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 3)
             .background(
                 RoundedRectangle(cornerRadius: 4)
-                    .fill(activityModel.isAgentActive
-                          ? Color.green.opacity(0.08)
-                          : Color.clear)
+                    .fill(pillBackgroundColor)
             )
-            .help(activityModel.isAgentActive ? "Agent is actively making changes" : "Agent idle — \(activityModel.sessionStats.totalFilesTouched) files touched this session")
+        }
+        .buttonStyle(.plain)
+        .help(helpText)
+        .popover(isPresented: $showPopover, arrowEdge: .bottom) {
+            AgentStatusPopover(
+                activityModel: activityModel,
+                onJumpToTerminal: {
+                    showPopover = false
+                    if let tv = terminalProxy.terminalView {
+                        tv.window?.makeFirstResponder(tv)
+                    }
+                }
+            )
+        }
+    }
+
+    private var dotColor: Color {
+        switch currentState {
+        case .idle:      return Color.secondary.opacity(0.3)
+        case .working:   return Color.green
+        case .completed: return Color.green.opacity(0.6)
+        }
+    }
+
+    private var pillBackgroundColor: Color {
+        switch currentState {
+        case .idle:      return Color.clear
+        case .working:   return Color.green.opacity(0.1)
+        case .completed: return Color.secondary.opacity(0.08)
+        }
+    }
+
+    private var pillLabel: String {
+        switch currentState {
+        case .idle:
+            return "Idle"
+        case .working:
+            if let change = activityModel.latestFileChange {
+                return change.url.lastPathComponent
+            }
+            return "Working…"
+        case .completed:
+            return summaryText
+        }
+    }
+
+    private var helpText: String {
+        switch currentState {
+        case .idle:
+            return "Agent idle — no changes this session"
+        case .working:
+            return "Agent is actively making changes"
+        case .completed:
+            let n = activityModel.sessionStats.totalFilesTouched
+            return "Agent idle — \(n) file\(n == 1 ? "" : "s") touched this session"
         }
     }
 
@@ -1884,5 +1953,133 @@ struct AgentActivityIndicator: View {
             parts.append("\(stats.commitCount) commit\(stats.commitCount == 1 ? "" : "s")")
         }
         return parts.joined(separator: " · ")
+    }
+}
+
+/// Compact popover shown when the agent status pill is clicked.
+/// Displays a summary of files touched, diff totals, the last event, and
+/// a button to focus the terminal.
+struct AgentStatusPopover: View {
+    @ObservedObject var activityModel: ActivityFeedModel
+    var onJumpToTerminal: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Header
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(activityModel.isAgentActive ? Color.green : Color.secondary.opacity(0.4))
+                    .frame(width: 7, height: 7)
+                Text(activityModel.isAgentActive ? "Working…" : "Agent Idle")
+                    .font(.system(size: 12, weight: .semibold))
+                Spacer()
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 10) {
+                let stats = activityModel.sessionStats
+
+                if stats.totalFilesTouched > 0 {
+                    // Files breakdown
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Files Changed")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(.secondary)
+
+                        HStack(spacing: 10) {
+                            if stats.filesCreated > 0 {
+                                Label("\(stats.filesCreated) added", systemImage: "plus.circle.fill")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(.green)
+                            }
+                            if stats.filesModified > 0 {
+                                Label("\(stats.filesModified) modified", systemImage: "pencil.circle.fill")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(.orange)
+                            }
+                            if stats.filesDeleted > 0 {
+                                Label("\(stats.filesDeleted) deleted", systemImage: "minus.circle.fill")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(.red)
+                            }
+                        }
+                    }
+
+                    // Diff line totals
+                    if stats.totalAdditions > 0 || stats.totalDeletions > 0 {
+                        HStack(spacing: 8) {
+                            if stats.totalAdditions > 0 {
+                                Text("+\(stats.totalAdditions)")
+                                    .font(.system(size: 11, design: .monospaced))
+                                    .foregroundStyle(.green)
+                            }
+                            if stats.totalDeletions > 0 {
+                                Text("-\(stats.totalDeletions)")
+                                    .font(.system(size: 11, design: .monospaced))
+                                    .foregroundStyle(.red)
+                            }
+                        }
+                    }
+
+                    if stats.commitCount > 0 {
+                        Label("\(stats.commitCount) commit\(stats.commitCount == 1 ? "" : "s")", systemImage: "arrow.triangle.branch")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.purple)
+                    }
+                } else {
+                    Text("No changes this session")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.tertiary)
+                }
+
+                // Last event
+                if let lastEvent = activityModel.events.last {
+                    Divider()
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Last Event")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(.secondary)
+
+                        HStack(spacing: 4) {
+                            Image(systemName: lastEvent.icon)
+                                .font(.system(size: 10))
+                                .foregroundStyle(.secondary)
+                            Text(lastEvent.displayName)
+                                .font(.system(size: 11))
+                                .lineLimit(1)
+                                .foregroundStyle(.primary)
+                        }
+
+                        Text(lastEvent.timestamp, style: .relative)
+                            .font(.system(size: 10))
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+
+            Divider()
+
+            // Jump to terminal
+            Button(action: onJumpToTerminal) {
+                HStack(spacing: 6) {
+                    Image(systemName: "terminal")
+                        .font(.system(size: 11))
+                    Text("Jump to Terminal")
+                        .font(.system(size: 12))
+                    Spacer()
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+        }
+        .frame(width: 260)
     }
 }
