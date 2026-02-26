@@ -109,6 +109,17 @@ struct ContentView: View {
         .frame(minWidth: 800, minHeight: 500)
         .background(Color(nsColor: .windowBackgroundColor))
         .navigationTitle(workingDirectory.projectName)
+        .background {
+            // ⌘K opens the command palette without a menu item (supplements ⌘⇧P)
+            Button("") {
+                buildCommandPalette()
+                showCommandPalette = true
+            }
+            .keyboardShortcut("k", modifiers: .command)
+            .frame(width: 0, height: 0)
+            .opacity(0)
+            .accessibilityHidden(true)
+        }
         .modifier(FocusedSceneModifier(
             showSidebar: $showSidebar,
             sidebarTab: $sidebarTab,
@@ -722,7 +733,12 @@ struct ContentView: View {
                     QuickOpenView(
                         model: quickOpenModel,
                         filePreview: filePreview,
-                        onDismiss: { dismissQuickOpen() }
+                        onDismiss: { dismissQuickOpen() },
+                        onSwitchToCommands: { query in
+                            buildCommandPalette()
+                            commandPalette.query = query
+                            showCommandPalette = true
+                        }
                     )
                     .padding(.top, 60)
 
