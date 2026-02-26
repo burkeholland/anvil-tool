@@ -25,8 +25,14 @@ struct TaskCompleteBanner: View {
     var onNewTask: () -> Void
     var onDismiss: () -> Void
 
+    /// Changed file entries to show in the collapsible file list.
+    var changedFiles: [ChangedFile] = []
+    /// Called when the user taps a file row to navigate to that file's diff.
+    var onOpenFileDiff: ((ChangedFile) -> Void)?
+
     @State private var showBuildOutput = false
     @State private var showTestOutput = false
+    @State private var showChangedFiles = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -41,9 +47,21 @@ struct TaskCompleteBanner: View {
                 if changedFileCount > 0 {
                     Text("•")
                         .foregroundStyle(.tertiary)
-                    Text("\(changedFileCount) file\(changedFileCount == 1 ? "" : "s") changed")
-                        .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            showChangedFiles.toggle()
+                        }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text("\(changedFileCount) file\(changedFileCount == 1 ? "" : "s") changed")
+                                .font(.system(size: 12))
+                                .foregroundStyle(.secondary)
+                            Image(systemName: showChangedFiles ? "chevron.up" : "chevron.down")
+                                .font(.system(size: 9))
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+                    .buttonStyle(.plain)
                 }
 
                 if totalAdditions > 0 || totalDeletions > 0 {
@@ -252,6 +270,22 @@ struct TaskCompleteBanner: View {
                 }
                 .background(Color(nsColor: .textBackgroundColor).opacity(0.6))
             }
+            // Expandable changed-files panel
+            if showChangedFiles && !changedFiles.isEmpty {
+                Divider()
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        ForEach(changedFiles) { file in
+                            BannerFileRow(file: file) {
+                                onOpenFileDiff?(file)
+                            }
+                            Divider().padding(.leading, 32)
+                        }
+                    }
+                }
+                .frame(maxHeight: 180)
+                .background(Color(nsColor: .textBackgroundColor).opacity(0.6))
+            }
         }
         .background(.ultraThinMaterial)
         .overlay(alignment: .top) { Divider() }
@@ -436,6 +470,69 @@ private struct DiagnosticRow: View {
             return "\(filename):\(diagnostic.line):\(col)"
         }
         return "\(filename):\(diagnostic.line)"
+    }
+}
+
+/// A single row in the changed-files list showing status badge, path, and diff stats.
+private struct BannerFileRow: View {
+    let file: ChangedFile
+    let onTap: () -> Void
+
+    @State private var isHovering = false
+
+    var body: some View {
+        Button(action: onTap) {
+            HStack(spacing: 8) {
+                Text(statusLabel)
+                    .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(.white)
+                    .frame(width: 16, height: 16)
+                    .background(
+                        RoundedRectangle(cornerRadius: 2)
+                            .fill(file.status.color)
+                    )
+
+                Text(file.relativePath)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                if let diff = file.diff {
+                    HStack(spacing: 4) {
+                        if diff.additionCount > 0 {
+                            Text("+\(diff.additionCount)")
+                                .font(.system(size: 10).monospacedDigit())
+                                .foregroundStyle(.green)
+                        }
+                        if diff.deletionCount > 0 {
+                            Text("-\(diff.deletionCount)")
+                                .font(.system(size: 10).monospacedDigit())
+                                .foregroundStyle(.red)
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .contentShape(Rectangle())
+            .background(isHovering ? Color.accentColor.opacity(0.08) : Color.clear)
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovering = $0 }
+        .help("Click to view diff for \(file.fileName)")
+    }
+
+    private var statusLabel: String {
+        switch file.status {
+        case .modified:   return "M"
+        case .added:      return "A"
+        case .deleted:    return "D"
+        case .untracked:  return "?"
+        case .renamed:    return "R"
+        case .conflicted: return "!"
+        }
     }
 }
 
