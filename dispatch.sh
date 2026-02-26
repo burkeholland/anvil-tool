@@ -136,11 +136,19 @@ phase_merge() {
     log "   Checking PR #$pr_num..."
 
     # Only action PRs linked to issues with our label (ignore community PRs)
+    # Note: closingIssuesReferences doesn't include labels, so fetch the linked issue separately
+    local linked_issue_num
+    linked_issue_num="$(gh pr view "$pr_num" --repo "$REPO" --json closingIssuesReferences \
+      --jq '(.closingIssuesReferences // [])[0].number // empty')" || linked_issue_num=""
+    if [ -z "$linked_issue_num" ]; then
+      log "   ⏭️  PR #$pr_num has no linked issue. Skipping."
+      continue
+    fi
     local linked_labels
-    linked_labels="$(gh pr view "$pr_num" --repo "$REPO" --json closingIssuesReferences \
-      --jq '[.closingIssuesReferences[].labels[].name] | join(",")')" || linked_labels=""
+    linked_labels="$(gh issue view "$linked_issue_num" --repo "$REPO" --json labels \
+      --jq '[.labels[].name] | join(",")')" || linked_labels=""
     if ! echo "$linked_labels" | grep -q "$LABEL"; then
-      log "   ⏭️  PR #$pr_num not linked to a $LABEL issue. Skipping."
+      log "   ⏭️  PR #$pr_num linked issue #$linked_issue_num missing $LABEL label. Skipping."
       continue
     fi
 
@@ -177,7 +185,7 @@ phase_merge() {
           log "   🗑️  PR #$pr_num: agent pushed after rebase request but still conflicting. Closing."
           local linked_issue
           linked_issue="$(gh pr view "$pr_num" --repo "$REPO" --json closingIssuesReferences \
-            --jq '.closingIssuesReferences[0].number')" || linked_issue=""
+            --jq '(.closingIssuesReferences // [])[0].number // empty')" || linked_issue=""
           gh pr close "$pr_num" --repo "$REPO" \
             --comment "Closed by dispatch: agent attempted rebase but merge conflicts persist. Will reopen the linked issue for a fresh attempt." \
             2>/dev/null || true
@@ -453,7 +461,7 @@ phase_triage() {
     local closed_by_prs
     closed_by_prs="$(gh pr list --repo "$REPO" --state merged \
       --limit 20 --json author,closingIssuesReferences \
-      --jq '[.[] | select(.author.login == "app/copilot-swe-agent") | .closingIssuesReferences[].number] | unique | .[]' 2>/dev/null)" || closed_by_prs=""
+      --jq '[.[] | select(.author.login == "app/copilot-swe-agent") | (.closingIssuesReferences // [])[].number] | unique | .[]' 2>/dev/null)" || closed_by_prs=""
 
     local issue_num issue_title
     while IFS=$'\t' read -r issue_num issue_title; do
