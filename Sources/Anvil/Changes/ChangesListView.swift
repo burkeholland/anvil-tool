@@ -1350,7 +1350,7 @@ struct CommitFormView: View {
                 RoundedRectangle(cornerRadius: 6)
                     .strokeBorder(Color(nsColor: .separatorColor), lineWidth: 0.5)
             )
-            .overlay(alignment: .centerTrailing) {
+            .overlay(alignment: .trailing) {
                 Button {
                     model.commitMessage = model.generateCommitMessage(
                         style: messageStyle,
