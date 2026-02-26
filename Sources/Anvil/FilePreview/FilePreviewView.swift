@@ -19,6 +19,11 @@ struct FilePreviewView: View {
         model.fileDiff.map { DiffParser.gutterChanges(from: $0) } ?? [:]
     }
 
+    /// Total number of lines in the currently previewed file (for the diff stripe).
+    private var currentFileTotalLines: Int {
+        model.fileContent.map { $0.components(separatedBy: "\n").count } ?? 0
+    }
+
     /// Build diagnostics filtered to only those belonging to the currently previewed file,
     /// keyed by 1-based line number (last diagnostic wins when multiple land on the same line).
     var diagnosticsForCurrentFile: [Int: BuildDiagnostic] {
@@ -405,6 +410,17 @@ struct FilePreviewView: View {
                         },
                         diagnosticAnnotations: diagnosticsForCurrentFile
                     )
+                    .overlay(alignment: .trailing) {
+                        if !currentGutterChanges.isEmpty {
+                            DiffChangeStripeView(
+                                gutterChanges: currentGutterChanges,
+                                totalLines: currentFileTotalLines,
+                                onScrollToLine: { [model] line in model.scrollToLine = line }
+                            )
+                            .padding(.trailing, NSScroller.scrollerWidth(for: .regular, scrollerStyle: .legacy))
+                            .allowsHitTesting(true)
+                        }
+                    }
                 } else {
                     if model.selectedURL == nil {
                         // Panel is empty — show a friendly placeholder
