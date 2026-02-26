@@ -1764,6 +1764,11 @@ struct ToolbarView: View {
                     showBranchPicker.toggle()
                 } label: {
                     HStack(spacing: Spacing.xs) {
+                        Image(systemName: "arrow.triangle.branch")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                        Text(branch)
+                            .font(.system(.body, design: .monospaced))
                             .lineLimit(1)
                             .truncationMode(.middle)
                         Image(systemName: "chevron.down")
