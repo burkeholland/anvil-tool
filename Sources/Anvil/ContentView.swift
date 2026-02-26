@@ -1835,7 +1835,14 @@ struct SidebarView: View {
     /// Badge count for the Tests tab: number of failed tests in the latest run.
     private var testsFailedCount: Int {
         guard let run = testResultsStore.latestRun, !run.succeeded else { return 0 }
-        return run.failedCount > 0 ? run.failedCount : run.testCases.isEmpty ? 1 : 0
+        if run.failedCount > 0 {
+            // Individual test cases were parsed — show exact failure count.
+            return run.failedCount
+        } else if run.testCases.isEmpty {
+            // Output was not parseable into individual cases; show "1" to indicate failure.
+            return 1
+        }
+        return 0
     }
 
     var body: some View {

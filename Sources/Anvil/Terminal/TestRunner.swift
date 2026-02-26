@@ -232,6 +232,9 @@ enum TestResultParser {
     // "Test Suite '...' passed at ... executed 5 tests, with 0 failures"
     // "Test Case '-[…SomeTests testSomething]' passed (0.001 seconds)."
     // "Test Case '-[…SomeTests testSomething]' failed (0.001 seconds)."
+    //
+    // reXCSuiteSummary:  group 1 = total count, group 2 = failure count
+    // reXCCasePassed/reXCCaseFailed: group 1 = test name, group 2 = duration in seconds
     private static let reXCSuiteSummary = try! NSRegularExpression(
         pattern: #"executed (\d+) tests?, with (\d+) failures?"#
     )
