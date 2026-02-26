@@ -422,6 +422,8 @@ struct SearchResultRow: View {
     let isSelected: Bool
     var gitStatus: GitFileStatus? = nil
 
+    @State private var isHovering = false
+
     var body: some View {
         HStack(spacing: 6) {
             Image(systemName: iconForFile(result.name))
@@ -457,8 +459,12 @@ struct SearchResultRow: View {
         .background(
             isSelected
                 ? RoundedRectangle(cornerRadius: 4).fill(Color.accentColor.opacity(0.2))
-                : nil
+                : isHovering
+                    ? RoundedRectangle(cornerRadius: 4).fill(Color.primary.opacity(0.05))
+                    : nil
         )
+        .animation(.easeInOut(duration: 0.12), value: isHovering)
+        .onHover { isHovering = $0 }
     }
 
     private func iconForFile(_ name: String) -> String {
@@ -495,6 +501,7 @@ struct FileRowView: View {
     let onToggle: () -> Void
 
     @State private var pulseOpacity: Double = 0
+    @State private var isHovering = false
 
     var body: some View {
         HStack(spacing: 4) {
@@ -574,14 +581,18 @@ struct FileRowView: View {
         .background(
             isSelected
                 ? RoundedRectangle(cornerRadius: 4).fill(Color.accentColor.opacity(0.2))
-                : nil
+                : isHovering
+                    ? RoundedRectangle(cornerRadius: 4).fill(Color.primary.opacity(0.05))
+                    : nil
         )
         .overlay(
             RoundedRectangle(cornerRadius: 4)
                 .fill(Color.green.opacity((entry.isDirectory ? 0.15 : 0.3) * pulseOpacity))
         )
+        .animation(.easeInOut(duration: 0.12), value: isHovering)
         .contentShape(Rectangle())
         .onTapGesture { onToggle() }
+        .onHover { isHovering = $0 }
         .onChange(of: pulseToken) { _, token in
             if token != nil {
                 withAnimation(.linear(duration: 0)) { pulseOpacity = 1.0 }
