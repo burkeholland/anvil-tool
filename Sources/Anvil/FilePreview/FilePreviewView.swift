@@ -805,10 +805,10 @@ struct HighlightedTextView: NSViewRepresentable {
     var onRevertHunk: ((DiffHunk) -> Void)?
     /// Per-line blame annotations. Empty when blame is off.
     var blameLines: [BlameLine] = []
-    /// Called when the user clicks a blame annotation. Receives the full commit SHA.
-    var onBlameClick: ((String) -> Void)?
     /// Binding to scroll to a specific line (1-based). Set to nil after scrolling.
     @Binding var scrollToLine: Int?
+    /// Called when the user clicks a blame annotation. Receives the full commit SHA.
+    var onBlameClick: ((String) -> Void)?
     /// Called when the user triggers "Send to Terminal". Receives the selected code (or empty
     /// string when nothing is selected), plus the 1-based start and end line numbers.
     var onSendToTerminal: ((String, Int, Int) -> Void)?
