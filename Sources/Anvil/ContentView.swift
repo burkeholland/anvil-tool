@@ -554,6 +554,13 @@ struct ContentView: View {
                 }
                 showDiffSummary = true
                 showTaskBanner = false
+            },
+            unreviewedCount: changesModel.changedFiles.count - changesModel.reviewedCount,
+            annotationCount: diffAnnotationStore.annotations.count,
+            annotationPrompt: diffAnnotationStore.buildPrompt(),
+            isSaturated: sessionHealthMonitor.isSaturated,
+            onSelectSuggestion: { prompt in
+                terminalProxy.sendPrompt(prompt)
             }
         )
     }
@@ -823,20 +830,6 @@ struct ContentView: View {
                         taskCompleteBannerView
                             .transition(.move(edge: .bottom).combined(with: .opacity))
                     }
-
-                    PromptSuggestionBar(
-                        buildStatus: buildVerifier.status,
-                        buildDiagnostics: buildVerifier.diagnostics,
-                        testStatus: testRunner.status,
-                        unreviewedCount: changesModel.changedFiles.count - changesModel.reviewedCount,
-                        totalChangedCount: changesModel.changedFiles.count,
-                        annotationCount: diffAnnotationStore.annotations.count,
-                        annotationPrompt: diffAnnotationStore.buildPrompt(),
-                        isSaturated: sessionHealthMonitor.isSaturated,
-                        onSelectSuggestion: { prompt in
-                            terminalProxy.sendPrompt(prompt)
-                        }
-                    )
 
                     StatusBarView(
                         workingDirectory: workingDirectory,
