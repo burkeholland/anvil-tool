@@ -101,6 +101,15 @@ enum GitStashProvider {
         return files.sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
     }
 
+    /// Stash all changes (including untracked) with an optional message.
+    @discardableResult
+    static func push(message: String?, includeUntracked: Bool = true, in directory: URL) -> (success: Bool, error: String?) {
+        var args = ["stash", "push"]
+        if includeUntracked { args.append("--include-untracked") }
+        if let message = message, !message.isEmpty { args += ["-m", message] }
+        return runGitWithError(args: args, at: directory)
+    }
+
     /// Apply a stash without removing it from the stash list.
     @discardableResult
     static func apply(sha: String, in directory: URL) -> (success: Bool, error: String?) {
