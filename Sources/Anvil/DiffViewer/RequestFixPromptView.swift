@@ -81,6 +81,17 @@ struct RequestFixPromptView: View {
 // MARK: - Hunk line range helper
 
 extension DiffHunk {
+    /// Parses the hunk header to extract the first line number of the new file (e.g. 12).
+    /// Uses `hunkRangeRegex` which matches `+newStart[,newCount]` in the hunk header;
+    /// capture group 1 is the new-file start line.
+    /// Returns nil if the header cannot be parsed.
+    var newFileStartLine: Int? {
+        guard let match = DiffHunk.hunkRangeRegex.firstMatch(in: header, range: NSRange(header.startIndex..., in: header)),
+              let startRange = Range(match.range(at: 1), in: header)
+        else { return nil }
+        return Int(header[startRange])
+    }
+
     /// Parses the hunk header to extract the new-file line range (e.g. "L12-L19").
     /// Returns nil if the header cannot be parsed.
     var newFileLineRange: String? {

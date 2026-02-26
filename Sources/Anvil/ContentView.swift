@@ -773,7 +773,14 @@ struct ContentView: View {
                                         filePreview.select(url)
                                     }
                                 },
-                                onDismiss: { showBranchDiff = false }
+                                onDismiss: { showBranchDiff = false },
+                                onShowInPreview: { [weak filePreview] path, line in
+                                    showBranchDiff = false
+                                    if let root = workingDirectory.directoryURL {
+                                        let url = root.appendingPathComponent(path)
+                                        filePreview?.select(url, line: line)
+                                    }
+                                }
                             )
                         } else if showDiffSummary {
                             DiffSummaryView(
@@ -782,7 +789,11 @@ struct ContentView: View {
                                     showDiffSummary = false
                                     filePreview.select(url)
                                 },
-                                onDismiss: { showDiffSummary = false }
+                                onDismiss: { showDiffSummary = false },
+                                onShowFileAtLine: { [weak filePreview] url, line in
+                                    showDiffSummary = false
+                                    filePreview?.select(url, line: line)
+                                }
                             )
                         } else {
                             if let idx = currentChangeIndex {
