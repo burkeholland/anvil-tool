@@ -298,9 +298,11 @@ capture_app_screenshot() {
   local tab="$1"
   local output="$2"
 
-  # Set sidebar tab + project via UserDefaults before launch
+  # Set sidebar tab + project + ensure sidebar visible via UserDefaults before launch
   defaults write dev.burkeholland.anvil "sidebarTab" "$tab"
   defaults write dev.burkeholland.anvil "dev.anvil.lastOpenedDirectory" "$SCRIPT_DIR"
+  defaults write dev.burkeholland.anvil "showSidebar" -bool true
+  defaults write dev.burkeholland.anvil "sidebarWidth" -float 240
 
   # Kill any existing Anvil instance
   local existing_pid
