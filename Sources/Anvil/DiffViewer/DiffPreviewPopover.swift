@@ -1,14 +1,24 @@
 import SwiftUI
 
-/// A compact popover that shows the first few diff hunks with syntax highlighting.
+/// A compact popover that shows the first few diff hunks with syntax highlighting
+/// and interactive stage/unstage controls.
 /// Used for hover previews on file rows in the Changes and Activity panels.
 struct DiffPreviewPopover: View {
     let diff: FileDiff
+    var stagedDiff: FileDiff?
+    var onStageHunk: ((DiffHunk) -> Void)?
+    var onUnstageHunk: ((DiffHunk) -> Void)?
+    var onDiscardHunk: ((DiffHunk) -> Void)?
     var onOpenFull: (() -> Void)?
     private let maxHunks = 3
 
     private var previewHunks: [DiffHunk] {
         Array(diff.hunks.prefix(maxHunks))
+    }
+
+    private var stagedHunkIDs: Set<Int> {
+        guard let stagedDiff else { return [] }
+        return DiffParser.stagedHunkIDs(combinedDiff: diff, stagedDiff: stagedDiff)
     }
 
     var body: some View {
@@ -55,7 +65,14 @@ struct DiffPreviewPopover: View {
                 let highlights = DiffSyntaxHighlighter.highlight(diff: diff)
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(previewHunks) { hunk in
-                        DiffHunkView(hunk: hunk, syntaxHighlights: highlights)
+                        DiffHunkView(
+                            hunk: hunk,
+                            syntaxHighlights: highlights,
+                            isStaged: stagedHunkIDs.contains(hunk.id),
+                            onStage: onStageHunk.map { handler in { handler(hunk) } },
+                            onUnstage: onUnstageHunk.map { handler in { handler(hunk) } },
+                            onDiscard: onDiscardHunk.map { handler in { handler(hunk) } }
+                        )
                     }
                     if diff.hunks.count > maxHunks {
                         let remaining = diff.hunks.count - maxHunks
@@ -67,9 +84,9 @@ struct DiffPreviewPopover: View {
                     }
                 }
             }
-            .frame(maxHeight: 300)
+            .frame(maxHeight: 400)
         }
-        .frame(width: 520)
+        .frame(width: 560)
         .background(Color(nsColor: .textBackgroundColor))
     }
 }

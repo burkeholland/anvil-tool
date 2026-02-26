@@ -8,6 +8,8 @@ struct ChangedFile: Identifiable {
     let status: GitFileStatus
     let staging: StagingState
     var diff: FileDiff?
+    /// The staged-only diff (`git diff --cached`) used to identify which hunks are staged.
+    var stagedDiff: FileDiff?
 
     var id: URL { url }
 
@@ -409,6 +411,30 @@ final class ChangesModel: ObservableObject {
         focusedHunkIndex = nil
     }
 
+    func focusNextUnreviewedFile() {
+        let unreviewedIndices = changedFiles.indices.filter { !reviewedPaths.contains(changedFiles[$0].relativePath) }
+        guard let firstUnreviewed = unreviewedIndices.first else { return }
+        if let current = focusedFileIndex,
+           let next = unreviewedIndices.first(where: { $0 > current }) {
+            focusedFileIndex = next
+        } else {
+            focusedFileIndex = firstUnreviewed
+        }
+        focusedHunkIndex = nil
+    }
+
+    func focusPreviousUnreviewedFile() {
+        let unreviewedIndices = changedFiles.indices.filter { !reviewedPaths.contains(changedFiles[$0].relativePath) }
+        guard let lastUnreviewed = unreviewedIndices.last else { return }
+        if let current = focusedFileIndex,
+           let prev = unreviewedIndices.last(where: { $0 < current }) {
+            focusedFileIndex = prev
+        } else {
+            focusedFileIndex = lastUnreviewed
+        }
+        focusedHunkIndex = nil
+    }
+
     func focusNextHunk() {
         guard let file = focusedFile,
               let hunks = file.diff?.hunks,
@@ -541,11 +567,18 @@ final class ChangesModel: ObservableObject {
             let gitRoot = detailed?.gitRoot ?? rootURL
             let statuses = detailed?.files ?? [:]
             let diffs = DiffProvider.allChanges(in: rootURL)
+            let stagedDiffs = DiffProvider.allStagedChanges(in: rootURL)
 
             // Build a lookup from relative path → FileDiff
             var diffMap: [String: FileDiff] = [:]
             for diff in diffs {
                 diffMap[diff.newPath] = diff
+            }
+
+            // Build a lookup from relative path → staged FileDiff
+            var stagedDiffMap: [String: FileDiff] = [:]
+            for diff in stagedDiffs {
+                stagedDiffMap[diff.newPath] = diff
             }
 
             let gitRootPath = gitRoot.standardizedFileURL.path
@@ -581,7 +614,8 @@ final class ChangesModel: ObservableObject {
                     relativePath: relativePath,
                     status: detail.status,
                     staging: detail.staging,
-                    diff: fileDiff
+                    diff: fileDiff,
+                    stagedDiff: stagedDiffMap[relativePath]
                 ))
             }
 

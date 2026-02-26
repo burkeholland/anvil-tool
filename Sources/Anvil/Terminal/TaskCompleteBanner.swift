@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// A floating banner that appears when the Copilot agent goes idle after making
@@ -13,6 +14,9 @@ struct TaskCompleteBanner: View {
     var buildDiagnostics: [BuildDiagnostic] = []
     /// Called when the user taps a diagnostic row to navigate to the error location.
     var onOpenDiagnostic: ((BuildDiagnostic) -> Void)?
+    /// Called when the user taps "Fix with Copilot" on a build diagnostic row.
+    /// The argument is the diagnostic to fix.
+    var onFixDiagnostic: ((BuildDiagnostic) -> Void)?
     /// Test suite status reported by TestRunner.
     var testStatus: TestRunner.Status = .idle
     /// Called when the user taps "Run Tests" to trigger a manual re-run.
@@ -20,6 +24,9 @@ struct TaskCompleteBanner: View {
     /// Called when the user taps "Fix with Agent" after a test failure.
     /// The argument is the raw test output to send to the agent.
     var onFixTestFailure: ((String) -> Void)?
+    /// Called when the user taps "Fix with Copilot" on an individual failing test row.
+    /// The argument is the test name to target.
+    var onFixTestCase: ((String) -> Void)?
     /// Current git branch name, used to decide whether to show the "Create PR" suggestion.
     var gitBranch: String? = nil
     /// Number of local commits ahead of upstream. Used together with gitBranch for the PR suggestion.
@@ -33,6 +40,9 @@ struct TaskCompleteBanner: View {
     var onNewTask: () -> Void
     var onDismiss: () -> Void
 
+    /// The task prompt that initiated this work session, used to populate the copy summary.
+    var taskPrompt: String? = nil
+
     /// Changed file entries to show in the collapsible file list.
     var changedFiles: [ChangedFile] = []
     /// Called when the user taps a file row to navigate to that file's diff.
@@ -41,6 +51,8 @@ struct TaskCompleteBanner: View {
     @State private var showBuildOutput = false
     @State private var showTestOutput = false
     @State private var showChangedFiles = false
+    @State private var showCopiedConfirmation = false
+    @State private var copiedDismissTask: DispatchWorkItem?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -141,6 +153,14 @@ struct TaskCompleteBanner: View {
                     ) {
                         onStageAllAndCommit()
                     }
+
+                    BannerPillButton(
+                        icon: "doc.on.clipboard",
+                        label: "Copy Summary",
+                        style: .secondary
+                    ) {
+                        copySummaryToClipboard()
+                    }
                 }
 
                 if shouldShowCreatePR {
@@ -193,9 +213,9 @@ struct TaskCompleteBanner: View {
                     ScrollView {
                         LazyVStack(spacing: 0) {
                             ForEach(buildDiagnostics) { diagnostic in
-                                DiagnosticRow(diagnostic: diagnostic) {
+                                DiagnosticRow(diagnostic: diagnostic, onTap: {
                                     onOpenDiagnostic?(diagnostic)
-                                }
+                                }, onFix: onFixDiagnostic != nil ? { onFixDiagnostic?(diagnostic) } : nil)
                                 Divider().padding(.leading, 32)
                             }
                         }
@@ -233,6 +253,23 @@ struct TaskCompleteBanner: View {
                                             .foregroundStyle(.primary)
                                             .lineLimit(1)
                                             .frame(maxWidth: .infinity, alignment: .leading)
+                                        if let handler = onFixTestCase {
+                                            Button {
+                                                handler(testName)
+                                            } label: {
+                                                HStack(spacing: 3) {
+                                                    Image(systemName: "ant.circle")
+                                                        .font(.system(size: 10))
+                                                    Text("Fix")
+                                                        .font(.system(size: 10, weight: .medium))
+                                                }
+                                                .foregroundStyle(.white)
+                                                .padding(.horizontal, 7)
+                                                .padding(.vertical, 3)
+                                                .background(Color.red.opacity(0.85), in: Capsule())
+                                            }
+                                            .buttonStyle(.plain)
+                                        }
                                     }
                                     .padding(.horizontal, 10)
                                     .padding(.vertical, 5)
@@ -287,6 +324,28 @@ struct TaskCompleteBanner: View {
         }
         .background(.ultraThinMaterial)
         .overlay(alignment: .top) { Divider() }
+        .overlay(alignment: .center) {
+            if showCopiedConfirmation {
+                Text("Summary copied to clipboard")
+                    .font(.system(size: 12, weight: .medium))
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 7)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+                    .transition(.opacity.combined(with: .scale(scale: 0.95)))
+            }
+        }
+        .animation(.easeInOut(duration: 0.2), value: showCopiedConfirmation)
+    }
+
+    private func copySummaryToClipboard() {
+        let summary = ChangeSummaryGenerator.generate(files: changedFiles, taskPrompt: taskPrompt)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(summary, forType: .string)
+        copiedDismissTask?.cancel()
+        showCopiedConfirmation = true
+        let task = DispatchWorkItem { showCopiedConfirmation = false }
+        copiedDismissTask = task
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2, execute: task)
     }
 
     /// Branch names that are considered "default" and should not trigger the Create PR suggestion.
@@ -422,39 +481,63 @@ struct TaskCompleteBanner: View {
 private struct DiagnosticRow: View {
     let diagnostic: BuildDiagnostic
     let onTap: () -> Void
+    var onFix: (() -> Void)? = nil
 
     @State private var isHovering = false
 
     var body: some View {
-        Button(action: onTap) {
-            HStack(spacing: 8) {
-                severityIcon
-                    .font(.system(size: 11))
-                    .frame(width: 14)
-
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(diagnostic.message)
+        HStack(spacing: 0) {
+            Button(action: onTap) {
+                HStack(spacing: 8) {
+                    severityIcon
                         .font(.system(size: 11))
-                        .foregroundStyle(.primary)
-                        .lineLimit(2)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .frame(width: 14)
 
-                    HStack(spacing: 4) {
-                        Text(locationLabel)
-                            .font(.system(size: 10, design: .monospaced))
-                            .foregroundStyle(.secondary)
-                        Spacer()
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(diagnostic.message)
+                            .font(.system(size: 11))
+                            .foregroundStyle(.primary)
+                            .lineLimit(2)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+
+                        HStack(spacing: 4) {
+                            Text(locationLabel)
+                                .font(.system(size: 10, design: .monospaced))
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                        }
                     }
                 }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
-            .contentShape(Rectangle())
-            .background(isHovering ? Color.accentColor.opacity(0.08) : Color.clear)
+            .buttonStyle(.plain)
+            .help("Click to open file at \(locationLabel)")
+
+            if isHovering, let fix = onFix {
+                Button(action: fix) {
+                    HStack(spacing: 3) {
+                        Image(systemName: "ant.circle")
+                            .font(.system(size: 10))
+                        Text("Fix")
+                            .font(.system(size: 10, weight: .medium))
+                    }
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3)
+                    .background(Color.red.opacity(0.85), in: Capsule())
+                }
+                .buttonStyle(.plain)
+                .padding(.trailing, 8)
+                .transition(.opacity)
+            }
         }
-        .buttonStyle(.plain)
-        .onHover { isHovering = $0 }
-        .help("Click to open file at \(locationLabel)")
+        .background(isHovering ? Color.accentColor.opacity(0.08) : Color.clear)
+        .onHover { hovering in
+            withAnimation(.easeInOut(duration: 0.15)) { isHovering = hovering }
+        }
     }
 
     @ViewBuilder

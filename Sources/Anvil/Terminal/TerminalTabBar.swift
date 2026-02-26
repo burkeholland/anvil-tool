@@ -19,6 +19,7 @@ struct TerminalTabBar: View {
                             tab: tab,
                             isActive: tab.id == model.activeTabID,
                             isOnly: model.tabs.count == 1,
+                            isWaitingForInput: model.waitingForInputTabIDs.contains(tab.id),
                             onSelect: { model.selectTab(tab.id) },
                             onClose: { model.closeTab(tab.id) },
                             onCloseOthers: { model.closeOtherTabs(tab.id) },
@@ -104,11 +105,13 @@ private struct TerminalTabItem: View {
     let tab: TerminalTab
     let isActive: Bool
     let isOnly: Bool
+    let isWaitingForInput: Bool
     let onSelect: () -> Void
     let onClose: () -> Void
     let onCloseOthers: () -> Void
     let onCloseToRight: () -> Void
     @State private var isHovering = false
+    @State private var isWaitingPulsing = false
 
     var body: some View {
         HStack(spacing: 5) {
@@ -120,6 +123,19 @@ private struct TerminalTabItem: View {
                 .font(.system(size: 11))
                 .lineLimit(1)
                 .foregroundStyle(isActive ? .primary : .secondary)
+
+            if isWaitingForInput {
+                Circle()
+                    .fill(Color.orange)
+                    .frame(width: 6, height: 6)
+                    .scaleEffect(isWaitingPulsing ? 1.4 : 1.0)
+                    .animation(
+                        .easeInOut(duration: 0.6).repeatForever(autoreverses: true),
+                        value: isWaitingPulsing
+                    )
+                    .onAppear { isWaitingPulsing = true }
+                    .onDisappear { isWaitingPulsing = false }
+            }
 
             if !isOnly {
                 Button {

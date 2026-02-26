@@ -113,9 +113,10 @@ struct BranchDiffView: View {
 
                     if !annotationStore.isEmpty {
                         Button {
-                            terminalProxy.send(annotationStore.buildPrompt())
+                            terminalProxy.sendPrompt(annotationStore.buildPrompt())
                         } label: {
-                            Label("Send Annotations", systemImage: "note.text")
+                            let count = annotationStore.annotations.count
+                            Label("Send \(count) Annotation\(count == 1 ? "" : "s")", systemImage: "note.text")
                                 .font(.system(size: 11, weight: .medium))
                         }
                         .buttonStyle(.borderedProminent)

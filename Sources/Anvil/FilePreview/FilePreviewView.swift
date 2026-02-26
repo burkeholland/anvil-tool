@@ -226,6 +226,28 @@ struct FilePreviewView: View {
                     .help(model.showBlame ? "Hide Blame Annotations" : "Show Blame Annotations")
                 }
 
+                // Go to test / implementation toggle
+                if let url = model.selectedURL,
+                   TestFileMatcher.candidateTestNames(for: url.lastPathComponent) != nil ||
+                   TestFileMatcher.candidateImplementationNames(for: url.lastPathComponent) != nil {
+                    let isTest = TestFileMatcher.isTestFile(url.lastPathComponent)
+                    let hasCounterpart = model.testFileCounterpart != nil
+                    Button {
+                        if let counterpart = model.testFileCounterpart {
+                            model.select(counterpart)
+                        }
+                    } label: {
+                        Image(systemName: isTest ? "chevron.left.forwardslash.chevron.right" : "testtube.2")
+                            .font(.system(size: 11))
+                            .foregroundStyle(hasCounterpart ? Color.secondary : Color.secondary.opacity(0.4))
+                    }
+                    .buttonStyle(.borderless)
+                    .disabled(!hasCounterpart)
+                    .help(hasCounterpart
+                          ? (isTest ? "Go to Implementation (⌘⌃T)" : "Go to Test File (⌘⌃T)")
+                          : (isTest ? "No implementation file found" : "No test file found"))
+                }
+
                 // Watch file toggle (live tail mode)
                 Button {
                     model.isWatching.toggle()
@@ -1556,16 +1578,10 @@ final class LineNumberRulerView: NSRulerView {
                         let changeBarRect = NSRect(x: bounds.maxX - 4, y: barY, width: 3, height: lineRect.height)
                         NSBezierPath(roundedRect: changeBarRect, xRadius: 1, yRadius: 1).fill()
                     case .deleted:
-                        // Draw a small downward-pointing red triangle at the line boundary
+                        // Thin red bar at the top boundary of the line, indicating deleted content
                         NSColor.systemRed.setFill()
-                        let triSize: CGFloat = 6
-                        let triX = bounds.maxX - triSize - 1
-                        let deletionPath = NSBezierPath()
-                        deletionPath.move(to: NSPoint(x: triX, y: barY))
-                        deletionPath.line(to: NSPoint(x: triX + triSize, y: barY))
-                        deletionPath.line(to: NSPoint(x: triX + triSize / 2, y: barY + triSize))
-                        deletionPath.close()
-                        deletionPath.fill()
+                        let barRect = NSRect(x: bounds.maxX - 4, y: barY, width: 3, height: 2)
+                        NSBezierPath(roundedRect: barRect, xRadius: 1, yRadius: 1).fill()
                     }
                 }
 

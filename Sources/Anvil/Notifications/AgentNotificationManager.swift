@@ -135,6 +135,51 @@ final class AgentNotificationManager {
         )
     }
 
+    // MARK: - Task-Complete Notification
+
+    /// Sends a task-complete notification summarising the agent's work.
+    /// Called by ContentView when build and/or test status reaches a terminal state.
+    /// Suppresses any pending quiescence notification so only one notification fires.
+    func notifyTaskComplete(
+        changedFileCount: Int,
+        buildStatus: BuildVerifier.Status,
+        testStatus: TestRunner.Status
+    ) {
+        guard enabled, !NSApp.isActive else { return }
+
+        // Suppress the pending file-quiescence notification (task-complete supersedes it).
+        quiescenceTimer?.invalidate()
+        pendingChangedFiles.removeAll()
+
+        var parts: [String] = []
+        if changedFileCount > 0 {
+            parts.append("\(changedFileCount) file\(changedFileCount == 1 ? "" : "s") changed")
+        }
+        switch buildStatus {
+        case .passed:
+            parts.append("Build passed")
+        case .failed:
+            parts.append("Build failed")
+        default:
+            break
+        }
+        switch testStatus {
+        case .passed(let total):
+            parts.append(total > 0 ? "Tests passed (\(total))" : "Tests passed")
+        case .failed(let failedTests, _):
+            parts.append(failedTests.isEmpty ? "Tests failed" : "Tests failed (\(failedTests.count))")
+        default:
+            break
+        }
+
+        let body = parts.isEmpty ? "The Copilot agent has finished." : parts.joined(separator: " · ")
+        deliver(
+            title: "Agent task complete",
+            body: body,
+            identifier: "task-complete"
+        )
+    }
+
     // MARK: - Notification Delivery
 
     /// Delivers a notification immediately (used for git commits).

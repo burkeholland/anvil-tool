@@ -24,7 +24,7 @@ struct SettingsView: View {
                     Label("Notifications", systemImage: "bell")
                 }
         }
-        .frame(width: 450, height: 320)
+        .frame(width: 450, height: 380)
     }
 }
 
@@ -33,6 +33,7 @@ struct SettingsView: View {
 private struct GeneralSettingsTab: View {
     @AppStorage("autoLaunchCopilot") private var autoLaunchCopilot = true
     @AppStorage("autoFollowChanges") private var autoFollow = true
+    @AppStorage("autoBuildOnTaskComplete") private var autoBuildOnTaskComplete = true
     @AppStorage("branchGuardBehavior") private var branchGuardBehavior = "warn"
 
     var body: some View {
@@ -43,8 +44,14 @@ private struct GeneralSettingsTab: View {
 
             Spacer().frame(height: 8)
 
-            Toggle("Auto-follow agent changes", isOn: $autoFollow)
-            Text("Preview files in the side panel as the agent modifies them.")
+            Toggle("Follow Agent", isOn: $autoFollow)
+            Text("Auto-navigate the file tree and preview pane to files as the agent modifies them. Use ⌘⇧A to toggle.")
+                .settingsDescription()
+
+            Spacer().frame(height: 8)
+
+            Toggle("Auto-build on task complete", isOn: $autoBuildOnTaskComplete)
+            Text("Automatically run the project build when the agent goes idle, so the build badge updates without manual action. Disable for projects with slow builds.")
                 .settingsDescription()
 
             Spacer().frame(height: 8)

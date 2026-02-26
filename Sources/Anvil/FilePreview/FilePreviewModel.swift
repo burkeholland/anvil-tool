@@ -47,6 +47,8 @@ final class FilePreviewModel: ObservableObject {
     @Published var isWatching = false
     /// The file content as of the last watch refresh, used to find the first changed line.
     private var watchPreviousContent: String?
+    /// The URL of the test/implementation counterpart for the current file, if one exists on disk.
+    @Published private(set) var testFileCounterpart: URL?
 
     /// Recently viewed file URLs in most-recent-first order, capped at 20.
     @Published private(set) var recentlyViewedURLs: [URL] = []
@@ -134,6 +136,7 @@ final class FilePreviewModel: ObservableObject {
         pendingScrollLine = line
         saveOpenTabs()
         loadFile(url)
+        loadTestFileCounterpart(for: url)
     }
 
     /// Switches the preview to the given file as part of auto-follow mode.
@@ -230,6 +233,7 @@ final class FilePreviewModel: ObservableObject {
         selectedHistoryCommitSHA = nil
         isWatching = false
         watchPreviousContent = nil
+        testFileCounterpart = nil
         if persist { saveOpenTabs() }
     }
 
@@ -470,6 +474,23 @@ final class FilePreviewModel: ObservableObject {
     func clearBlame() {
         blameGeneration &+= 1
         blameLines = []
+    }
+
+    /// Searches the project tree in the background for the test/implementation counterpart
+    /// of `url` and publishes the result to `testFileCounterpart`.
+    private func loadTestFileCounterpart(for url: URL) {
+        guard let root = rootDirectory else {
+            testFileCounterpart = nil
+            return
+        }
+        testFileCounterpart = nil
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let counterpart = TestFileMatcher.counterpart(for: url, in: root)
+            DispatchQueue.main.async {
+                guard self?.selectedURL == url else { return }
+                self?.testFileCounterpart = counterpart
+            }
+        }
     }
 
     /// Switches to the History tab and highlights the commit matching the given full SHA.
@@ -769,5 +790,6 @@ final class FilePreviewModel: ObservableObject {
         selectedURL = restoredSelection
         lastNavigatedLine = 1
         loadFile(restoredSelection)
+        loadTestFileCounterpart(for: restoredSelection)
     }
 }

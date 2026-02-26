@@ -35,6 +35,7 @@ struct ContentView: View {
     @State private var showDiffSummary = false
     @State private var isDroppingFolder = false
     @AppStorage("autoFollowChanges") private var autoFollow = true
+    @AppStorage("autoBuildOnTaskComplete") private var autoBuildOnTaskComplete = true
     @AppStorage("terminalFontSize") private var terminalFontSize: Double = 14
     @StateObject private var buildVerifier = BuildVerifier()
     @StateObject private var testRunner = TestRunner()
@@ -57,6 +58,9 @@ struct ContentView: View {
     @StateObject private var sessionHealthMonitor = SessionHealthMonitor()
     @State private var showPromptHistory = false
     @State private var reviewDwellTask: Task<Void, Never>? = nil
+    /// Debounces auto-follow navigation to avoid thrashing the preview pane
+    /// during burst file writes.
+    @StateObject private var followAgent = FollowAgentController()
 
     var body: some View {
         ZStack {
@@ -108,6 +112,17 @@ struct ContentView: View {
         .frame(minWidth: 800, minHeight: 500)
         .background(Color(nsColor: .windowBackgroundColor))
         .navigationTitle(workingDirectory.projectName)
+        .background {
+            // ⌘K opens the command palette without a menu item (supplements ⌘⇧P)
+            Button("") {
+                buildCommandPalette()
+                showCommandPalette = true
+            }
+            .keyboardShortcut("k", modifiers: .command)
+            .frame(width: 0, height: 0)
+            .opacity(0)
+            .accessibilityHidden(true)
+        }
         .modifier(FocusedSceneModifier(
             showSidebar: $showSidebar,
             sidebarTab: $sidebarTab,
@@ -185,6 +200,12 @@ struct ContentView: View {
             } : nil,
             onShowPromptHistory: workingDirectory.directoryURL != nil ? {
                 showPromptHistory = true
+            } : nil,
+            onGoToTestFile: filePreview.testFileCounterpart != nil ? {
+                [weak filePreview] in
+                if let counterpart = filePreview?.testFileCounterpart {
+                    filePreview?.select(counterpart)
+                }
             } : nil
         ))
         .onChange(of: workingDirectory.directoryURL) { _, newURL in
@@ -208,9 +229,13 @@ struct ContentView: View {
             }
         }
         .onChange(of: activityModel.latestFileChange) { _, change in
-            guard autoFollow, activityModel.isAgentActive, let change = change else { return }
-            filePreview.autoFollowChange(to: change.url)
-            revealInFileTree(change.url)
+            guard autoFollow, let change = change else { return }
+            followAgent.reportChange(change.url)
+        }
+        .onChange(of: followAgent.followEvent) { _, event in
+            guard let event = event else { return }
+            filePreview.autoFollowChange(to: event.url)
+            revealInFileTree(event.url)
         }
         .onChange(of: activityModel.latestFileChange) { _, change in
             guard change != nil else { return }
@@ -242,7 +267,7 @@ struct ContentView: View {
                 withAnimation(.easeInOut(duration: 0.25)) {
                     showTaskBanner = true
                 }
-                if let url = workingDirectory.directoryURL {
+                if autoBuildOnTaskComplete, let url = workingDirectory.directoryURL {
                     buildVerifier.run(at: url)
                 }
                 // Auto-select the first unreviewed changed file to kick off review workflow.
@@ -264,6 +289,29 @@ struct ContentView: View {
             // Auto-run tests once the build passes.
             if case .passed = newStatus, let url = workingDirectory.directoryURL {
                 testRunner.run(at: url)
+            }
+            // Send task-complete notification when the build fails (tests won't follow).
+            if case .failed = newStatus, showTaskBanner {
+                notificationManager.notifyTaskComplete(
+                    changedFileCount: changesModel.changedFiles.count,
+                    buildStatus: newStatus,
+                    testStatus: testRunner.status
+                )
+            }
+        }
+        .onChange(of: testRunner.status) { _, newStatus in
+            // Send task-complete notification once test results are final.
+            switch newStatus {
+            case .passed, .failed:
+                if showTaskBanner {
+                    notificationManager.notifyTaskComplete(
+                        changedFileCount: changesModel.changedFiles.count,
+                        buildStatus: buildVerifier.status,
+                        testStatus: newStatus
+                    )
+                }
+            default:
+                break
             }
         }
         .onChange(of: terminalProxy.promptSentCount) { _, _ in
@@ -359,6 +407,12 @@ struct ContentView: View {
                 }
                 filePreview.select(url, line: diagnostic.line)
             },
+            onFixDiagnostic: { diagnostic in
+                let location = "\(diagnostic.filePath):\(diagnostic.line)"
+                let prompt = "Fix this build error: \(diagnostic.message)\n\nFile: \(location)"
+                terminalProxy.sendPrompt(prompt)
+                showTaskBanner = false
+            },
             testStatus: testRunner.status,
             onRunTests: workingDirectory.directoryURL != nil ? {
                 if let url = workingDirectory.directoryURL {
@@ -367,7 +421,12 @@ struct ContentView: View {
             } : nil,
             onFixTestFailure: { output in
                 let prompt = "The test suite failed. Please fix the failing tests.\n\nTest output:\n\(output)"
-                terminalProxy.send(prompt + "\n")
+                terminalProxy.sendPrompt(prompt)
+                showTaskBanner = false
+            },
+            onFixTestCase: { testName in
+                let prompt = "Fix this failing test: \(testName)"
+                terminalProxy.sendPrompt(prompt)
                 showTaskBanner = false
             },
             gitBranch: workingDirectory.gitBranch,
@@ -396,6 +455,7 @@ struct ContentView: View {
             onDismiss: {
                 showTaskBanner = false
             },
+            taskPrompt: promptHistoryStore.entries.first?.text,
             changedFiles: changesModel.changedFiles,
             onOpenFileDiff: { file in
                 if let idx = changesModel.changedFiles.firstIndex(where: { $0.id == file.id }) {
@@ -445,7 +505,8 @@ struct ContentView: View {
                             showBranchDiff = false
                             showDiffSummary = false
                             showCommitDiff = true
-                        }
+                        },
+                        lastTaskPrompt: promptHistoryStore.entries.first?.text
                     )
                         .frame(width: max(sidebarWidth, 0))
 
@@ -473,14 +534,23 @@ struct ContentView: View {
                         showCopilotActions: $showCopilotActions,
                         showPromptHistory: $showPromptHistory,
                         showProjectSwitcher: $showProjectSwitcher,
+                        isAgentWaitingForInput: terminalTabs.isAnyTabWaitingForInput,
                         onOpenDirectory: { browseForDirectory() },
                         onSwitchProject: { url in openDirectory(url) },
                         onCloneRepository: { showCloneSheet = true },
                         onCompact: {
                             terminalProxy.send("/compact\n")
                             sessionHealthMonitor.reset()
+                        },
+                        onFocusTerminal: {
+                            if let tv = terminalProxy.terminalView {
+                                tv.window?.makeFirstResponder(tv)
+                            }
                         }
                     )
+                    .onChange(of: terminalTabs.isAnyTabWaitingForInput) { _, isWaiting in
+                        if isWaiting { NSSound.beep() }
+                    }
 
                     TerminalTabBar(
                         model: terminalTabs,
@@ -504,6 +574,13 @@ struct ContentView: View {
                                         },
                                         onOpenFile: { url, line in
                                             filePreview.select(url, line: line)
+                                        },
+                                        onOutputFilePath: { url in
+                                            guard autoFollow else { return }
+                                            followAgent.reportChange(url)
+                                        },
+                                        onAgentWaitingForInput: { waiting in
+                                            terminalTabs.setWaitingForInput(waiting, tabID: tab.id)
                                         }
                                     )
                                     .opacity(tab.id == terminalTabs.activeTabID ? 1 : 0)
@@ -521,6 +598,9 @@ struct ContentView: View {
                                         .font(.system(size: 11))
                                         .lineLimit(1)
                                         .foregroundStyle(.secondary)
+                                    if terminalTabs.waitingForInputTabIDs.contains(splitTab.id) {
+                                        SplitPaneInputBadge()
+                                    }
                                     Spacer()
                                     Button {
                                         terminalTabs.closeSplit()
@@ -549,6 +629,13 @@ struct ContentView: View {
                                     },
                                     onOpenFile: { url, line in
                                         filePreview.select(url, line: line)
+                                    },
+                                    onOutputFilePath: { url in
+                                        guard autoFollow else { return }
+                                        followAgent.reportChange(url)
+                                    },
+                                    onAgentWaitingForInput: { waiting in
+                                        terminalTabs.setWaitingForInput(waiting, tabID: splitTab.id)
                                     }
                                 )
                                 .id(splitTab.id)
@@ -577,6 +664,13 @@ struct ContentView: View {
                                         },
                                         onOpenFile: { url, line in
                                             filePreview.select(url, line: line)
+                                        },
+                                        onOutputFilePath: { url in
+                                            guard autoFollow else { return }
+                                            followAgent.reportChange(url)
+                                        },
+                                        onAgentWaitingForInput: { waiting in
+                                            terminalTabs.setWaitingForInput(waiting, tabID: tab.id)
                                         }
                                     )
                                     .opacity(tab.id == terminalTabs.activeTabID ? 1 : 0)
@@ -724,7 +818,12 @@ struct ContentView: View {
                     QuickOpenView(
                         model: quickOpenModel,
                         filePreview: filePreview,
-                        onDismiss: { dismissQuickOpen() }
+                        onDismiss: { dismissQuickOpen() },
+                        onSwitchToCommands: { query in
+                            buildCommandPalette()
+                            commandPalette.query = query
+                            showCommandPalette = true
+                        }
                     )
                     .padding(.top, 60)
 
@@ -890,7 +989,7 @@ struct ContentView: View {
                 showSidebar = true
                 sidebarTab = .history
             },
-            PaletteCommand(id: "toggle-auto-follow", title: autoFollow ? "Disable Auto-Follow" : "Enable Auto-Follow", icon: autoFollow ? "eye.slash" : "eye", shortcut: nil, category: "View") {
+            PaletteCommand(id: "toggle-auto-follow", title: autoFollow ? "Disable Follow Agent" : "Enable Follow Agent", icon: autoFollow ? "eye.slash" : "eye", shortcut: "⌘⇧A", category: "View") {
                 true
             } action: {
                 autoFollow.toggle()
@@ -1421,10 +1520,15 @@ struct ToolbarView: View {
     @Binding var showCopilotActions: Bool
     @Binding var showPromptHistory: Bool
     @Binding var showProjectSwitcher: Bool
+    /// True when at least one terminal tab is waiting for user input.
+    var isAgentWaitingForInput: Bool = false
     var onOpenDirectory: () -> Void
     var onSwitchProject: (URL) -> Void
     var onCloneRepository: () -> Void
     var onCompact: () -> Void
+    /// Called when the "Agent needs input" indicator is tapped so the terminal
+    /// can be focused.
+    var onFocusTerminal: (() -> Void)?
 
     var body: some View {
         HStack(spacing: 12) {
@@ -1487,6 +1591,11 @@ struct ToolbarView: View {
 
             Spacer()
 
+            if isAgentWaitingForInput {
+                AgentInputIndicator(onFocusTerminal: onFocusTerminal ?? {})
+                    .transition(.opacity.combined(with: .scale(scale: 0.9)))
+            }
+
             AgentActivityIndicator(activityModel: activityModel)
 
             SessionHealthView(monitor: sessionHealthMonitor, onCompact: onCompact)
@@ -1525,7 +1634,7 @@ struct ToolbarView: View {
                     .foregroundStyle(autoFollow ? .primary : .secondary)
             }
             .buttonStyle(.borderless)
-            .help(autoFollow ? "Auto-Follow Changes: On" : "Auto-Follow Changes: Off")
+            .help(autoFollow ? "Follow Agent: On (⌘⇧A)" : "Follow Agent: Off (⌘⇧A)")
 
             Button {
                 showInstructions.toggle()
@@ -1573,6 +1682,7 @@ struct ToolbarView: View {
         .padding(.vertical, 8)
         .background(.bar)
         .overlay(alignment: .bottom) { Divider() }
+        .animation(.easeInOut(duration: 0.2), value: isAgentWaitingForInput)
     }
 
     /// Quick check for whether any instruction files exist in the project.
@@ -1718,10 +1828,9 @@ struct SidebarView: View {
     var onCreatePR: (() -> Void)?
     var onResolveConflicts: ((URL) -> Void)?
     var onViewCommitDiff: ((GitCommit) -> Void)?
+    var lastTaskPrompt: String? = nil
 
-    @State private var changesUnread: Int = 0
     @State private var activityUnread: Int = 0
-    @State private var filesUnread: Int = 0
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -1731,7 +1840,7 @@ struct SidebarView: View {
                     title: "Files",
                     systemImage: "folder",
                     isActive: activeTab == .files,
-                    badge: filesUnread > 0 ? filesUnread : nil
+                    badge: activeTab != .files && fileTreeModel.changedFileCount > 0 ? fileTreeModel.changedFileCount : nil
                 ) {
                     activeTab = .files
                 }
@@ -1740,7 +1849,7 @@ struct SidebarView: View {
                     title: "Changes",
                     systemImage: "arrow.triangle.2.circlepath",
                     isActive: activeTab == .changes,
-                    badge: changesUnread > 0 ? changesUnread : nil
+                    badge: activeTab != .changes && changesModel.changedFiles.count > 0 ? changesModel.changedFiles.count : nil
                 ) {
                     activeTab = .changes
                 }
@@ -1801,7 +1910,7 @@ struct SidebarView: View {
                 }
 
             case .changes:
-                ChangesListView(model: changesModel, filePreview: filePreview, workingDirectory: model, activityFeedModel: activityModel, onReviewAll: onReviewAll, onBranchDiff: onBranchDiff, onCreatePR: onCreatePR, onResolveConflicts: onResolveConflicts)
+                ChangesListView(model: changesModel, filePreview: filePreview, workingDirectory: model, activityFeedModel: activityModel, onReviewAll: onReviewAll, onBranchDiff: onBranchDiff, onCreatePR: onCreatePR, onResolveConflicts: onResolveConflicts, lastTaskPrompt: lastTaskPrompt)
 
             case .activity:
                 ActivityFeedView(model: activityModel, filePreview: filePreview, rootURL: model.directoryURL)
@@ -1833,27 +1942,14 @@ struct SidebarView: View {
             }
         }
         .background(Color(nsColor: .controlBackgroundColor))
-        .onChange(of: changesModel.changedFiles.count) { oldCount, newCount in
-            if activeTab != .changes && newCount > oldCount {
-                changesUnread += newCount - oldCount
-            }
-        }
         .onChange(of: activityModel.events.count) { oldCount, newCount in
             if activeTab != .activity && newCount > oldCount {
                 activityUnread += newCount - oldCount
             }
         }
-        .onChange(of: fileTreeModel.changedFileCount) { oldCount, newCount in
-            if activeTab != .files && newCount > oldCount {
-                filesUnread += newCount - oldCount
-            }
-        }
         .onChange(of: activeTab) { _, newTab in
-            switch newTab {
-            case .files: filesUnread = 0
-            case .changes: changesUnread = 0
-            case .activity: activityUnread = 0
-            default: break
+            if newTab == .activity {
+                activityUnread = 0
             }
         }
     }
@@ -1935,6 +2031,7 @@ private struct FocusedSceneModifier: ViewModifier {
     var onNextPreviewTab: (() -> Void)?
     var onPreviousPreviewTab: (() -> Void)?
     var onShowPromptHistory: (() -> Void)?
+    var onGoToTestFile: (() -> Void)?
 
     func body(content: Content) -> some View {
         content
@@ -1979,7 +2076,8 @@ private struct FocusedSceneModifier: ViewModifier {
             .modifier(FocusedSceneModifierD(
                 onNextPreviewTab: onNextPreviewTab,
                 onPreviousPreviewTab: onPreviousPreviewTab,
-                onShowPromptHistory: onShowPromptHistory
+                onShowPromptHistory: onShowPromptHistory,
+                onGoToTestFile: onGoToTestFile
             ))
     }
 }
@@ -2078,12 +2176,14 @@ private struct FocusedSceneModifierD: ViewModifier {
     var onNextPreviewTab: (() -> Void)?
     var onPreviousPreviewTab: (() -> Void)?
     var onShowPromptHistory: (() -> Void)?
+    var onGoToTestFile: (() -> Void)?
 
     func body(content: Content) -> some View {
         content
             .focusedSceneValue(\.nextPreviewTab, onNextPreviewTab)
             .focusedSceneValue(\.previousPreviewTab, onPreviousPreviewTab)
             .focusedSceneValue(\.showPromptHistory, onShowPromptHistory)
+            .focusedSceneValue(\.goToTestFile, onGoToTestFile)
     }
 }
 
@@ -2388,5 +2488,61 @@ struct AgentStatusPopover: View {
             .foregroundStyle(.secondary)
         }
         .frame(width: 260)
+    }
+}
+
+// MARK: - Agent Input Indicator
+
+/// Pulsing toolbar pill shown when any terminal tab is blocked waiting for
+/// user input (plan approval, y/n confirmation, clarifying question, etc.).
+/// Clicking the indicator focuses the terminal so the developer can respond.
+private struct AgentInputIndicator: View {
+    var onFocusTerminal: () -> Void
+    @State private var isPulsing = false
+
+    var body: some View {
+        Button(action: onFocusTerminal) {
+            HStack(spacing: 5) {
+                Circle()
+                    .fill(Color.orange)
+                    .frame(width: 7, height: 7)
+                    .scaleEffect(isPulsing ? 1.4 : 1.0)
+                    .animation(
+                        .easeInOut(duration: 0.6).repeatForever(autoreverses: true),
+                        value: isPulsing
+                    )
+                Text("Agent needs input")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(.orange)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(Color.orange.opacity(0.12))
+            )
+        }
+        .buttonStyle(.plain)
+        .help("Agent is waiting for your input — click to focus terminal")
+        .onAppear { isPulsing = true }
+    }
+}
+
+/// Small pulsing badge shown in the split-pane mini-header when that pane's
+/// agent is waiting for input.
+private struct SplitPaneInputBadge: View {
+    @State private var isPulsing = false
+
+    var body: some View {
+        Circle()
+            .fill(Color.orange)
+            .frame(width: 6, height: 6)
+            .scaleEffect(isPulsing ? 1.4 : 1.0)
+            .animation(
+                .easeInOut(duration: 0.6).repeatForever(autoreverses: true),
+                value: isPulsing
+            )
+            .help("Agent is waiting for your input")
+            .onAppear { isPulsing = true }
     }
 }
