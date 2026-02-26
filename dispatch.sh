@@ -302,14 +302,22 @@ capture_app_screenshot() {
   local existing_pid
   existing_pid="$(pgrep -x Anvil)" && kill "$existing_pid" 2>/dev/null && sleep 1
 
-  # Launch with --screenshot-mode (forces sidebar open) and project path
-  open -g "$APP_BUNDLE" --args --screenshot-mode "$SCRIPT_DIR"
+  # Set screenshot mode and project directory via UserDefaults
+  # Write to both possible domains (bare binary name and bundle ID)
+  for domain in Anvil dev.burkeholland.anvil; do
+    defaults write "$domain" "dev.anvil.lastOpenedDirectory" -string "$SCRIPT_DIR"
+    defaults write "$domain" "anvil.screenshotMode" -bool true
+    defaults write "$domain" "anvil.screenshotTab" -string "$tab"
+  done
+
+  # Launch via `open` without --args (--args prevents SwiftUI window creation)
+  open .build/Anvil.app
   sleep 3
 
   # Activate so macOS composites the window
   osascript -e '
     tell application "Anvil" to activate
-    delay 4
+    delay 5
   ' 2>/dev/null || true
 
   # Find the content window (largest by area, skip menu bar items)

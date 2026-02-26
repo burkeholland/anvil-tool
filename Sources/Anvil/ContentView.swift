@@ -273,9 +273,20 @@ struct ContentView: View {
             }
         }
         .onAppear {
-            if CommandLine.arguments.contains("--screenshot-mode") {
+            let screenshotMode = UserDefaults.standard.bool(forKey: "anvil.screenshotMode")
+            if screenshotMode {
                 showSidebar = true
-                sidebarTab = .files
+                let tabName = UserDefaults.standard.string(forKey: "anvil.screenshotTab") ?? "files"
+                switch tabName {
+                case "changes": sidebarTab = .changes
+                case "activity": sidebarTab = .activity
+                case "search": sidebarTab = .search
+                case "history": sidebarTab = .history
+                default: sidebarTab = .files
+                }
+                // Clear the flag so normal launches aren't affected
+                UserDefaults.standard.removeObject(forKey: "anvil.screenshotMode")
+                UserDefaults.standard.removeObject(forKey: "anvil.screenshotTab")
             }
             filePreview.rootDirectory = workingDirectory.directoryURL
             notificationManager.connect(to: activityModel)
@@ -289,6 +300,17 @@ struct ContentView: View {
                 searchModel.setRoot(url)
                 fileTreeModel.start(rootURL: url)
                 commitHistoryModel.start(rootURL: url)
+
+                // In screenshot mode, auto-select a file so the preview shows content
+                if screenshotMode {
+                    let candidates = ["README.md", "Package.swift", "ContentView.swift"]
+                    for name in candidates {
+                        if let entry = fileTreeModel.entries.first(where: { $0.name == name }) {
+                            filePreview.select(entry.url)
+                            break
+                        }
+                    }
+                }
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: AppDelegate.openDirectoryNotification)) { notification in
