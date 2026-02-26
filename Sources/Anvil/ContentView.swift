@@ -61,7 +61,7 @@ struct ContentView: View {
     /// during burst file writes.
     @StateObject private var followAgent = FollowAgentController()
 
-    private var bodyBase: some View {
+    private var overlayStack: some View {
         ZStack {
             Group {
                 if workingDirectory.directoryURL != nil {
@@ -122,6 +122,10 @@ struct ContentView: View {
             .opacity(0)
             .accessibilityHidden(true)
         }
+    }
+
+    private var bodyBase: some View {
+        overlayStack
         .modifier(FocusedSceneModifier(
             showSidebar: $showSidebar,
             sidebarTab: $sidebarTab,
