@@ -54,6 +54,7 @@ struct ContentView: View {
     @StateObject private var mergeConflictModel = MergeConflictModel()
     @StateObject private var promptHistoryStore = PromptHistoryStore()
     @StateObject private var sessionHealthMonitor = SessionHealthMonitor()
+    @StateObject private var diffAnnotationStore = DiffAnnotationStore()
     @State private var showPromptHistory = false
     @State private var reviewDwellTask: Task<Void, Never>? = nil
     /// Debounces auto-follow navigation to avoid thrashing the preview pane
@@ -718,6 +719,20 @@ struct ContentView: View {
                             .transition(.move(edge: .bottom).combined(with: .opacity))
                     }
 
+                    PromptSuggestionBar(
+                        buildStatus: buildVerifier.status,
+                        buildDiagnostics: buildVerifier.diagnostics,
+                        testStatus: testRunner.status,
+                        unreviewedCount: changesModel.changedFiles.count - changesModel.reviewedCount,
+                        totalChangedCount: changesModel.changedFiles.count,
+                        annotationCount: diffAnnotationStore.annotations.count,
+                        annotationPrompt: diffAnnotationStore.buildPrompt(),
+                        isSaturated: sessionHealthMonitor.isSaturated,
+                        onSelectSuggestion: { prompt in
+                            terminalProxy.sendPrompt(prompt)
+                        }
+                    )
+
                     StatusBarView(
                         workingDirectory: workingDirectory,
                         filePreview: filePreview,
@@ -750,6 +765,7 @@ struct ContentView: View {
                         } else if showBranchDiff {
                             BranchDiffView(
                                 model: branchDiffModel,
+                                annotationStore: diffAnnotationStore,
                                 onSelectFile: { path, _ in
                                     showBranchDiff = false
                                     if let root = workingDirectory.directoryURL {
