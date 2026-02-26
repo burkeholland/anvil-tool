@@ -1472,6 +1472,7 @@ struct ToolbarView: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .background(.bar)
+        .overlay(alignment: .bottom) { Divider() }
     }
 
     /// Quick check for whether any instruction files exist in the project.
