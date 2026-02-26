@@ -6,6 +6,9 @@ final class FileTreeModel: ObservableObject {
     @Published private(set) var gitStatuses: [String: GitFileStatus] = [:]
     /// Diff line-count stats (additions + deletions vs HEAD) per absolute file path.
     @Published private(set) var diffStats: [String: DiffStat] = [:]
+    /// Maps absolute file path → tooltip message for files that import a modified file.
+    /// Refreshed after each git status update and cleared when there are no changed files.
+    @Published private(set) var impactedFiles: [String: String] = [:]
     /// Number of changed files contained (recursively) in each directory.
     @Published private(set) var dirChangeCounts: [String: Int] = [:]
     /// Precomputed count of leaf-level changed files (excludes propagated directory statuses).
@@ -209,6 +212,20 @@ final class FileTreeModel: ObservableObject {
         }
     }
 
+    private func refreshImpactedFiles(modifiedPaths: [String], rootURL: URL) {
+        guard !modifiedPaths.isEmpty else {
+            impactedFiles = [:]
+            return
+        }
+        let capturedRoot = rootURL
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let impacts = DependencyImpactScanner.scan(modifiedPaths: modifiedPaths, rootURL: capturedRoot)
+            DispatchQueue.main.async {
+                self?.impactedFiles = impacts
+            }
+        }
+    }
+
     private func rebuildEntries() {
         guard let rootURL = rootURL else { return }
 
@@ -262,6 +279,9 @@ final class FileTreeModel: ObservableObject {
                 self.dirChangeCounts = counts
                 self.changedFileCount = Self.countLeafPaths(statuses: statuses, rootPath: rootPath)
                 self.diffStats = stats
+                // Refresh dependency impact indicators for modified/added files
+                let modifiedLeafPaths = Self.leafPaths(from: statuses).filter { statuses[$0] != .deleted }
+                self.refreshImpactedFiles(modifiedPaths: modifiedLeafPaths, rootURL: rootURL)
                 if self.showChangedOnly {
                     self.rebuildEntries()
                 }

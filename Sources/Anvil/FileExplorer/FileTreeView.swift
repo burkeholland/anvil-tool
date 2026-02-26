@@ -148,6 +148,7 @@ struct FileTreeView: View {
                                 dirChangeCount: entry.isDirectory ? model.dirChangeCounts[entry.url.path] : nil,
                                 diffStat: entry.isDirectory ? nil : model.diffStats[entry.url.path],
                                 pulseToken: activityModel.activePulses[entry.url.standardizedFileURL.path],
+                                impactInfo: entry.isDirectory ? nil : model.impactedFiles[entry.url.standardizedFileURL.path],
                                 onToggle: { handleTap(entry) }
                             )
                             .id(entry.url)
@@ -442,6 +443,9 @@ struct FileRowView: View {
     /// A token that changes each time this path receives a new activity pulse.
     /// When non-nil, the row plays a short green flash that fades out.
     var pulseToken: UUID? = nil
+    /// Tooltip message set when this file imports a modified file.
+    /// When non-nil, a small amber chain-link icon is shown in the row.
+    var impactInfo: String? = nil
     let onToggle: () -> Void
 
     @State private var pulseOpacity: Double = 0
@@ -503,6 +507,13 @@ struct FileRowView: View {
                     .fill(status.color)
                     .frame(width: 6, height: 6)
                     .help(status.label)
+            }
+
+            if let info = impactInfo {
+                Image(systemName: "link")
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(.orange)
+                    .help(info)
             }
         }
         .padding(.vertical, 1)
