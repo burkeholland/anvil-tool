@@ -8,6 +8,7 @@ struct BranchDiffView: View {
     var onDismiss: (() -> Void)?
     @State private var collapsedFiles: Set<String> = []
     @AppStorage("diffViewMode") private var diffMode: String = DiffViewMode.unified.rawValue
+    @AppStorage("diffContextExpanded") private var contextExpanded = false
     @State private var requestFixContext: RequestFixContext?
     @StateObject private var annotationStore = DiffAnnotationStore()
     @EnvironmentObject var terminalProxy: TerminalInputProxy
@@ -127,6 +128,16 @@ struct BranchDiffView: View {
                         .tint(.yellow)
                         .help("Send all \(annotationStore.annotations.count) annotation(s) to the Copilot terminal")
                     }
+
+                    Button {
+                        contextExpanded.toggle()
+                    } label: {
+                        Image(systemName: contextExpanded ? "eye.slash" : "eye")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.borderless)
+                    .help(contextExpanded ? "Collapse context lines" : "Expand all context lines")
 
                     Button {
                         if collapsedFiles.count == filesWithDiffs.count {
