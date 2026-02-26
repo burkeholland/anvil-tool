@@ -194,6 +194,7 @@ final class AgentNotificationManager {
             content: content,
             trigger: nil
         )
+        guard Bundle.main.bundleIdentifier != nil else { return }
         UNUserNotificationCenter.current().add(request)
         lastNotificationDate = Date()
     }
