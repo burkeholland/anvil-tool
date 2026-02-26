@@ -11,6 +11,9 @@ struct QuickOpenView: View {
     /// When set, the picker is in "mention" mode: selecting a file calls this
     /// closure with the result instead of opening it in the preview.
     var onMentionSelect: ((QuickOpenResult) -> Void)? = nil
+    /// When set, typing '>' as the first character switches to command-palette mode.
+    /// Called with the text that follows the '>' prefix.
+    var onSwitchToCommands: ((String) -> Void)? = nil
 
     private var isMentionMode: Bool { onMentionSelect != nil }
 
@@ -113,6 +116,9 @@ struct QuickOpenView: View {
             HStack(spacing: 16) {
                 KeyHint(keys: ["↑", "↓"], label: "navigate")
                 KeyHint(keys: ["↩"], label: isMentionMode ? "mention" : "open")
+                if onSwitchToCommands != nil && !isMentionMode {
+                    KeyHint(keys: [">"], label: "commands")
+                }
                 KeyHint(keys: ["esc"], label: "dismiss")
             }
             .padding(.horizontal, 14)
@@ -143,6 +149,14 @@ struct QuickOpenView: View {
         .onKeyPress(.escape) {
             onDismiss()
             return .handled
+        }
+        .onChange(of: model.query) { _, newQuery in
+            if !isMentionMode, newQuery.hasPrefix(">"), let onSwitchToCommands {
+                let commandQuery = String(newQuery.dropFirst()).trimmingCharacters(in: .whitespaces)
+                onDismiss()
+                model.query = ""
+                onSwitchToCommands(commandQuery)
+            }
         }
     }
 
