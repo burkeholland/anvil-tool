@@ -1757,7 +1757,7 @@ struct SidebarView: View {
             switch activeTab {
             case .files:
                 if let rootURL = model.directoryURL {
-                    FileTreeView(rootURL: rootURL, filePreview: filePreview, model: fileTreeModel)
+                    FileTreeView(rootURL: rootURL, filePreview: filePreview, model: fileTreeModel, activityModel: activityModel)
                         .id(rootURL)
                 } else {
                     VStack(spacing: 12) {
