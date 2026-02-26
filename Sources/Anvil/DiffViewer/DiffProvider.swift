@@ -36,6 +36,14 @@ enum DiffProvider {
         return DiffParser.parse(output)
     }
 
+    /// Get all staged file diffs (`git diff --cached` vs HEAD).
+    static func allStagedChanges(in directory: URL) -> [FileDiff] {
+        guard let output = runGitDiff(args: ["diff", "--cached"], at: directory), !output.isEmpty else {
+            return []
+        }
+        return DiffParser.parse(output)
+    }
+
     /// Get the diff for a specific file in a stash entry.
     static func stashFileDiff(stashIndex: Int, filePath: String, in directory: URL) -> FileDiff? {
         let ref = "stash@{\(stashIndex)}"
