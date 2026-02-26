@@ -6,10 +6,10 @@ struct BranchDiffView: View {
     @ObservedObject var model: BranchDiffModel
     var onSelectFile: ((String, URL) -> Void)?
     var onDismiss: (() -> Void)?
+    @ObservedObject var annotationStore: DiffAnnotationStore
     @State private var collapsedFiles: Set<String> = []
     @AppStorage("diffViewMode") private var diffMode: String = DiffViewMode.unified.rawValue
     @State private var requestFixContext: RequestFixContext?
-    @StateObject private var annotationStore = DiffAnnotationStore()
     @EnvironmentObject var terminalProxy: TerminalInputProxy
 
     private var filesWithDiffs: [BranchDiffFile] {
