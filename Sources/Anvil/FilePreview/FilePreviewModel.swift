@@ -60,6 +60,20 @@ final class FilePreviewModel: ObservableObject {
     /// The last error from a save attempt, shown as an alert in the UI.
     @Published var lastSaveError: String?
 
+    /// Current text selection in the source view. Updated by FilePreviewView whenever the
+    /// selection changes. Not published — used by the focused value system to expose
+    /// "Ask About Selection" to the menu bar without driving per-keystroke re-renders.
+    private(set) var selectionCode: String = ""
+    private(set) var selectionStartLine: Int = 0
+    private(set) var selectionEndLine: Int = 0
+
+    /// Updates the stored selection. Called by FilePreviewView via `onSelectionChange`.
+    func updateSelection(code: String, startLine: Int, endLine: Int) {
+        selectionCode = code
+        selectionStartLine = startLine
+        selectionEndLine = endLine
+    }
+
     /// Recently viewed file URLs in most-recent-first order, capped at 20.
     @Published private(set) var recentlyViewedURLs: [URL] = []
 

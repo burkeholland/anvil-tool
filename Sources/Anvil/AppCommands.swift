@@ -187,6 +187,10 @@ struct OpenRecentProjectKey: FocusedValueKey {
     typealias Value = (URL) -> Void
 }
 
+struct AskAboutSelectionKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
 extension FocusedValues {
     var sidebarVisible: Binding<Bool>? {
         get { self[SidebarVisibleKey.self] }
@@ -417,6 +421,11 @@ extension FocusedValues {
         get { self[OpenRecentProjectKey.self] }
         set { self[OpenRecentProjectKey.self] = newValue }
     }
+
+    var askAboutSelection: (() -> Void)? {
+        get { self[AskAboutSelectionKey.self] }
+        set { self[AskAboutSelectionKey.self] = newValue }
+    }
 }
 
 // MARK: - View Menu Commands
@@ -463,6 +472,7 @@ struct ViewCommands: Commands {
     @FocusedValue(\.goToTestFile) var goToTestFile
     @FocusedValue(\.toggleDiffViewMode) var toggleDiffViewMode
     @FocusedValue(\.toggleSplitPreview) var toggleSplitPreview
+    @FocusedValue(\.askAboutSelection) var askAboutSelection
     @AppStorage("autoLaunchCopilot") private var autoLaunchCopilot = true
     @AppStorage("notificationsEnabled") private var notificationsEnabled = true
 
@@ -529,6 +539,12 @@ struct ViewCommands: Commands {
             }
             .keyboardShortcut("m", modifiers: [.command, .shift])
             .disabled(mentionInTerminal == nil)
+
+            Button("Ask About Selection") {
+                askAboutSelection?()
+            }
+            .keyboardShortcut("e", modifiers: [.command, .shift])
+            .disabled(askAboutSelection == nil)
 
             Button("Prompt History…") {
                 showPromptHistory?()
