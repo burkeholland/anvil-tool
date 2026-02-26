@@ -20,6 +20,14 @@ struct TaskCompleteBanner: View {
     /// Called when the user taps "Fix with Agent" after a test failure.
     /// The argument is the raw test output to send to the agent.
     var onFixTestFailure: ((String) -> Void)?
+    /// Current git branch name, used to decide whether to show the "Create PR" suggestion.
+    var gitBranch: String? = nil
+    /// Number of local commits ahead of upstream. Used together with gitBranch for the PR suggestion.
+    var aheadCount: Int = 0
+    /// True when an open pull request already exists for the branch (suppresses the Create PR suggestion).
+    var hasOpenPR: Bool = false
+    /// Called when the user taps "Create PR". When nil, the Create PR button is not shown.
+    var onCreatePR: (() -> Void)? = nil
     var onReviewAll: () -> Void
     var onStageAllAndCommit: () -> Void
     var onNewTask: () -> Void
@@ -107,61 +115,51 @@ struct TaskCompleteBanner: View {
                     case .running:
                         EmptyView()
                     default:
-                        Button {
+                        BannerPillButton(
+                            icon: "play.circle",
+                            label: "Run Tests",
+                            style: .secondary
+                        ) {
                             onRunTests?()
-                        } label: {
-                            HStack(spacing: 4) {
-                                Image(systemName: "play.circle")
-                                    .font(.system(size: 10))
-                                Text("Run Tests")
-                                    .font(.system(size: 12))
-                            }
                         }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
                     }
                 }
 
                 if changedFileCount > 0 {
-                    Button {
+                    BannerPillButton(
+                        icon: "doc.text.magnifyingglass",
+                        label: "Review Changes",
+                        style: .prominent
+                    ) {
                         onReviewAll()
-                    } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: "doc.text.magnifyingglass")
-                                .font(.system(size: 10))
-                            Text("Review Changes")
-                                .font(.system(size: 12))
-                        }
                     }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
 
-                    Button {
+                    BannerPillButton(
+                        icon: "checkmark.circle",
+                        label: "Stage All & Commit",
+                        style: .secondary
+                    ) {
                         onStageAllAndCommit()
-                    } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: "checkmark.circle")
-                                .font(.system(size: 10))
-                            Text("Stage All & Commit")
-                                .font(.system(size: 12))
-                        }
                     }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
                 }
 
-                Button {
-                    onNewTask()
-                } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: "plus.circle")
-                            .font(.system(size: 10))
-                        Text("New Task")
-                            .font(.system(size: 12))
+                if shouldShowCreatePR {
+                    BannerPillButton(
+                        icon: "arrow.triangle.pull",
+                        label: "Create PR",
+                        style: .secondary
+                    ) {
+                        onCreatePR?()
                     }
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
+
+                BannerPillButton(
+                    icon: "plus.circle",
+                    label: "New Task",
+                    style: .secondary
+                ) {
+                    onNewTask()
+                }
 
                 Button {
                     onDismiss()
@@ -289,6 +287,16 @@ struct TaskCompleteBanner: View {
         }
         .background(.ultraThinMaterial)
         .overlay(alignment: .top) { Divider() }
+    }
+
+    /// Branch names that are considered "default" and should not trigger the Create PR suggestion.
+    private static let defaultBranchNames: Set<String> = ["main", "master", "develop"]
+
+    /// True when the "Create PR" pill should be shown: non-default feature branch with
+    /// unpushed commits and no PR already open.
+    private var shouldShowCreatePR: Bool {
+        guard let branch = gitBranch, onCreatePR != nil else { return false }
+        return !Self.defaultBranchNames.contains(branch) && aheadCount > 0 && !hasOpenPR
     }
 
     @ViewBuilder
@@ -532,6 +540,48 @@ private struct BannerFileRow: View {
         case .untracked:  return "?"
         case .renamed:    return "R"
         case .conflicted: return "!"
+        }
+    }
+}
+
+// MARK: - Pill Button
+
+/// A pill-shaped action button used in the task-complete suggestion bar.
+private struct BannerPillButton: View {
+    enum Style { case prominent, secondary }
+
+    let icon: String
+    let label: String
+    var style: Style = .secondary
+    let action: () -> Void
+
+    @State private var isHovering = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                Image(systemName: icon)
+                    .font(.system(size: 10))
+                Text(label)
+                    .font(.system(size: 11, weight: .medium))
+            }
+            .foregroundStyle(style == .prominent ? .white : .primary)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
+            .background(
+                Capsule().fill(backgroundColor)
+            )
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovering = $0 }
+    }
+
+    private var backgroundColor: Color {
+        switch style {
+        case .prominent:
+            return isHovering ? Color.accentColor.opacity(0.85) : Color.accentColor
+        case .secondary:
+            return isHovering ? Color.primary.opacity(0.12) : Color.primary.opacity(0.07)
         }
     }
 }

@@ -246,6 +246,14 @@ struct ContentView: View {
                 testRunner.run(at: url)
             }
         }
+        .onChange(of: terminalProxy.promptSentCount) { _, _ in
+            // Auto-dismiss the task-complete banner when the user starts a new prompt.
+            if showTaskBanner {
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    showTaskBanner = false
+                }
+            }
+        }
         .onAppear {
             filePreview.rootDirectory = workingDirectory.directoryURL
             notificationManager.connect(to: activityModel)
@@ -311,6 +319,13 @@ struct ContentView: View {
             onFixTestFailure: { output in
                 let prompt = "The test suite failed. Please fix the failing tests.\n\nTest output:\n\(output)"
                 terminalProxy.send(prompt + "\n")
+                showTaskBanner = false
+            },
+            gitBranch: workingDirectory.gitBranch,
+            aheadCount: workingDirectory.aheadCount,
+            hasOpenPR: workingDirectory.openPRURL != nil,
+            onCreatePR: {
+                showCreatePR = true
                 showTaskBanner = false
             },
             onReviewAll: {

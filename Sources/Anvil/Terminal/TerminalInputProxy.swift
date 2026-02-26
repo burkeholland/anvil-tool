@@ -11,6 +11,9 @@ final class TerminalInputProxy: ObservableObject {
     @Published var isShowingFindBar = false
     /// Number of matches for the current search term across the full scrollback buffer.
     @Published var findMatchCount: Int = 0
+    /// Incremented each time the user submits a prompt via sendPrompt().
+    /// Observers can use onChange(of:) to react to new prompts (e.g. auto-dismiss banners).
+    @Published private(set) var promptSentCount: Int = 0
 
     /// Optional store for recording prompt history.
     var historyStore: PromptHistoryStore?
@@ -23,9 +26,11 @@ final class TerminalInputProxy: ObservableObject {
     }
 
     /// Records the prompt in history and sends it followed by a newline to the active terminal.
+    /// Also increments promptSentCount so observers can auto-dismiss contextual banners.
     func sendPrompt(_ text: String) {
         historyStore?.add(text)
         send(text + "\n")
+        promptSentCount += 1
     }
 
     /// Sends a single control character (e.g. Ctrl+C = 0x03, Ctrl+D = 0x04).
