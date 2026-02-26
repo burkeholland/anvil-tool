@@ -166,6 +166,12 @@ struct ContentView: View {
             } : nil,
             onSplitTerminalV: workingDirectory.directoryURL != nil ? {
                 terminalTabs.splitPane(direction: .vertical)
+            } : nil,
+            onNextPreviewTab: filePreview.openTabs.count > 1 ? { [weak filePreview] in
+                filePreview?.selectNextTab()
+            } : nil,
+            onPreviousPreviewTab: filePreview.openTabs.count > 1 ? { [weak filePreview] in
+                filePreview?.selectPreviousTab()
             } : nil
         ))
         .onChange(of: workingDirectory.directoryURL) { _, newURL in
@@ -1665,6 +1671,8 @@ private struct FocusedSceneModifier: ViewModifier {
     var onCloneRepository: (() -> Void)?
     var onSplitTerminalH: (() -> Void)?
     var onSplitTerminalV: (() -> Void)?
+    var onNextPreviewTab: (() -> Void)?
+    var onPreviousPreviewTab: (() -> Void)?
 
     func body(content: Content) -> some View {
         content
@@ -1704,7 +1712,9 @@ private struct FocusedSceneModifier: ViewModifier {
                 onMentionInTerminal: onMentionInTerminal,
                 onCloneRepository: onCloneRepository,
                 onSplitTerminalH: onSplitTerminalH,
-                onSplitTerminalV: onSplitTerminalV
+                onSplitTerminalV: onSplitTerminalV,
+                onNextPreviewTab: onNextPreviewTab,
+                onPreviousPreviewTab: onPreviousPreviewTab
             ))
     }
 }
@@ -1785,6 +1795,8 @@ private struct FocusedSceneModifierC: ViewModifier {
     var onCloneRepository: (() -> Void)?
     var onSplitTerminalH: (() -> Void)?
     var onSplitTerminalV: (() -> Void)?
+    var onNextPreviewTab: (() -> Void)?
+    var onPreviousPreviewTab: (() -> Void)?
 
     func body(content: Content) -> some View {
         content
@@ -1796,6 +1808,8 @@ private struct FocusedSceneModifierC: ViewModifier {
             .focusedSceneValue(\.cloneRepository, onCloneRepository)
             .focusedSceneValue(\.splitTerminalH, onSplitTerminalH)
             .focusedSceneValue(\.splitTerminalV, onSplitTerminalV)
+            .focusedSceneValue(\.nextPreviewTab, onNextPreviewTab)
+            .focusedSceneValue(\.previousPreviewTab, onPreviousPreviewTab)
     }
 }
 

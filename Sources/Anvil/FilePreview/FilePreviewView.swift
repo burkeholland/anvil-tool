@@ -44,11 +44,17 @@ struct FilePreviewView: View {
         }
     }
 
+    /// URLs of files with uncommitted changes, derived from the changesModel.
+    private var changedURLs: Set<URL> {
+        guard let cm = changesModel else { return [] }
+        return Set(cm.changedFiles.map(\.url))
+    }
+
     var body: some View {
         VStack(spacing: 0) {
-            // Tab bar (when multiple tabs are open)
-            if model.openTabs.count > 1 {
-                PreviewTabBar(model: model)
+            // Tab bar (when any tabs are open)
+            if !model.openTabs.isEmpty {
+                PreviewTabBar(model: model, changedURLs: changedURLs)
             }
 
             // Header bar
@@ -630,6 +636,7 @@ struct ImagePreviewContent: View {
 /// Tab bar for switching between open files in the preview pane.
 struct PreviewTabBar: View {
     @ObservedObject var model: FilePreviewModel
+    var changedURLs: Set<URL> = []
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
@@ -639,6 +646,7 @@ struct PreviewTabBar: View {
                         url: url,
                         displayName: model.tabDisplayName(for: url),
                         isActive: model.selectedURL == url,
+                        isModified: changedURLs.contains(url),
                         onSelect: { model.select(url) },
                         onClose: { model.closeTab(url) }
                     )
@@ -656,6 +664,7 @@ struct PreviewTabItem: View {
     let url: URL
     let displayName: String
     let isActive: Bool
+    var isModified: Bool = false
     let onSelect: () -> Void
     let onClose: () -> Void
     @State private var isHovering = false
@@ -671,18 +680,25 @@ struct PreviewTabItem: View {
                 .lineLimit(1)
                 .foregroundStyle(isActive ? .primary : .secondary)
 
-            Button {
-                onClose()
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 8, weight: .semibold))
-                    .foregroundStyle(.tertiary)
-                    .frame(width: 14, height: 14)
-                    .contentShape(Rectangle())
+            if isModified && !isHovering {
+                Circle()
+                    .fill(Color.orange)
+                    .frame(width: 5, height: 5)
+                    .onTapGesture { onSelect() }
+            } else {
+                Button {
+                    onClose()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 8, weight: .semibold))
+                        .foregroundStyle(.tertiary)
+                        .frame(width: 14, height: 14)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .opacity(isHovering || isActive ? 1 : 0)
+                .allowsHitTesting(isHovering || isActive)
             }
-            .buttonStyle(.plain)
-            .opacity(isHovering || isActive ? 1 : 0)
-            .allowsHitTesting(isHovering || isActive)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 5)
