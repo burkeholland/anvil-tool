@@ -39,6 +39,9 @@ struct ContentView: View {
     @StateObject private var testRunner = TestRunner()
     @State private var isDroppingFileToTerminal = false
     @State private var showTaskBanner = false
+    @State private var showBranchGuardBanner = false
+    @State private var branchGuardTriggered = false
+    @AppStorage("branchGuardBehavior") private var branchGuardBehavior = "warn"
     @State private var showKeyboardShortcuts = false
     @State private var showInstructions = false
     @State private var showCopilotActions = false
@@ -177,6 +180,8 @@ struct ContentView: View {
         ))
         .onChange(of: workingDirectory.directoryURL) { _, newURL in
             showTaskBanner = false
+            showBranchGuardBanner = false
+            branchGuardTriggered = false
             buildVerifier.cancel()
             testRunner.cancel()
             filePreview.close(persist: false)
@@ -195,6 +200,10 @@ struct ContentView: View {
             guard autoFollow, activityModel.isAgentActive, let change = change else { return }
             filePreview.autoFollowChange(to: change.url)
             revealInFileTree(change.url)
+        }
+        .onChange(of: activityModel.latestFileChange) { _, change in
+            guard change != nil else { return }
+            checkBranchGuard()
         }
         .onChange(of: filePreview.selectedURL) { _, newURL in
             // Keep tree expanded to the selected file regardless of how it was opened
@@ -442,6 +451,25 @@ struct ContentView: View {
                                 isDroppingFileToTerminal = targeted
                             }
                         }
+                    }
+
+                    if showBranchGuardBanner, let rootURL = workingDirectory.directoryURL,
+                       let branch = workingDirectory.gitBranch {
+                        BranchGuardBanner(
+                            branchName: branch,
+                            rootURL: rootURL,
+                            onBranchCreated: { _ in
+                                withAnimation(.easeInOut(duration: 0.25)) {
+                                    showBranchGuardBanner = false
+                                }
+                            },
+                            onDismiss: {
+                                withAnimation(.easeInOut(duration: 0.25)) {
+                                    showBranchGuardBanner = false
+                                }
+                            }
+                        )
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
                     }
 
                     if showTaskBanner {
@@ -1118,6 +1146,8 @@ struct ContentView: View {
 
     private func closeCurrentProject() {
         showTaskBanner = false
+        showBranchGuardBanner = false
+        branchGuardTriggered = false
         filePreview.close(persist: false)
         showDiffSummary = false
         showBranchDiff = false
@@ -1168,6 +1198,31 @@ struct ContentView: View {
         showSidebar = true
         sidebarTab = .changes
         filePreview.select(files[prevIndex].url)
+    }
+
+    private func checkBranchGuard() {
+        guard !branchGuardTriggered else { return }
+        guard let branch = workingDirectory.gitBranch,
+              branch == "main" || branch == "master" else { return }
+        guard branchGuardBehavior != "disabled" else { return }
+        branchGuardTriggered = true
+        if branchGuardBehavior == "autoBranch", let rootURL = workingDirectory.directoryURL {
+            let name = BranchGuardBanner.autoBranchName()
+            DispatchQueue.global(qos: .userInitiated).async {
+                let result = GitBranchProvider.createBranch(named: name, in: rootURL)
+                if !result.success {
+                    DispatchQueue.main.async {
+                        withAnimation(.easeInOut(duration: 0.25)) {
+                            showBranchGuardBanner = true
+                        }
+                    }
+                }
+            }
+        } else {
+            withAnimation(.easeInOut(duration: 0.25)) {
+                showBranchGuardBanner = true
+            }
+        }
     }
 
     private func handleDrop(_ urls: [URL]) -> Bool {
