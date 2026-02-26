@@ -1251,20 +1251,135 @@ struct CommitFormView: View {
     /// Activity feed model used to auto-generate a conventional commit message.
     var activityFeedModel: ActivityFeedModel? = nil
 
+    @AppStorage("dev.anvil.commitMessageStyle") private var storedStyle: String = ChangesModel.CommitMessageStyle.conventional.rawValue
+
+    // MARK: - Style helpers
+
+    private var messageStyle: ChangesModel.CommitMessageStyle {
+        ChangesModel.CommitMessageStyle(rawValue: storedStyle) ?? .conventional
+    }
+
+    // MARK: - Title / body split
+
+    /// The first line of `commitMessage` (the subject).
+    private var titleText: String {
+        model.commitMessage.components(separatedBy: "\n").first ?? ""
+    }
+
+    /// Everything after the first blank line separator in `commitMessage`.
+    private var bodyText: String {
+        let msg = model.commitMessage
+        if let range = msg.range(of: "\n\n") {
+            return String(msg[range.upperBound...])
+        }
+        return ""
+    }
+
+    private var titleBinding: Binding<String> {
+        Binding(
+            get: { titleText },
+            set: { newTitle in
+                let body = bodyText
+                model.commitMessage = body.isEmpty ? newTitle : newTitle + "\n\n" + body
+            }
+        )
+    }
+
+    private var bodyBinding: Binding<String> {
+        Binding(
+            get: { bodyText },
+            set: { newBody in
+                let title = titleText
+                model.commitMessage = newBody.isEmpty ? title : title + "\n\n" + newBody
+            }
+        )
+    }
+
+    // MARK: - Status helpers
+
+    /// Files that are entirely unstaged (not staged at all).
+    private var purelyUnstagedFiles: [ChangedFile] {
+        model.changedFiles.filter { $0.staging == .unstaged }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            // Commit message field
+            // Style picker
+            Picker("", selection: Binding(
+                get: { messageStyle },
+                set: { newStyle in
+                    storedStyle = newStyle.rawValue
+                    model.commitMessage = model.generateCommitMessage(
+                        style: newStyle,
+                        sessionStats: activityFeedModel?.sessionStats
+                    )
+                }
+            )) {
+                ForEach(ChangesModel.CommitMessageStyle.allCases) { style in
+                    Text(style.label).tag(style)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .controlSize(.mini)
+
+            // Title field
             ZStack(alignment: .topLeading) {
-                if model.commitMessage.isEmpty {
-                    Text("Commit message")
+                if titleText.isEmpty {
+                    Text("Summary (required)")
                         .font(.system(size: 12))
                         .foregroundStyle(.tertiary)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 6)
                 }
-                TextEditor(text: $model.commitMessage)
+                TextField("", text: titleBinding)
                     .font(.system(size: 12))
-                    .frame(minHeight: 36, maxHeight: 80)
+                    .textFieldStyle(.plain)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 6)
+                    .onSubmit {
+                        guard model.canCommit else { return }
+                        model.commit()
+                    }
+            }
+            .background(
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(Color(nsColor: .textBackgroundColor))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 6)
+                    .strokeBorder(Color(nsColor: .separatorColor), lineWidth: 0.5)
+            )
+            .overlay(alignment: .centerTrailing) {
+                Button {
+                    model.commitMessage = model.generateCommitMessage(
+                        style: messageStyle,
+                        sessionStats: activityFeedModel?.sessionStats
+                    )
+                } label: {
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 20, height: 20)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.borderless)
+                .help("Auto-generate commit message from changes")
+                .padding(.trailing, 4)
+            }
+
+            // Body field
+            ZStack(alignment: .topLeading) {
+                if bodyText.isEmpty {
+                    Text("Description (optional)")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.tertiary)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 6)
+                }
+                TextEditor(text: bodyBinding)
+                    .font(.system(size: 11))
+                    .frame(minHeight: 44, maxHeight: 88)
                     .scrollContentBackground(.hidden)
                     .padding(.horizontal, 2)
                     .padding(.vertical, 2)
@@ -1282,22 +1397,6 @@ struct CommitFormView: View {
                 RoundedRectangle(cornerRadius: 6)
                     .strokeBorder(Color(nsColor: .separatorColor), lineWidth: 0.5)
             )
-            .overlay(alignment: .bottomTrailing) {
-                Button {
-                    model.commitMessage = model.generateCommitMessage(
-                        sessionStats: activityFeedModel?.sessionStats
-                    )
-                } label: {
-                    Image(systemName: "sparkles")
-                        .font(.system(size: 10))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 20, height: 20)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.borderless)
-                .help("Generate commit message from changes")
-                .padding(4)
-            }
             .onAppear {
                 autoFillIfNeeded()
             }
@@ -1350,6 +1449,18 @@ struct CommitFormView: View {
                 .frame(width: 20)
             }
 
+            // Unstaged changes warning
+            if !model.stagedFiles.isEmpty && !purelyUnstagedFiles.isEmpty {
+                HStack(spacing: 4) {
+                    Image(systemName: "exclamationmark.triangle")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.yellow)
+                    Text("\(purelyUnstagedFiles.count) unstaged file\(purelyUnstagedFiles.count == 1 ? "" : "s") won't be included")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                }
+            }
+
             if model.unreviewedStagedCount > 0 {
                 HStack(spacing: 4) {
                     Image(systemName: "eye.trianglebadge.exclamationmark")
@@ -1383,6 +1494,7 @@ struct CommitFormView: View {
     private func autoFillIfNeeded() {
         guard model.commitMessage.isEmpty, !model.stagedFiles.isEmpty else { return }
         model.commitMessage = model.generateCommitMessage(
+            style: messageStyle,
             sessionStats: activityFeedModel?.sessionStats
         )
     }
