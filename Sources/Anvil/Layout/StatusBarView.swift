@@ -82,7 +82,7 @@ struct StatusBarView: View {
                 .padding(.horizontal, 10)
                 .help("Current branch: \(branch)")
 
-                StatusBarDivider()
+                Spacer().frame(width: 16)
             }
 
             // Center: Selected file info
@@ -97,14 +97,14 @@ struct StatusBarView: View {
                 .padding(.horizontal, 10)
 
                 if let lang = filePreview.highlightLanguage {
-                    StatusBarDivider()
+                    Spacer().frame(width: 16)
 
                     Text(lang.capitalized)
                         .padding(.horizontal, 10)
                 }
 
                 if filePreview.lineCount > 0 {
-                    StatusBarDivider()
+                    Spacer().frame(width: 16)
 
                     let lineCount = filePreview.lineCount
                     Text("\(lineCount) line\(lineCount == 1 ? "" : "s")")
@@ -213,11 +213,3 @@ struct StatusBarView: View {
     }
 }
 
-/// Thin vertical separator for status bar items.
-private struct StatusBarDivider: View {
-    var body: some View {
-        Rectangle()
-            .fill(Color.secondary.opacity(0.2))
-            .frame(width: 1, height: 12)
-    }
-}

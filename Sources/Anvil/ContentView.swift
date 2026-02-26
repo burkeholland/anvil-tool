@@ -732,7 +732,6 @@ struct ContentView: View {
                                 .padding(.leading, 10)
                                 .frame(height: 26)
                                 .background(Color(nsColor: NSColor(red: 0.08, green: 0.08, blue: 0.10, alpha: 1.0)))
-                                .overlay(alignment: .bottom) { Divider().opacity(0.3) }
 
                                 EmbeddedTerminalView(
                                     workingDirectory: workingDirectory,
@@ -1750,9 +1749,6 @@ struct ToolbarView: View {
             .buttonStyle(.borderless)
             .help("Toggle Sidebar (⌘B)")
 
-            Divider()
-                .frame(height: 16)
-
             Image(systemName: "folder")
                 .foregroundStyle(.secondary)
             Text(workingDirectory.displayPath)
@@ -1761,9 +1757,6 @@ struct ToolbarView: View {
                 .truncationMode(.head)
 
             if let branch = workingDirectory.gitBranch {
-                Divider()
-                    .frame(height: 16)
-
                 Button {
                     showBranchPicker.toggle()
                 } label: {
@@ -2472,8 +2465,6 @@ struct SidebarView: View {
             .padding(.bottom, 8)
             .padding(.horizontal, 12)
             .background(.bar)
-
-            Divider()
 
             // Content
             switch activeTab {
