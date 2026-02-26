@@ -289,14 +289,6 @@ struct ContentView: View {
                 terminalProxy.send(prompt + "\n")
                 showTaskBanner = false
             },
-            changedFiles: changesModel.changedFiles,
-            onOpenFileDiff: { file in
-                if let idx = changesModel.changedFiles.firstIndex(where: { $0.id == file.id }) {
-                    changesModel.focusedFileIndex = idx
-                }
-                showDiffSummary = true
-                showTaskBanner = false
-            },
             onReviewAll: {
                 showDiffSummary = true
                 showTaskBanner = false
@@ -314,6 +306,14 @@ struct ContentView: View {
                 showTaskBanner = false
             },
             onDismiss: {
+                showTaskBanner = false
+            },
+            changedFiles: changesModel.changedFiles,
+            onOpenFileDiff: { file in
+                if let idx = changesModel.changedFiles.firstIndex(where: { $0.id == file.id }) {
+                    changesModel.focusedFileIndex = idx
+                }
+                showDiffSummary = true
                 showTaskBanner = false
             }
         )
