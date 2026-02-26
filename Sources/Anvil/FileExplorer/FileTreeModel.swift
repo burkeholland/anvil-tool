@@ -97,6 +97,12 @@ final class FileTreeModel: ObservableObject {
         // Clear search so the tree is visible
         if isSearching { searchText = "" }
 
+        // If in changed-only mode and the file has no git changes, switch to all-files
+        // mode so the file is actually visible in the tree after the reveal.
+        if showChangedOnly && gitStatuses[url.standardizedFileURL.path] == nil {
+            showChangedOnly = false
+        }
+
         // Expand every ancestor directory from root down to the file's parent
         var parent = url.deletingLastPathComponent().standardizedFileURL
         while parent.path.count > rootPath.count {

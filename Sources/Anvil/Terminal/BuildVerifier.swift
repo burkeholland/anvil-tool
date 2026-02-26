@@ -12,6 +12,8 @@ final class BuildVerifier: ObservableObject {
     }
 
     @Published private(set) var status: Status = .idle
+    /// Structured diagnostics parsed from the most recent failed build output.
+    @Published private(set) var diagnostics: [BuildDiagnostic] = []
 
     private var buildProcess: Process?
     private let workQueue = DispatchQueue(label: "dev.anvil.build-verifier", qos: .userInitiated)
@@ -70,6 +72,11 @@ final class BuildVerifier: ObservableObject {
 
             DispatchQueue.main.async {
                 self.status = succeeded ? .passed : .failed(output: combinedOutput)
+                if succeeded {
+                    self.diagnostics = []
+                } else {
+                    self.diagnostics = BuildDiagnosticParser.parse(combinedOutput)
+                }
             }
         }
     }
@@ -78,6 +85,7 @@ final class BuildVerifier: ObservableObject {
         buildProcess?.terminate()
         buildProcess = nil
         status = .idle
+        diagnostics = []
     }
 
     // MARK: - Build System Detection

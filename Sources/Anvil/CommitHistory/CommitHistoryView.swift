@@ -129,6 +129,7 @@ struct CommitHistoryView: View {
                     CommitRowView(
                         commit: commit,
                         isExpanded: expandedSHAs.contains(commit.sha),
+                        rootURL: rootURL,
                         onToggle: {
                             if expandedSHAs.contains(commit.sha) {
                                 expandedSHAs.remove(commit.sha)
@@ -214,6 +215,7 @@ struct CommitHistoryView: View {
 private struct CommitRowView: View {
     let commit: GitCommit
     let isExpanded: Bool
+    let rootURL: URL
     let onToggle: () -> Void
     let onSelectFile: (String) -> Void
 
@@ -272,6 +274,29 @@ private struct CommitRowView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .contextMenu {
+                Button {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(commit.sha, forType: .string)
+                } label: {
+                    Label("Copy Full SHA", systemImage: "doc.on.doc")
+                }
+
+                Button {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(commit.shortSHA, forType: .string)
+                } label: {
+                    Label("Copy Short SHA", systemImage: "doc.on.doc")
+                }
+
+                Divider()
+
+                Button {
+                    GitHubURLBuilder.openCommit(rootURL: rootURL, sha: commit.sha)
+                } label: {
+                    Label("Open Commit in GitHub", systemImage: "arrow.up.right.square")
+                }
+            }
 
             // Expanded file list
             if isExpanded {

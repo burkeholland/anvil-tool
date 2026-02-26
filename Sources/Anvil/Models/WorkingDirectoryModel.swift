@@ -11,6 +11,10 @@ final class WorkingDirectoryModel: ObservableObject {
     @Published private(set) var isPushing = false
     @Published private(set) var isPulling = false
     @Published var lastSyncError: String?
+    /// URL of an open pull request for the current branch, if one exists.
+    @Published var openPRURL: String?
+    /// Title of the open pull request for the current branch.
+    @Published var openPRTitle: String?
 
     private var branchWatcher: FileWatcher?
     private var branchPollTimer: Timer?
@@ -109,6 +113,8 @@ final class WorkingDirectoryModel: ObservableObject {
         isPushing = false
         isPulling = false
         lastSyncError = nil
+        openPRURL = nil
+        openPRTitle = nil
         directoryURL = nil
         UserDefaults.standard.removeObject(forKey: Self.lastDirectoryKey)
     }
@@ -151,13 +157,34 @@ final class WorkingDirectoryModel: ObservableObject {
             let counts = GitRemoteProvider.aheadBehind(in: directory)
             DispatchQueue.main.async {
                 guard self?.directoryURL == directory else { return }
-                if self?.gitBranch != branch {
+                let branchChanged = self?.gitBranch != branch
+                if branchChanged {
                     self?.gitBranch = branch
+                    // Clear stale PR info when branch changes; a fresh check will be triggered.
+                    self?.openPRURL = nil
+                    self?.openPRTitle = nil
                 }
                 self?.hasRemotes = remotes
                 self?.hasUpstream = upstream != nil
                 self?.aheadCount = counts?.ahead ?? 0
                 self?.behindCount = counts?.behind ?? 0
+                if branchChanged {
+                    self?.refreshOpenPR()
+                }
+            }
+        }
+    }
+
+    /// Asynchronously checks for an open pull request on the current branch via `gh pr view`
+    /// and updates `openPRURL` / `openPRTitle`.
+    func refreshOpenPR() {
+        guard let url = directoryURL else { return }
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let pr = PullRequestProvider.openPR(in: url)
+            DispatchQueue.main.async {
+                guard self?.directoryURL == url else { return }
+                self?.openPRURL = pr?.url
+                self?.openPRTitle = pr?.title
             }
         }
     }
@@ -186,6 +213,7 @@ final class WorkingDirectoryModel: ObservableObject {
                 if result.success {
                     self.lastSyncError = nil
                     self.refreshBranch(at: url)
+                    self.refreshOpenPR()
                 } else {
                     self.lastSyncError = result.error ?? "Push failed"
                 }

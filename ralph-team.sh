@@ -477,31 +477,19 @@ $solution"
 phase_assign() {
   log "🤖 Phase 4: ASSIGN — dispatching work to cloud agents..."
 
-  # Count currently active agents (issues assigned to Copilot)
-  local active_count
-  active_count="$(gh issue list --repo "$REPO" --label "$LABEL" --state open \
-    --json number,assignees \
-    --jq '[.[] | select(.assignees | map(.login) | index("Copilot"))] | length' 2>/dev/null)" || active_count=0
-
-  # Also count open Copilot PRs as active work
+  # Count active agents by open PRs (ground truth for "agent is working")
   local open_pr_count
   open_pr_count="$(gh pr list --repo "$REPO" --state open \
     --json number,author \
     --jq '[.[] | select(.author.login == "app/copilot-swe-agent")] | length' 2>/dev/null)" || open_pr_count=0
 
-  # Use the higher of the two as "active"
-  local effective_active=$active_count
-  if [ "$open_pr_count" -gt "$effective_active" ]; then
-    effective_active=$open_pr_count
-  fi
-
-  local slots_available=$((MAX_ACTIVE_AGENTS - effective_active))
+  local slots_available=$((MAX_ACTIVE_AGENTS - open_pr_count))
   if [ "$slots_available" -le 0 ]; then
     log "   All $MAX_ACTIVE_AGENTS agent slots occupied. Waiting for PRs."
     return 0
   fi
 
-  log "   $effective_active active agent(s), $slots_available slot(s) available."
+  log "   $open_pr_count active PR(s), $slots_available slot(s) available."
 
   # Get unassigned issues
   local unassigned

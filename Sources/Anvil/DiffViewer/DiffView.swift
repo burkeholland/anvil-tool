@@ -10,7 +10,10 @@ enum DiffViewMode: String, CaseIterable {
 struct DiffView: View {
     let diff: FileDiff
     var onStageHunk: ((DiffHunk) -> Void)?
+    var onUnstageHunk: ((DiffHunk) -> Void)?
     var onDiscardHunk: ((DiffHunk) -> Void)?
+    /// IDs of hunks that are at least partially reflected in the staged index.
+    var stagedHunkIDs: Set<Int> = []
     @AppStorage("diffViewMode") private var mode: String = DiffViewMode.unified.rawValue
 
     private var viewMode: DiffViewMode {
@@ -20,7 +23,14 @@ struct DiffView: View {
     var body: some View {
         switch viewMode {
         case .unified:
-            UnifiedDiffView(diff: diff, mode: $mode, onStageHunk: onStageHunk, onDiscardHunk: onDiscardHunk)
+            UnifiedDiffView(
+                diff: diff,
+                mode: $mode,
+                onStageHunk: onStageHunk,
+                onUnstageHunk: onUnstageHunk,
+                onDiscardHunk: onDiscardHunk,
+                stagedHunkIDs: stagedHunkIDs
+            )
         case .sideBySide:
             SideBySideDiffView(diff: diff, mode: $mode)
         }
@@ -32,7 +42,9 @@ struct UnifiedDiffView: View {
     let diff: FileDiff
     @Binding var mode: String
     var onStageHunk: ((DiffHunk) -> Void)?
+    var onUnstageHunk: ((DiffHunk) -> Void)?
     var onDiscardHunk: ((DiffHunk) -> Void)?
+    var stagedHunkIDs: Set<Int> = []
 
     var body: some View {
         let highlights = DiffSyntaxHighlighter.highlight(diff: diff)
@@ -47,7 +59,9 @@ struct UnifiedDiffView: View {
                     DiffHunkView(
                         hunk: hunk,
                         syntaxHighlights: highlights,
+                        isStaged: stagedHunkIDs.contains(hunk.id),
                         onStage: onStageHunk.map { handler in { handler(hunk) } },
+                        onUnstage: onUnstageHunk.map { handler in { handler(hunk) } },
                         onDiscard: onDiscardHunk.map { handler in { handler(hunk) } }
                     )
                 }
@@ -89,29 +103,55 @@ struct DiffStatsBar: View {
 struct DiffHunkView: View {
     let hunk: DiffHunk
     var syntaxHighlights: [Int: AttributedString] = [:]
+    /// Whether this hunk is at least partially reflected in the staged index.
+    var isStaged: Bool = false
     var onStage: (() -> Void)?
+    var onUnstage: (() -> Void)?
     var onDiscard: (() -> Void)?
+    var onRequestFix: (() -> Void)?
     var isFocused: Bool = false
+    /// File path used to wire up inline annotation support. `nil` disables annotation UI.
+    var filePath: String? = nil
+    /// Map of new/old line numbers to annotation comments for this hunk's lines.
+    var lineAnnotations: [Int: String] = [:]
+    var onAddAnnotation: ((Int, String) -> Void)? = nil
+    var onRemoveAnnotation: ((Int) -> Void)? = nil
     @State private var isHovered = false
 
     private var hasActions: Bool {
-        onStage != nil || onDiscard != nil
+        onStage != nil || onUnstage != nil || onDiscard != nil || onRequestFix != nil
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             ForEach(hunk.lines) { line in
                 if line.kind == .hunkHeader && hasActions {
-                    DiffLineView(line: line, syntaxHighlight: syntaxHighlights[line.id])
-                        .overlay(alignment: .trailing) {
-                            hunkActions
-                                .opacity(isHovered ? 1 : 0)
-                        }
-                        .onHover { hovering in
-                            isHovered = hovering
-                        }
+                    DiffLineView(
+                        line: line,
+                        syntaxHighlight: syntaxHighlights[line.id],
+                        hunkStagedTint: isStaged ? stagedHeaderTint : nil,
+                        filePath: filePath,
+                        onAddAnnotation: onAddAnnotation,
+                        onRemoveAnnotation: removeHandler(for: line),
+                        existingAnnotation: annotation(for: line)
+                    )
+                    .overlay(alignment: .trailing) {
+                        hunkActions
+                            .opacity(isHovered ? 1 : 0)
+                    }
+                    .onHover { hovering in
+                        isHovered = hovering
+                    }
                 } else {
-                    DiffLineView(line: line, syntaxHighlight: syntaxHighlights[line.id])
+                    DiffLineView(
+                        line: line,
+                        syntaxHighlight: syntaxHighlights[line.id],
+                        hunkStagedTint: isStaged ? stagedLineTint(for: line.kind) : nil,
+                        filePath: filePath,
+                        onAddAnnotation: onAddAnnotation,
+                        onRemoveAnnotation: removeHandler(for: line),
+                        existingAnnotation: annotation(for: line)
+                    )
                 }
             }
         }
@@ -127,6 +167,34 @@ struct DiffHunkView: View {
         }
     }
 
+    /// Blue tint applied to the hunk header row when the hunk is staged.
+    private var stagedHeaderTint: Color {
+        Color.blue.opacity(0.12)
+    }
+
+    /// Returns a per-line staged tint colour, or nil when no tint should be applied.
+    private func stagedLineTint(for kind: DiffLine.Kind) -> Color? {
+        switch kind {
+        case .addition: return Color.blue.opacity(0.08)
+        case .deletion: return Color.purple.opacity(0.08)
+        case .context:  return nil
+        case .hunkHeader: return nil
+        }
+    }
+
+    /// Returns the existing annotation comment for a diff line, or nil.
+    private func annotation(for line: DiffLine) -> String? {
+        guard let num = line.newLineNumber ?? line.oldLineNumber else { return nil }
+        return lineAnnotations[num]
+    }
+
+    /// Returns a zero-argument remove closure bound to the line's number, or nil.
+    private func removeHandler(for line: DiffLine) -> (() -> Void)? {
+        guard let num = line.newLineNumber ?? line.oldLineNumber,
+              let handler = onRemoveAnnotation else { return nil }
+        return { handler(num) }
+    }
+
     @ViewBuilder
     private var hunkActions: some View {
         HStack(spacing: 2) {
@@ -139,14 +207,32 @@ struct DiffHunkView: View {
                 .buttonStyle(.borderless)
                 .help("Stage this hunk")
             }
+            if let onUnstage {
+                Button { onUnstage() } label: {
+                    Image(systemName: "minus.circle.fill")
+                        .font(.system(size: 14))
+                        .foregroundStyle(.blue)
+                }
+                .buttonStyle(.borderless)
+                .help("Unstage this hunk")
+            }
             if let onDiscard {
                 Button { onDiscard() } label: {
-                    Image(systemName: "arrow.uturn.backward.circle.fill")
-                        .font(.system(size: 14))
+                    Image(systemName: "trash.fill")
+                        .font(.system(size: 13))
                         .foregroundStyle(.red.opacity(0.8))
                 }
                 .buttonStyle(.borderless)
                 .help("Discard this hunk")
+            }
+            if let onRequestFix {
+                Button { onRequestFix() } label: {
+                    Image(systemName: "wrench.and.screwdriver.fill")
+                        .font(.system(size: 14))
+                        .foregroundStyle(.orange)
+                }
+                .buttonStyle(.borderless)
+                .help("Request Fix for this hunk")
             }
         }
         .padding(.horizontal, 6)
@@ -162,6 +248,30 @@ struct DiffHunkView: View {
 struct DiffLineView: View {
     let line: DiffLine
     var syntaxHighlight: AttributedString?
+    /// Optional extra tint overlay applied when the containing hunk is staged.
+    var hunkStagedTint: Color?
+    /// File path for annotation support. `nil` disables annotation UI.
+    var filePath: String? = nil
+    /// Called with `(lineNumber, comment)` when the user saves an annotation.
+    var onAddAnnotation: ((Int, String) -> Void)? = nil
+    /// Called when the user removes an existing annotation for this line.
+    var onRemoveAnnotation: (() -> Void)? = nil
+    /// Existing annotation comment for this line, if any.
+    var existingAnnotation: String? = nil
+
+    @State private var isHovered = false
+    @State private var showAnnotationPopover = false
+    @State private var annotationDraft = ""
+
+    private var annotationLineNumber: Int? {
+        line.newLineNumber ?? line.oldLineNumber
+    }
+
+    private var canAnnotate: Bool {
+        filePath != nil && onAddAnnotation != nil
+            && annotationLineNumber != nil
+            && line.kind != .hunkHeader
+    }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -193,6 +303,60 @@ struct DiffLineView: View {
         .padding(.horizontal, 4)
         .frame(height: 20)
         .background(backgroundColor)
+        .overlay {
+            if let tint = hunkStagedTint {
+                tint
+            }
+        }
+        // Yellow left-edge bar when an annotation is attached to this line
+        .overlay(alignment: .leading) {
+            if existingAnnotation != nil {
+                Rectangle()
+                    .fill(Color.yellow.opacity(0.85))
+                    .frame(width: 3)
+            }
+        }
+        // Trailing annotation button — visible on hover or when annotation exists
+        .overlay(alignment: .trailing) {
+            if canAnnotate && (isHovered || existingAnnotation != nil) {
+                annotationButton
+            }
+        }
+        .onHover { hovering in
+            if canAnnotate { isHovered = hovering }
+        }
+    }
+
+    @ViewBuilder
+    private var annotationButton: some View {
+        Button {
+            annotationDraft = existingAnnotation ?? ""
+            showAnnotationPopover = true
+        } label: {
+            Image(systemName: existingAnnotation != nil ? "note.text" : "note.text.badge.plus")
+                .font(.system(size: 10))
+                .foregroundStyle(existingAnnotation != nil ? Color.yellow : Color.secondary.opacity(0.5))
+        }
+        .buttonStyle(.borderless)
+        .help(existingAnnotation ?? "Add inline annotation")
+        .popover(isPresented: $showAnnotationPopover, arrowEdge: .trailing) {
+            if let lineNum = annotationLineNumber {
+                AnnotationPopoverView(
+                    lineNumber: lineNum,
+                    draft: $annotationDraft,
+                    hasExisting: existingAnnotation != nil,
+                    onSubmit: { comment in
+                        onAddAnnotation?(lineNum, comment)
+                        showAnnotationPopover = false
+                    },
+                    onRemove: onRemoveAnnotation.map { handler in
+                        { handler(); showAnnotationPopover = false }
+                    },
+                    onCancel: { showAnnotationPopover = false }
+                )
+            }
+        }
+        .padding(.trailing, 4)
     }
 
     @ViewBuilder
@@ -291,5 +455,59 @@ struct DiffLineView: View {
 
     private var textNSColor: Color {
         textColor
+    }
+}
+
+/// A small popover for adding, editing, or removing an inline diff annotation.
+struct AnnotationPopoverView: View {
+    let lineNumber: Int
+    @Binding var draft: String
+    var hasExisting: Bool
+    var onSubmit: (String) -> Void
+    var onRemove: (() -> Void)?
+    var onCancel: () -> Void
+
+    @FocusState private var isFocused: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Line \(lineNumber)")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            TextField("Add note (e.g. wrong variable name)…", text: $draft)
+                .font(.system(size: 12))
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 240)
+                .focused($isFocused)
+                .onSubmit { submit() }
+                .onKeyPress(.escape) { onCancel(); return .handled }
+
+            HStack(spacing: 6) {
+                Button(hasExisting ? "Update" : "Add Note") { submit() }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                    .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                if hasExisting, let onRemove {
+                    Button("Remove") { onRemove() }
+                        .buttonStyle(.borderless)
+                        .controlSize(.small)
+                        .foregroundStyle(.red)
+                }
+
+                Button("Cancel") { onCancel() }
+                    .buttonStyle(.borderless)
+                    .controlSize(.small)
+            }
+        }
+        .padding(12)
+        .onAppear { isFocused = true }
+    }
+
+    private func submit() {
+        let trimmed = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        onSubmit(trimmed)
     }
 }

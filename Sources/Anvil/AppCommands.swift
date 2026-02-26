@@ -67,6 +67,14 @@ struct FindInTerminalKey: FocusedValueKey {
     typealias Value = () -> Void
 }
 
+struct FindTerminalNextKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
+struct FindTerminalPreviousKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
 struct ShowCommandPaletteKey: FocusedValueKey {
     typealias Value = () -> Void
 }
@@ -123,6 +131,10 @@ struct StageFocusedHunkKey: FocusedValueKey {
     typealias Value = () -> Void
 }
 
+struct UnstageFocusedHunkKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
 struct DiscardFocusedHunkKey: FocusedValueKey {
     typealias Value = () -> Void
 }
@@ -140,6 +152,18 @@ struct SplitTerminalHKey: FocusedValueKey {
 }
 
 struct SplitTerminalVKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
+struct RequestFixKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
+struct NextPreviewTabKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
+struct PreviousPreviewTabKey: FocusedValueKey {
     typealias Value = () -> Void
 }
 
@@ -224,6 +248,16 @@ extension FocusedValues {
         set { self[FindInTerminalKey.self] = newValue }
     }
 
+    var findTerminalNext: (() -> Void)? {
+        get { self[FindTerminalNextKey.self] }
+        set { self[FindTerminalNextKey.self] = newValue }
+    }
+
+    var findTerminalPrevious: (() -> Void)? {
+        get { self[FindTerminalPreviousKey.self] }
+        set { self[FindTerminalPreviousKey.self] = newValue }
+    }
+
     var showCommandPalette: (() -> Void)? {
         get { self[ShowCommandPaletteKey.self] }
         set { self[ShowCommandPaletteKey.self] = newValue }
@@ -294,6 +328,11 @@ extension FocusedValues {
         set { self[StageFocusedHunkKey.self] = newValue }
     }
 
+    var unstageFocusedHunk: (() -> Void)? {
+        get { self[UnstageFocusedHunkKey.self] }
+        set { self[UnstageFocusedHunkKey.self] = newValue }
+    }
+
     var discardFocusedHunk: (() -> Void)? {
         get { self[DiscardFocusedHunkKey.self] }
         set { self[DiscardFocusedHunkKey.self] = newValue }
@@ -318,6 +357,21 @@ extension FocusedValues {
         get { self[SplitTerminalVKey.self] }
         set { self[SplitTerminalVKey.self] = newValue }
     }
+
+    var requestFix: (() -> Void)? {
+        get { self[RequestFixKey.self] }
+        set { self[RequestFixKey.self] = newValue }
+    }
+
+    var nextPreviewTab: (() -> Void)? {
+        get { self[NextPreviewTabKey.self] }
+        set { self[NextPreviewTabKey.self] = newValue }
+    }
+
+    var previousPreviewTab: (() -> Void)? {
+        get { self[PreviousPreviewTabKey.self] }
+        set { self[PreviousPreviewTabKey.self] = newValue }
+    }
 }
 
 // MARK: - View Menu Commands
@@ -332,6 +386,8 @@ struct ViewCommands: Commands {
     @FocusedValue(\.autoFollow) var autoFollow
     @FocusedValue(\.findInProject) var findInProject
     @FocusedValue(\.findInTerminal) var findInTerminal
+    @FocusedValue(\.findTerminalNext) var findTerminalNext
+    @FocusedValue(\.findTerminalPrevious) var findTerminalPrevious
     @FocusedValue(\.increaseFontSize) var increaseFontSize
     @FocusedValue(\.decreaseFontSize) var decreaseFontSize
     @FocusedValue(\.resetFontSize) var resetFontSize
@@ -351,9 +407,13 @@ struct ViewCommands: Commands {
     @FocusedValue(\.nextHunk) var nextHunk
     @FocusedValue(\.previousHunk) var previousHunk
     @FocusedValue(\.stageFocusedHunk) var stageFocusedHunk
+    @FocusedValue(\.unstageFocusedHunk) var unstageFocusedHunk
     @FocusedValue(\.discardFocusedHunk) var discardFocusedHunk
     @FocusedValue(\.toggleFocusedFileReviewed) var toggleFocusedFileReviewed
     @FocusedValue(\.openFocusedFile) var openFocusedFile
+    @FocusedValue(\.requestFix) var requestFix
+    @FocusedValue(\.nextPreviewTab) var nextPreviewTab
+    @FocusedValue(\.previousPreviewTab) var previousPreviewTab
     @AppStorage("autoLaunchCopilot") private var autoLaunchCopilot = true
     @AppStorage("notificationsEnabled") private var notificationsEnabled = true
 
@@ -384,6 +444,18 @@ struct ViewCommands: Commands {
             }
             .keyboardShortcut("f", modifiers: .command)
             .disabled(findInTerminal == nil)
+
+            Button("Find Next in Terminal") {
+                findTerminalNext?()
+            }
+            .keyboardShortcut("g", modifiers: .command)
+            .disabled(findTerminalNext == nil)
+
+            Button("Find Previous in Terminal") {
+                findTerminalPrevious?()
+            }
+            .keyboardShortcut("g", modifiers: [.command, .shift])
+            .disabled(findTerminalPrevious == nil)
 
             Button("Go to Line…") {
                 goToLine?()
@@ -459,6 +531,18 @@ struct ViewCommands: Commands {
             .keyboardShortcut("w", modifiers: .command)
             .disabled(previewOpen != true)
 
+            Button("Select Next Tab") {
+                nextPreviewTab?()
+            }
+            .keyboardShortcut(KeyEquivalent("\t"), modifiers: .control)
+            .disabled(nextPreviewTab == nil)
+
+            Button("Select Previous Tab") {
+                previousPreviewTab?()
+            }
+            .keyboardShortcut(KeyEquivalent("\t"), modifiers: [.control, .shift])
+            .disabled(previousPreviewTab == nil)
+
             Divider()
 
             Button("Refresh") {
@@ -519,6 +603,12 @@ struct ViewCommands: Commands {
             .keyboardShortcut("s", modifiers: [])
             .disabled(stageFocusedHunk == nil)
 
+            Button("Unstage Focused Hunk") {
+                unstageFocusedHunk?()
+            }
+            .keyboardShortcut("u", modifiers: [])
+            .disabled(unstageFocusedHunk == nil)
+
             Button("Discard Focused Hunk") {
                 discardFocusedHunk?()
             }
@@ -536,6 +626,12 @@ struct ViewCommands: Commands {
             }
             .keyboardShortcut(.return, modifiers: [])
             .disabled(openFocusedFile == nil)
+
+            Button("Request Fix…") {
+                requestFix?()
+            }
+            .keyboardShortcut("f", modifiers: [])
+            .disabled(requestFix == nil)
 
             Divider()
 

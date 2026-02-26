@@ -14,6 +14,7 @@ final class FilePreviewModel: ObservableObject {
     @Published private(set) var openTabs: [URL] = []
     @Published private(set) var fileContent: String?
     @Published private(set) var fileDiff: FileDiff?
+    @Published private(set) var stagedFileDiff: FileDiff?
     @Published private(set) var isLoading = false
     @Published var activeTab: PreviewTab = .source
     @Published private(set) var lineCount: Int = 0
@@ -32,12 +33,20 @@ final class FilePreviewModel: ObservableObject {
     @Published private(set) var fileHistory: [GitCommit] = []
     /// When set, the preview shows a commit-specific diff instead of working directory diff.
     private(set) var commitDiffContext: (sha: String, filePath: String)?
+    /// When set, the preview shows a stash-entry diff instead of working directory diff.
+    private(set) var stashDiffContext: (stashIndex: Int, filePath: String)?
     /// Per-line blame annotations for the current file.
     @Published private(set) var blameLines: [BlameLine] = []
     /// Whether blame annotations are shown in the source view gutter.
     @Published var showBlame = false
     /// Monotonic counter to discard stale async blame results.
     private var blameGeneration: UInt64 = 0
+    /// The commit SHA selected via a blame annotation click; drives History tab scrolling.
+    @Published var selectedHistoryCommitSHA: String?
+    /// When true, the source view auto-scrolls to changed lines on every file-system update.
+    @Published var isWatching = false
+    /// The file content as of the last watch refresh, used to find the first changed line.
+    private var watchPreviousContent: String?
 
     /// Recently viewed file URLs in most-recent-first order, capped at 20.
     @Published private(set) var recentlyViewedURLs: [URL] = []
@@ -88,16 +97,22 @@ final class FilePreviewModel: ObservableObject {
         return Self.extensionToLanguage[ext]
     }
 
+    /// Maximum number of concurrently open tabs. Oldest (least-recently-used) tabs are
+    /// evicted when the limit is exceeded.
+    private static let maxOpenTabs = 12
+
     func select(_ url: URL, line: Int? = nil) {
         guard !url.hasDirectoryPath else { return }
-        let wasCommitDiff = commitDiffContext != nil
+        let wasCommitDiff = commitDiffContext != nil || stashDiffContext != nil
         commitDiffContext = nil
+        stashDiffContext = nil
         showSymbolOutline = false
         // Track in recent files
         trackRecent(url)
         // Add to tabs if not already open
         if !openTabs.contains(url) {
             openTabs.append(url)
+            evictLRUTabIfNeeded(keeping: url)
             saveOpenTabs()
         }
         // Reload if switching away from a commit diff for the same file
@@ -142,7 +157,25 @@ final class FilePreviewModel: ObservableObject {
     func selectCommitFile(path: String, commitSHA: String, rootURL: URL) {
         let url = URL(fileURLWithPath: rootURL.path).appendingPathComponent(path)
         commitDiffContext = (sha: commitSHA, filePath: path)
+        stashDiffContext = nil
         // Blame is not meaningful for commit diffs
+        blameLines = []
+        blameGeneration &+= 1
+        if !openTabs.contains(url) {
+            openTabs.append(url)
+            evictLRUTabIfNeeded(keeping: url)
+            saveOpenTabs()
+        }
+        selectedURL = url
+        lastNavigatedLine = 1
+        loadCommitFile(url: url, sha: commitSHA, filePath: path, rootURL: rootURL)
+    }
+
+    /// Open a file showing the diff from a specific stash entry.
+    func selectStashFile(path: String, stashIndex: Int, rootURL: URL) {
+        let url = URL(fileURLWithPath: rootURL.path).appendingPathComponent(path)
+        stashDiffContext = (stashIndex: stashIndex, filePath: path)
+        commitDiffContext = nil
         blameLines = []
         blameGeneration &+= 1
         if !openTabs.contains(url) {
@@ -151,7 +184,7 @@ final class FilePreviewModel: ObservableObject {
         }
         selectedURL = url
         lastNavigatedLine = 1
-        loadCommitFile(url: url, sha: commitSHA, filePath: path, rootURL: rootURL)
+        loadStashFile(url: url, stashIndex: stashIndex, filePath: path, rootURL: rootURL)
     }
 
     func closeTab(_ url: URL) {
@@ -181,6 +214,7 @@ final class FilePreviewModel: ObservableObject {
         openTabs.removeAll()
         fileContent = nil
         fileDiff = nil
+        stagedFileDiff = nil
         lineCount = 0
         lastNavigatedLine = 1
         previewImage = nil
@@ -190,8 +224,12 @@ final class FilePreviewModel: ObservableObject {
         blameLines = []
         activeTab = .source
         commitDiffContext = nil
+        stashDiffContext = nil
         showSymbolOutline = false
         showBlame = false
+        selectedHistoryCommitSHA = nil
+        isWatching = false
+        watchPreviousContent = nil
         if persist { saveOpenTabs() }
     }
 
@@ -223,13 +261,24 @@ final class FilePreviewModel: ObservableObject {
                     content = nil
                 }
                 let diff = DiffProvider.diff(for: url, in: root)
+                let staged = DiffProvider.stagedDiff(for: url, in: root)
                 DispatchQueue.main.async {
                     guard self?.selectedURL == url else { return }
                     if content != self?.fileContent {
+                        // Auto-scroll to first changed line when watching
+                        if self?.isWatching == true, let previous = self?.watchPreviousContent {
+                            if let changedLine = self?.firstChangedLine(old: previous, new: content) {
+                                self?.activeTab = .source
+                                self?.scrollToLine = changedLine
+                                self?.lastNavigatedLine = changedLine
+                            }
+                        }
+                        self?.watchPreviousContent = content
                         self?.fileContent = content
                         self?.lineCount = content?.components(separatedBy: "\n").count ?? 0
                     }
                     self?.fileDiff = diff
+                    self?.stagedFileDiff = staged
                     // Reconcile active tab if current selection is no longer valid
                     if let current = self?.activeTab {
                         if current == .changes && diff == nil {
@@ -265,6 +314,35 @@ final class FilePreviewModel: ObservableObject {
                 self?.fileContent = content
                 self?.lineCount = content?.components(separatedBy: "\n").count ?? 0
                 self?.fileDiff = diff
+                self?.stagedFileDiff = nil
+                self?.previewImage = nil
+                self?.imageSize = nil
+                self?.imageFileSize = nil
+                self?.isLoading = false
+                self?.activeTab = diff != nil ? .changes : .source
+            }
+        }
+    }
+
+    private func loadStashFile(url: URL, stashIndex: Int, filePath: String, rootURL: URL) {
+        isLoading = true
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let diff = DiffProvider.stashFileDiff(stashIndex: stashIndex, filePath: filePath, in: rootURL)
+            let content: String?
+            if FileManager.default.fileExists(atPath: url.path),
+               let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+               let size = attrs[.size] as? Int, size <= 1_048_576 {
+                content = try? String(contentsOf: url, encoding: .utf8)
+            } else {
+                content = nil
+            }
+
+            DispatchQueue.main.async {
+                guard self?.selectedURL == url else { return }
+                self?.fileContent = content
+                self?.lineCount = content?.components(separatedBy: "\n").count ?? 0
+                self?.fileDiff = diff
+                self?.stagedFileDiff = nil
                 self?.previewImage = nil
                 self?.imageSize = nil
                 self?.imageFileSize = nil
@@ -316,15 +394,19 @@ final class FilePreviewModel: ObservableObject {
                     content = nil
                 }
                 let diff: FileDiff? = root.flatMap { DiffProvider.diff(for: url, in: $0) }
+                let staged: FileDiff? = root.flatMap { DiffProvider.stagedDiff(for: url, in: $0) }
                 DispatchQueue.main.async {
                     guard self?.selectedURL == url else { return }
                     self?.fileContent = content
                     self?.lineCount = content?.components(separatedBy: "\n").count ?? 0
                     self?.fileDiff = diff
+                    self?.stagedFileDiff = staged
                     self?.previewImage = nil
                     self?.imageSize = nil
                     self?.imageFileSize = nil
                     self?.isLoading = false
+                    // Reset watch baseline for the newly loaded file
+                    self?.watchPreviousContent = content
                     // Navigate to pending line (from search click), overriding tab auto-switch
                     if let line = self?.pendingScrollLine {
                         self?.pendingScrollLine = nil
@@ -388,6 +470,31 @@ final class FilePreviewModel: ObservableObject {
     func clearBlame() {
         blameGeneration &+= 1
         blameLines = []
+    }
+
+    /// Switches to the History tab and highlights the commit matching the given full SHA.
+    /// Uncommitted lines (SHA starts with "0000000") are ignored.
+    func navigateToBlameCommit(sha: String) {
+        guard !sha.hasPrefix("0000000") else { return }
+        selectedHistoryCommitSHA = sha
+        activeTab = .history
+    }
+
+    /// Returns the first 1-based line number where old and new content differ.
+    private func firstChangedLine(old: String?, new: String?) -> Int? {
+        guard let new = new, !new.isEmpty else { return nil }
+        let oldLines = (old ?? "").components(separatedBy: "\n")
+        let newLines = new.components(separatedBy: "\n")
+        for (i, newLine) in newLines.enumerated() {
+            if i >= oldLines.count || newLine != oldLines[i] {
+                return i + 1
+            }
+        }
+        // Lines were only removed from the end — scroll to the new last line
+        if oldLines.count > newLines.count {
+            return newLines.count
+        }
+        return nil
     }
 
     private static let extensionToLanguage: [String: String] = [
@@ -492,6 +599,46 @@ final class FilePreviewModel: ObservableObject {
             // Wrap around to last region
             scrollToLine = regions.last!.lowerBound
             lastNavigatedLine = regions.last!.lowerBound
+        }
+    }
+
+    // MARK: - Tab Cycling
+
+    /// Switches to the next tab, wrapping around.
+    func selectNextTab() {
+        guard openTabs.count > 1, let current = selectedURL,
+              let idx = openTabs.firstIndex(of: current) else { return }
+        let next = openTabs[(idx + 1) % openTabs.count]
+        select(next)
+    }
+
+    /// Switches to the previous tab, wrapping around.
+    func selectPreviousTab() {
+        guard openTabs.count > 1, let current = selectedURL,
+              let idx = openTabs.firstIndex(of: current) else { return }
+        let prev = openTabs[(idx - 1 + openTabs.count) % openTabs.count]
+        select(prev)
+    }
+
+    /// Evicts the least-recently-used tab when the open tab count exceeds `maxOpenTabs`.
+    /// The `keeping` URL is never evicted (it is the file just opened).
+    private func evictLRUTabIfNeeded(keeping url: URL) {
+        guard openTabs.count > Self.maxOpenTabs else { return }
+        // recentlyViewedURLs is most-recent-first; scan from the end to find the LRU tab
+        var evicted = false
+        for i in recentlyViewedURLs.indices.reversed() {
+            let candidate = recentlyViewedURLs[i]
+            if candidate != url, let idx = openTabs.firstIndex(of: candidate) {
+                openTabs.remove(at: idx)
+                evicted = true
+                break
+            }
+        }
+        // Fallback: evict the first tab that isn't the current one
+        if !evicted {
+            if let idx = openTabs.firstIndex(where: { $0 != url }) {
+                openTabs.remove(at: idx)
+            }
         }
     }
 

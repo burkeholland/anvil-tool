@@ -9,12 +9,15 @@ struct ChangesListView: View {
     @ObservedObject var workingDirectory: WorkingDirectoryModel
     var onReviewAll: (() -> Void)?
     var onBranchDiff: (() -> Void)?
+    var onCreatePR: (() -> Void)?
+    var onResolveConflicts: ((URL) -> Void)?
     @EnvironmentObject var terminalProxy: TerminalInputProxy
     @State private var fileToDiscard: ChangedFile?
     @State private var showDiscardAllConfirm = false
     @State private var showUndoCommitConfirm = false
     @State private var stashToDrop: StashEntry?
     @State private var showOnlyUnreviewed = false
+    @State private var collapsedDirectories: Set<String> = []
 
     var body: some View {
         if model.isLoading && model.changedFiles.isEmpty && model.recentCommits.isEmpty {
@@ -41,7 +44,10 @@ struct ChangesListView: View {
     private var changesTopSections: some View {
         if !model.changedFiles.isEmpty {
             Section {
-                CommitFormView(model: model)
+                CommitFormView(
+                    model: model,
+                    onPush: workingDirectory.hasRemotes ? { workingDirectory.push() } : nil
+                )
             }
             if let onReviewAll, model.changedFiles.count > 0 {
                 Section {
@@ -97,6 +103,109 @@ struct ChangesListView: View {
                 SyncPromptView(workingDirectory: workingDirectory)
             }
         }
+        if workingDirectory.hasUpstream && model.changedFiles.isEmpty {
+            if let prURL = workingDirectory.openPRURL, let url = URL(string: prURL) {
+                Section {
+                    PRStatusRow(title: workingDirectory.openPRTitle ?? "Open Pull Request", url: url)
+                }
+            } else if let onCreatePR, workingDirectory.aheadCount == 0 {
+                Section {
+                    Button {
+                        onCreatePR()
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "arrow.triangle.pull")
+                                .font(.system(size: 11))
+                                .foregroundStyle(.purple)
+                            Text("Create Pull Request")
+                                .font(.system(size: 12, weight: .medium))
+                            Spacer()
+                        }
+                        .padding(.vertical, 2)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var conflictsSection: some View {
+        if !model.conflictedFiles.isEmpty {
+            Section {
+                ForEach(model.conflictedFiles) { file in
+                    HStack(spacing: 6) {
+                        ChangedFileRow(
+                            file: file,
+                            isSelected: false,
+                            isStaged: false,
+                            isReviewed: false,
+                            isFocused: false,
+                            onDiscard: { fileToDiscard = file }
+                        )
+                        if let onResolveConflicts {
+                            Button {
+                                onResolveConflicts(file.url)
+                            } label: {
+                                Text("Resolve")
+                                    .font(.system(size: 10, weight: .medium))
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.mini)
+                            .tint(.red)
+                        }
+                    }
+                    .contentShape(Rectangle())
+                    .contextMenu { changedFileContextMenu(file: file, isStaged: false) }
+                }
+            } header: {
+                HStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.red)
+                    Text("Merge Conflicts")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.red)
+                        .textCase(nil)
+                    Spacer()
+                }
+            }
+        }
+    }
+
+    /// Files from the current change set that match sensitive patterns.
+    private var sensitiveChangedFiles: [ChangedFile] {
+        model.changedFiles.filter { SensitiveFileClassifier.isSensitive($0.relativePath) }
+    }
+
+    @ViewBuilder
+    private var sensitiveFilesSection: some View {
+        let files = sensitiveChangedFiles
+        if !files.isEmpty {
+            Section {
+                ForEach(files) { file in
+                    let isStaged = file.staging == .staged || file.staging == .partial
+                    fileRow(file: file, isStaged: isStaged, isSensitive: true)
+                }
+            } header: {
+                HStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.orange)
+                    Text("Requires Careful Review")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.orange)
+                        .textCase(nil)
+                    Spacer()
+                    Text("\(files.count)")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1)
+                        .background(Capsule().fill(Color.orange.opacity(0.7)))
+                }
+            }
+        }
     }
 
     @ViewBuilder
@@ -104,27 +213,7 @@ struct ChangesListView: View {
         if !model.stagedFiles.isEmpty {
             Section {
                 let files = showOnlyUnreviewed ? model.stagedFiles.filter { !model.isReviewed($0) } : model.stagedFiles
-                ForEach(files) { file in
-                    let fileIdx = model.changedFiles.firstIndex(where: { $0.id == file.id })
-                    ChangedFileRow(
-                        file: file,
-                        isSelected: filePreview.selectedURL == file.url,
-                        isStaged: true,
-                        isReviewed: model.isReviewed(file),
-                        isFocused: fileIdx == model.focusedFileIndex,
-                        onToggleReview: { model.toggleReviewed(file) }
-                    )
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        filePreview.select(file.url)
-                        if let idx = fileIdx {
-                            model.focusedFileIndex = idx
-                            model.focusedHunkIndex = nil
-                        }
-                    }
-                    .contextMenu { changedFileContextMenu(file: file, isStaged: true) }
-                    .draggable(file.url)
-                }
+                groupedFileRows(files: files, isStaged: true)
             } header: {
                 HStack(spacing: 8) {
                     Text("Staged Changes")
@@ -148,27 +237,7 @@ struct ChangesListView: View {
         if !model.unstagedFiles.isEmpty {
             Section {
                 let files = showOnlyUnreviewed ? model.unstagedFiles.filter { !model.isReviewed($0) } : model.unstagedFiles
-                ForEach(files) { file in
-                    let fileIdx = model.changedFiles.firstIndex(where: { $0.id == file.id })
-                    ChangedFileRow(
-                        file: file,
-                        isSelected: filePreview.selectedURL == file.url,
-                        isStaged: false,
-                        isReviewed: model.isReviewed(file),
-                        isFocused: fileIdx == model.focusedFileIndex,
-                        onToggleReview: { model.toggleReviewed(file) }
-                    )
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        filePreview.select(file.url)
-                        if let idx = fileIdx {
-                            model.focusedFileIndex = idx
-                            model.focusedHunkIndex = nil
-                        }
-                    }
-                    .contextMenu { changedFileContextMenu(file: file, isStaged: false) }
-                    .draggable(file.url)
-                }
+                groupedFileRows(files: files, isStaged: false)
             } header: {
                 unstagedSectionHeader
             }
@@ -249,7 +318,7 @@ struct ChangesListView: View {
                     .textCase(nil)
             }
         }
-        if !model.stashes.isEmpty {
+        if !model.stashes.isEmpty || !model.changedFiles.isEmpty {
             Section {
                 ForEach(model.stashes) { stash in
                     StashRow(
@@ -265,13 +334,26 @@ struct ChangesListView: View {
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(.secondary)
                         .textCase(nil)
+                    if !model.stashes.isEmpty {
+                        Text("\(model.stashes.count)")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1)
+                            .background(Capsule().fill(Color.secondary.opacity(0.4)))
+                    }
                     Spacer()
-                    Text("\(model.stashes.count)")
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 1)
-                        .background(Capsule().fill(Color.secondary.opacity(0.4)))
+                    if !model.changedFiles.isEmpty {
+                        Button {
+                            model.stashAll()
+                        } label: {
+                            Text("Stash All")
+                                .font(.system(size: 10))
+                                .foregroundStyle(.teal.opacity(0.9))
+                        }
+                        .buttonStyle(.plain)
+                        .help("Stash all uncommitted changes")
+                    }
                 }
             }
         }
@@ -279,8 +361,18 @@ struct ChangesListView: View {
 
     // List + keyboard + focused-value bindings (split to stay within type-checker limits)
     private var listBase: some View {
+        listWithKeyPress
+            .focusedValue(\.nextReviewFile, !model.changedFiles.isEmpty ? { model.focusNextFile() } : nil)
+            .focusedValue(\.previousReviewFile, !model.changedFiles.isEmpty ? { model.focusPreviousFile() } : nil)
+            .focusedValue(\.nextHunk, !model.changedFiles.isEmpty ? { model.focusNextHunk() } : nil)
+            .focusedValue(\.previousHunk, !model.changedFiles.isEmpty ? { model.focusPreviousHunk() } : nil)
+    }
+
+    private var listWithKeyPress: some View {
         List {
             changesTopSections
+            conflictsSection
+            sensitiveFilesSection
             stagedSection
             unstagedSection
             historyAndStashSections
@@ -293,6 +385,7 @@ struct ChangesListView: View {
             case "j", "n": model.focusNextHunk(); return .handled
             case "k", "p": model.focusPreviousHunk(); return .handled
             case "s": model.stageFocusedHunk(); return .handled
+            case "u": model.unstageFocusedHunk(); return .handled
             case "d": model.discardFocusedHunk(); return .handled
             case "r": model.toggleFocusedFileReviewed(); return .handled
             default:
@@ -303,11 +396,8 @@ struct ChangesListView: View {
                 return .ignored
             }
         }
-        .focusedValue(\.nextReviewFile, !model.changedFiles.isEmpty ? { model.focusNextFile() } : nil)
-        .focusedValue(\.previousReviewFile, !model.changedFiles.isEmpty ? { model.focusPreviousFile() } : nil)
-        .focusedValue(\.nextHunk, !model.changedFiles.isEmpty ? { model.focusNextHunk() } : nil)
-        .focusedValue(\.previousHunk, !model.changedFiles.isEmpty ? { model.focusPreviousHunk() } : nil)
         .focusedValue(\.stageFocusedHunk, model.focusedHunk != nil ? { model.stageFocusedHunk() } : nil)
+        .focusedValue(\.unstageFocusedHunk, model.focusedHunk != nil ? { model.unstageFocusedHunk() } : nil)
         .focusedValue(\.discardFocusedHunk, model.focusedHunk != nil ? { model.discardFocusedHunk() } : nil)
         .focusedValue(\.toggleFocusedFileReviewed, model.focusedFile != nil ? { model.toggleFocusedFileReviewed() } : nil)
         .focusedValue(\.openFocusedFile, model.focusedFile != nil ? { if let url = model.focusedFile?.url { filePreview.select(url) } } : nil)
@@ -379,11 +469,87 @@ struct ChangesListView: View {
                         DiscardRecoveryBanner(model: model)
                             .transition(.move(edge: .bottom).combined(with: .opacity))
                     }
+                    if model.lastDiscardedHunkPatch != nil {
+                        DiscardHunkRecoveryBanner(model: model)
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
                 }
             }
             .animation(.easeInOut(duration: 0.2), value: model.lastDiscardStashRef != nil)
             .animation(.easeInOut(duration: 0.2), value: model.lastUndoneCommitSHA != nil)
             .animation(.easeInOut(duration: 0.2), value: model.lastStashError != nil)
+            .animation(.easeInOut(duration: 0.2), value: model.lastDiscardedHunkPatch != nil)
+    }
+
+    // MARK: - Directory Grouping Helpers
+
+    /// Groups files by directory, preserving the relative order directories appear in the list.
+    private func directoryGroups(from files: [ChangedFile]) -> [(dir: String, files: [ChangedFile])] {
+        var seen = Set<String>()
+        var orderedDirs: [String] = []
+        for file in files {
+            if seen.insert(file.directoryPath).inserted {
+                orderedDirs.append(file.directoryPath)
+            }
+        }
+        return orderedDirs.map { dir in (dir, files.filter { $0.directoryPath == dir }) }
+    }
+
+    /// Renders a single changed-file row with tap, context menu, and drag support.
+    @ViewBuilder
+    private func fileRow(file: ChangedFile, isStaged: Bool, showDirectoryLabel: Bool = true, isSensitive: Bool = false) -> some View {
+        let fileIdx = model.changedFiles.firstIndex(where: { $0.id == file.id })
+        ChangedFileRow(
+            file: file,
+            isSelected: filePreview.selectedURL == file.url,
+            isStaged: isStaged,
+            isReviewed: model.isReviewed(file),
+            isFocused: fileIdx == model.focusedFileIndex,
+            isSensitive: isSensitive,
+            showDirectoryLabel: showDirectoryLabel,
+            onToggleReview: { model.toggleReviewed(file) },
+            onOpenFile: { filePreview.select(file.url) },
+            onDiscard: { fileToDiscard = file }
+        )
+        .contentShape(Rectangle())
+        .onTapGesture {
+            filePreview.select(file.url)
+            if let idx = fileIdx {
+                model.focusedFileIndex = idx
+                model.focusedHunkIndex = nil
+            }
+        }
+        .contextMenu { changedFileContextMenu(file: file, isStaged: isStaged) }
+        .draggable(file.url)
+    }
+
+    /// Renders files either grouped by directory (when ≥2 directories) or as a flat list.
+    @ViewBuilder
+    private func groupedFileRows(files: [ChangedFile], isStaged: Bool) -> some View {
+        let groups = directoryGroups(from: files)
+        if groups.count > 1 {
+            ForEach(groups, id: \.dir) { group in
+                DirectoryGroupHeader(
+                    directory: group.dir,
+                    files: group.files,
+                    isCollapsed: collapsedDirectories.contains(group.dir)
+                ) {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        collapsedDirectories = collapsedDirectories.symmetricDifference([group.dir])
+                    }
+                }
+                if !collapsedDirectories.contains(group.dir) {
+                    ForEach(group.files) { file in
+                        fileRow(file: file, isStaged: isStaged, showDirectoryLabel: false)
+                            .padding(.leading, 12)
+                    }
+                }
+            }
+        } else {
+            ForEach(files) { file in
+                fileRow(file: file, isStaged: isStaged)
+            }
+        }
     }
 
     @ViewBuilder
@@ -463,6 +629,14 @@ struct ChangesListView: View {
             NSWorkspace.shared.activateFileViewerSelecting([file.url])
         } label: {
             Label("Reveal in Finder", systemImage: "folder")
+        }
+
+        if let rootURL = workingDirectory.directoryURL {
+            Button {
+                GitHubURLBuilder.openFile(rootURL: rootURL, relativePath: file.relativePath)
+            } label: {
+                Label("Open in GitHub", systemImage: "arrow.up.right.square")
+            }
         }
 
         Divider()
@@ -557,6 +731,8 @@ struct ReviewProgressBar: View {
 
 struct CommitFormView: View {
     @ObservedObject var model: ChangesModel
+    /// Called after a successful commit to trigger a push. When nil, push options are hidden.
+    var onPush: (() -> Void)?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -575,6 +751,11 @@ struct CommitFormView: View {
                     .scrollContentBackground(.hidden)
                     .padding(.horizontal, 2)
                     .padding(.vertical, 2)
+                    .onKeyPress(.return, phases: .down) { press in
+                        guard press.modifiers.contains(.command), model.canCommit else { return .ignored }
+                        model.commit()
+                        return .handled
+                    }
             }
             .background(
                 RoundedRectangle(cornerRadius: 6)
@@ -615,12 +796,25 @@ struct CommitFormView: View {
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
                 .disabled(!model.canCommit)
+                .help("Commit staged changes (⌘↩)")
 
                 Menu {
                     Button("Stage All & Commit") {
                         model.stageAllAndCommit()
                     }
                     .disabled(model.changedFiles.isEmpty || model.commitMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                    if let onPush {
+                        Divider()
+                        Button("Commit & Push") {
+                            model.commitAndPush(pushAction: onPush)
+                        }
+                        .disabled(!model.canCommit)
+                        Button("Stage All & Commit & Push") {
+                            model.stageAllAndCommitAndPush(pushAction: onPush)
+                        }
+                        .disabled(model.changedFiles.isEmpty || model.commitMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
                 } label: {
                     Image(systemName: "chevron.down")
                         .font(.system(size: 9, weight: .semibold))
@@ -719,6 +913,16 @@ struct CommitRow: View {
                     NSPasteboard.general.setString(commit.shortSHA, forType: .string)
                 } label: {
                     Label("Copy Short SHA", systemImage: "doc.on.doc")
+                }
+
+                if let rootURL = model.rootDirectory {
+                    Divider()
+
+                    Button {
+                        GitHubURLBuilder.openCommit(rootURL: rootURL, sha: commit.sha)
+                    } label: {
+                        Label("Open Commit in GitHub", systemImage: "arrow.up.right.square")
+                    }
                 }
             }
 
@@ -874,7 +1078,12 @@ struct StashRow: View {
                         .padding(.vertical, 6)
 
                         ForEach(files) { file in
-                            StashFileRow(file: file)
+                            StashFileRow(
+                                file: file,
+                                stashIndex: stash.index,
+                                model: model,
+                                filePreview: filePreview
+                            )
                         }
                     }
                     .padding(.leading, 18)
@@ -896,6 +1105,9 @@ struct StashRow: View {
 
 struct StashFileRow: View {
     let file: CommitFile
+    let stashIndex: Int
+    @ObservedObject var model: ChangesModel
+    @ObservedObject var filePreview: FilePreviewModel
 
     var body: some View {
         HStack(spacing: 6) {
@@ -940,6 +1152,15 @@ struct StashFileRow: View {
         }
         .padding(.vertical, 3)
         .padding(.horizontal, 4)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            guard let rootURL = model.rootDirectory else { return }
+            filePreview.selectStashFile(
+                path: file.path,
+                stashIndex: stashIndex,
+                rootURL: rootURL
+            )
+        }
         .contextMenu {
             Button {
                 NSPasteboard.general.clearContents()
@@ -1081,7 +1302,14 @@ struct ChangedFileRow: View {
     var isStaged: Bool = false
     var isReviewed: Bool = false
     var isFocused: Bool = false
+    var isSensitive: Bool = false
+    var showDirectoryLabel: Bool = true
     var onToggleReview: (() -> Void)? = nil
+    var onOpenFile: (() -> Void)? = nil
+    var onDiscard: (() -> Void)? = nil
+
+    @State private var isHovering = false
+    @State private var dismissTask: DispatchWorkItem?
 
     var body: some View {
         HStack(spacing: 6) {
@@ -1097,13 +1325,21 @@ struct ChangedFileRow: View {
 
             // File name and path
             VStack(alignment: .leading, spacing: 1) {
-                Text(file.fileName)
-                    .font(.system(.body, design: .default))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .foregroundStyle(isReviewed ? .secondary : .primary)
+                HStack(spacing: 4) {
+                    Text(file.fileName)
+                        .font(.system(.body, design: .default))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .foregroundStyle(isReviewed ? .secondary : .primary)
 
-                if !file.directoryPath.isEmpty {
+                    if isSensitive {
+                        Text("⚠️")
+                            .font(.system(size: 11))
+                            .help("Sensitive file — requires careful review before committing")
+                    }
+                }
+
+                if showDirectoryLabel && !file.directoryPath.isEmpty {
                     Text(file.directoryPath)
                         .font(.caption)
                         .foregroundStyle(.tertiary)
@@ -1143,11 +1379,32 @@ struct ChangedFileRow: View {
                 .help(isReviewed ? "Mark as unreviewed (R)" : "Mark as reviewed (R)")
             }
 
+            // Discard button (trash icon, shown on hover)
+            if let onDiscard, isHovering {
+                Button {
+                    onDiscard()
+                } label: {
+                    Image(systemName: "trash")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.red.opacity(0.8))
+                }
+                .buttonStyle(.borderless)
+                .help("Discard Changes…")
+            }
+
             // Staging indicator
-            if isStaged {
+            switch file.staging {
+            case .staged:
                 Image(systemName: "checkmark.circle.fill")
                     .font(.system(size: 12))
                     .foregroundStyle(.green)
+            case .partial:
+                Image(systemName: "circle.lefthalf.filled")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.orange)
+                    .help("Partially staged - some hunks are staged, others are not")
+            case .unstaged:
+                EmptyView()
             }
         }
         .padding(.vertical, 2)
@@ -1162,6 +1419,25 @@ struct ChangedFileRow: View {
                 ? RoundedRectangle(cornerRadius: 4).strokeBorder(Color.accentColor.opacity(0.7), lineWidth: 1.5)
                 : nil
         )
+        .onHover { hovering in
+            dismissTask?.cancel()
+            if hovering {
+                isHovering = true
+            } else {
+                let task = DispatchWorkItem { isHovering = false }
+                dismissTask = task
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4, execute: task)
+            }
+        }
+        .onDisappear { dismissTask?.cancel() }
+        .popover(isPresented: Binding(
+            get: { isHovering && file.diff != nil },
+            set: { if !$0 { isHovering = false } }
+        ), arrowEdge: .trailing) {
+            if let diff = file.diff {
+                DiffPreviewPopover(diff: diff, onOpenFull: onOpenFile)
+            }
+        }
     }
 
     private var statusLabel: String {
@@ -1173,6 +1449,66 @@ struct ChangedFileRow: View {
         case .renamed:    return "R"
         case .conflicted: return "!"
         }
+    }
+}
+
+// MARK: - Directory Group Header
+
+/// A collapsible directory header row shown in the Changes panel when files span multiple directories.
+struct DirectoryGroupHeader: View {
+    let directory: String
+    let files: [ChangedFile]
+    let isCollapsed: Bool
+    let onToggle: () -> Void
+
+    private var displayName: String {
+        directory.isEmpty ? "(root)" : directory
+    }
+
+    private var totalAdditions: Int {
+        files.compactMap(\.diff).reduce(0) { $0 + $1.additionCount }
+    }
+
+    private var totalDeletions: Int {
+        files.compactMap(\.diff).reduce(0) { $0 + $1.deletionCount }
+    }
+
+    var body: some View {
+        Button(action: onToggle) {
+            HStack(spacing: 5) {
+                Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(.tertiary)
+                    .frame(width: 10)
+
+                Image(systemName: "folder")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+
+                Text(displayName)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.head)
+
+                Spacer()
+
+                HStack(spacing: 3) {
+                    if totalAdditions > 0 {
+                        Text("+\(totalAdditions)")
+                            .font(.system(size: 10).monospacedDigit())
+                            .foregroundStyle(.green)
+                    }
+                    if totalDeletions > 0 {
+                        Text("-\(totalDeletions)")
+                            .font(.system(size: 10).monospacedDigit())
+                            .foregroundStyle(.red)
+                    }
+                }
+            }
+            .padding(.vertical, 2)
+        }
+        .buttonStyle(.plain)
     }
 }
 
@@ -1203,6 +1539,47 @@ struct DiscardRecoveryBanner: View {
 
             Button {
                 model.lastDiscardStashRef = nil
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .buttonStyle(.borderless)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(.ultraThinMaterial)
+        .overlay(alignment: .top) { Divider() }
+    }
+}
+
+/// Banner shown after "Discard Hunk" with a button to re-apply the discarded hunk.
+struct DiscardHunkRecoveryBanner: View {
+    @ObservedObject var model: ChangesModel
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "trash.circle")
+                .font(.system(size: 12))
+                .foregroundStyle(.orange)
+
+            Text("Hunk discarded.")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+
+            Spacer()
+
+            Button {
+                model.undoDiscardHunk()
+            } label: {
+                Text("Undo")
+                    .font(.system(size: 11, weight: .medium))
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+
+            Button {
+                model.lastDiscardedHunkPatch = nil
             } label: {
                 Image(systemName: "xmark")
                     .font(.system(size: 9, weight: .semibold))
@@ -1317,5 +1694,33 @@ struct SyncPromptView: View {
             }
         }
         .padding(.vertical, 4)
+    }
+}
+
+/// Row shown in the Changes panel when the current branch has an open pull request.
+struct PRStatusRow: View {
+    let title: String
+    let url: URL
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "arrow.triangle.pull")
+                .font(.system(size: 11))
+                .foregroundStyle(.purple)
+            Text(title)
+                .font(.system(size: 12, weight: .medium))
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Spacer()
+            Button {
+                NSWorkspace.shared.open(url)
+            } label: {
+                Text("Open")
+                    .font(.system(size: 10))
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.mini)
+        }
+        .padding(.vertical, 2)
     }
 }

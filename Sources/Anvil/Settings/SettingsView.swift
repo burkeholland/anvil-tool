@@ -24,7 +24,7 @@ struct SettingsView: View {
                     Label("Notifications", systemImage: "bell")
                 }
         }
-        .frame(width: 450, height: 250)
+        .frame(width: 450, height: 320)
     }
 }
 
@@ -33,6 +33,7 @@ struct SettingsView: View {
 private struct GeneralSettingsTab: View {
     @AppStorage("autoLaunchCopilot") private var autoLaunchCopilot = true
     @AppStorage("autoFollowChanges") private var autoFollow = true
+    @AppStorage("branchGuardBehavior") private var branchGuardBehavior = "warn"
 
     var body: some View {
         Form {
@@ -44,6 +45,16 @@ private struct GeneralSettingsTab: View {
 
             Toggle("Auto-follow agent changes", isOn: $autoFollow)
             Text("Preview files in the side panel as the agent modifies them.")
+                .settingsDescription()
+
+            Spacer().frame(height: 8)
+
+            Picker("Branch guard", selection: $branchGuardBehavior) {
+                Text("Warn me").tag("warn")
+                Text("Auto-branch silently").tag("autoBranch")
+                Text("Disabled").tag("disabled")
+            }
+            Text("What to do when the agent modifies files on the default branch (main/master): warn with a prompt to create a feature branch, auto-create one silently, or do nothing.")
                 .settingsDescription()
         }
         .padding(20)

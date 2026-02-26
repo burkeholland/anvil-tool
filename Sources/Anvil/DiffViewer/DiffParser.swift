@@ -367,6 +367,36 @@ enum DiffParser {
         return nil
     }
 
+    // MARK: - Staged Hunk Detection
+
+    /// Returns the set of hunk IDs in `combinedDiff` that are at least partially reflected
+    /// in `stagedDiff` (i.e., share an overlapping old-file line range).
+    /// Both diffs must be relative to the same base (HEAD) for the old-line numbers to be comparable.
+    static func stagedHunkIDs(combinedDiff: FileDiff, stagedDiff: FileDiff) -> Set<Int> {
+        // Build old-file line ranges for each staged hunk using the hunk header's old count.
+        let stagedRanges: [ClosedRange<Int>] = stagedDiff.hunks.compactMap { oldLineRange(for: $0) }
+
+        guard !stagedRanges.isEmpty else { return [] }
+
+        var result = Set<Int>()
+        for hunk in combinedDiff.hunks {
+            guard let hunkRange = oldLineRange(for: hunk) else { continue }
+            if stagedRanges.contains(where: { $0.overlaps(hunkRange) }) {
+                result.insert(hunk.id)
+            }
+        }
+        return result
+    }
+
+    /// Returns the old-file line range covered by a hunk's context and deletion lines,
+    /// or `nil` if the hunk contains no such lines (e.g. a pure-addition hunk).
+    private static func oldLineRange(for hunk: DiffHunk) -> ClosedRange<Int>? {
+        let (oldStart, _) = parseHunkHeader(hunk.header)
+        let oldCount = hunk.lines.filter { $0.kind == .deletion || $0.kind == .context }.count
+        guard oldCount > 0 else { return nil }
+        return oldStart...(oldStart + oldCount - 1)
+    }
+
     // MARK: - Patch Reconstruction
 
     /// Reconstructs a valid unified diff patch for a single hunk, suitable for `git apply`.
