@@ -51,6 +51,8 @@ struct ContentView: View {
     @State private var showCreatePR = false
     @State private var showMergeConflict = false
     @StateObject private var mergeConflictModel = MergeConflictModel()
+    @StateObject private var promptHistoryStore = PromptHistoryStore()
+    @State private var showPromptHistory = false
 
     var body: some View {
         ZStack {
@@ -176,6 +178,9 @@ struct ContentView: View {
             } : nil,
             onPreviousPreviewTab: filePreview.openTabs.count > 1 ? { [weak filePreview] in
                 filePreview?.selectPreviousTab()
+            } : nil,
+            onShowPromptHistory: workingDirectory.directoryURL != nil ? {
+                showPromptHistory = true
             } : nil
         ))
         .onChange(of: workingDirectory.directoryURL) { _, newURL in
@@ -187,6 +192,7 @@ struct ContentView: View {
             filePreview.close(persist: false)
             filePreview.rootDirectory = newURL
             terminalTabs.reset()
+            promptHistoryStore.configure(projectPath: newURL?.standardizedFileURL.path)
             if let url = newURL {
                 recentProjects.recordOpen(url)
                 changesModel.start(rootURL: url)
@@ -236,6 +242,8 @@ struct ContentView: View {
         .onAppear {
             filePreview.rootDirectory = workingDirectory.directoryURL
             notificationManager.connect(to: activityModel)
+            terminalProxy.historyStore = promptHistoryStore
+            promptHistoryStore.configure(projectPath: workingDirectory.directoryURL?.standardizedFileURL.path)
             if let url = workingDirectory.directoryURL {
                 recentProjects.recordOpen(url)
                 changesModel.start(rootURL: url)
@@ -314,11 +322,13 @@ struct ContentView: View {
                         activityModel: activityModel,
                         filePreview: filePreview,
                         recentProjects: recentProjects,
+                        promptHistoryStore: promptHistoryStore,
                         showSidebar: $showSidebar,
                         autoFollow: $autoFollow,
                         showBranchPicker: $showBranchPicker,
                         showInstructions: $showInstructions,
                         showCopilotActions: $showCopilotActions,
+                        showPromptHistory: $showPromptHistory,
                         showProjectSwitcher: $showProjectSwitcher,
                         onOpenDirectory: { browseForDirectory() },
                         onSwitchProject: { url in openDirectory(url) },
@@ -1053,6 +1063,11 @@ struct ContentView: View {
             } action: {
                 showCopilotActions = true
             },
+            PaletteCommand(id: "prompt-history", title: "Prompt History…", icon: "clock.arrow.circlepath", shortcut: "⌘Y", category: "Copilot") {
+                hasProject
+            } action: {
+                showPromptHistory = true
+            },
             PaletteCommand(id: "copilot-compact", title: "Copilot: Compact History", icon: "arrow.triangle.2.circlepath", shortcut: nil, category: "Copilot") {
                 hasProject
             } action: { [weak terminalProxy] in
@@ -1281,11 +1296,13 @@ struct ToolbarView: View {
     @ObservedObject var activityModel: ActivityFeedModel
     @ObservedObject var filePreview: FilePreviewModel
     @ObservedObject var recentProjects: RecentProjectsModel
+    @ObservedObject var promptHistoryStore: PromptHistoryStore
     @Binding var showSidebar: Bool
     @Binding var autoFollow: Bool
     @Binding var showBranchPicker: Bool
     @Binding var showInstructions: Bool
     @Binding var showCopilotActions: Bool
+    @Binding var showPromptHistory: Bool
     @Binding var showProjectSwitcher: Bool
     var onOpenDirectory: () -> Void
     var onSwitchProject: (URL) -> Void
@@ -1364,6 +1381,21 @@ struct ToolbarView: View {
             .help("Copilot Actions")
             .popover(isPresented: $showCopilotActions, arrowEdge: .bottom) {
                 CopilotActionsView(onDismiss: { showCopilotActions = false })
+            }
+
+            Button {
+                showPromptHistory.toggle()
+            } label: {
+                Image(systemName: "clock.arrow.circlepath")
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.borderless)
+            .help("Prompt History (⌘Y)")
+            .popover(isPresented: $showPromptHistory, arrowEdge: .bottom) {
+                PromptHistoryView(
+                    store: promptHistoryStore,
+                    onDismiss: { showPromptHistory = false }
+                )
             }
 
             Button {
@@ -1777,6 +1809,7 @@ private struct FocusedSceneModifier: ViewModifier {
     var onSplitTerminalV: (() -> Void)?
     var onNextPreviewTab: (() -> Void)?
     var onPreviousPreviewTab: (() -> Void)?
+    var onShowPromptHistory: (() -> Void)?
 
     func body(content: Content) -> some View {
         content
@@ -1820,7 +1853,8 @@ private struct FocusedSceneModifier: ViewModifier {
             ))
             .modifier(FocusedSceneModifierD(
                 onNextPreviewTab: onNextPreviewTab,
-                onPreviousPreviewTab: onPreviousPreviewTab
+                onPreviousPreviewTab: onPreviousPreviewTab,
+                onShowPromptHistory: onShowPromptHistory
             ))
     }
 }
@@ -1918,11 +1952,13 @@ private struct FocusedSceneModifierC: ViewModifier {
 private struct FocusedSceneModifierD: ViewModifier {
     var onNextPreviewTab: (() -> Void)?
     var onPreviousPreviewTab: (() -> Void)?
+    var onShowPromptHistory: (() -> Void)?
 
     func body(content: Content) -> some View {
         content
             .focusedSceneValue(\.nextPreviewTab, onNextPreviewTab)
             .focusedSceneValue(\.previousPreviewTab, onPreviousPreviewTab)
+            .focusedSceneValue(\.showPromptHistory, onShowPromptHistory)
     }
 }
 
