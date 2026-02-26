@@ -74,6 +74,9 @@ final class FilePreviewModel: ObservableObject {
         selectionEndLine = endLine
     }
 
+    /// URLs of tabs that are pinned; pinned tabs are excluded from LRU eviction and cannot be closed.
+    @Published private(set) var pinnedTabs: Set<URL> = []
+
     /// Recently viewed file URLs in most-recent-first order, capped at 20.
     @Published private(set) var recentlyViewedURLs: [URL] = []
 
@@ -219,6 +222,8 @@ final class FilePreviewModel: ObservableObject {
     }
 
     func closeTab(_ url: URL) {
+        // Pinned tabs cannot be closed.
+        guard !pinnedTabs.contains(url) else { return }
         guard let index = openTabs.firstIndex(of: url) else { return }
         openTabs.remove(at: index)
 
@@ -237,12 +242,30 @@ final class FilePreviewModel: ObservableObject {
         }
     }
 
+    /// Toggles the pinned state of a tab. Pinned tabs are excluded from LRU eviction
+    /// and cannot be closed until they are unpinned.
+    func togglePinTab(_ url: URL) {
+        if pinnedTabs.contains(url) {
+            pinnedTabs.remove(url)
+        } else {
+            pinnedTabs.insert(url)
+        }
+        saveOpenTabs()
+    }
+
+    /// Moves a tab from one position to another in the tab bar.
+    func reorderTab(fromOffsets: IndexSet, toOffset: Int) {
+        openTabs.move(fromOffsets: fromOffsets, toOffset: toOffset)
+        saveOpenTabs()
+    }
+
     /// Resets all preview state.
     /// - Parameter persist: When false, skip saving tabs (used during project switch
     ///   so the old project's persisted tabs aren't overwritten).
     func close(persist: Bool = true) {
         selectedURL = nil
         openTabs.removeAll()
+        pinnedTabs.removeAll()
         fileContent = nil
         fileDiff = nil
         stagedFileDiff = nil
@@ -703,22 +726,24 @@ final class FilePreviewModel: ObservableObject {
     }
 
     /// Evicts the least-recently-used tab when the open tab count exceeds `maxOpenTabs`.
-    /// The `keeping` URL is never evicted (it is the file just opened).
+    /// The `keeping` URL is never evicted (it is the file just opened). Pinned tabs are
+    /// never evicted regardless of their recency.
     private func evictLRUTabIfNeeded(keeping url: URL) {
         guard openTabs.count > Self.maxOpenTabs else { return }
         // recentlyViewedURLs is most-recent-first; scan from the end to find the LRU tab
         var evicted = false
         for i in recentlyViewedURLs.indices.reversed() {
             let candidate = recentlyViewedURLs[i]
-            if candidate != url, let idx = openTabs.firstIndex(of: candidate) {
+            if candidate != url, !pinnedTabs.contains(candidate),
+               let idx = openTabs.firstIndex(of: candidate) {
                 openTabs.remove(at: idx)
                 evicted = true
                 break
             }
         }
-        // Fallback: evict the first tab that isn't the current one
+        // Fallback: evict the first unpinned tab that isn't the current one
         if !evicted {
-            if let idx = openTabs.firstIndex(where: { $0 != url }) {
+            if let idx = openTabs.firstIndex(where: { $0 != url && !pinnedTabs.contains($0) }) {
                 openTabs.remove(at: idx)
             }
         }
@@ -821,11 +846,20 @@ final class FilePreviewModel: ObservableObject {
         return "dev.anvil.selectedTab.\(root.standardizedFileURL.path)"
     }
 
+    private var pinnedTabsKey: String? {
+        guard let root = rootDirectory else { return nil }
+        return "dev.anvil.pinnedTabs.\(root.standardizedFileURL.path)"
+    }
+
     private func saveOpenTabs() {
         guard let tabsKey = openTabsKey, let selKey = selectedTabKey else { return }
         let paths = openTabs.map(\.path)
         UserDefaults.standard.set(paths, forKey: tabsKey)
         UserDefaults.standard.set(selectedURL?.path, forKey: selKey)
+        if let pinnedKey = pinnedTabsKey {
+            let pinnedPaths = pinnedTabs.map(\.path).sorted()
+            UserDefaults.standard.set(pinnedPaths, forKey: pinnedKey)
+        }
     }
 
     private func restoreOpenTabs() {
@@ -838,6 +872,14 @@ final class FilePreviewModel: ObservableObject {
         }
         guard !validURLs.isEmpty else { return }
         openTabs = validURLs
+
+        // Restore pinned tabs
+        if let pinnedKey = pinnedTabsKey,
+           let pinnedPaths = UserDefaults.standard.stringArray(forKey: pinnedKey) {
+            pinnedTabs = Set(pinnedPaths.compactMap { path -> URL? in
+                fm.fileExists(atPath: path) ? URL(fileURLWithPath: path) : nil
+            })
+        }
 
         // Restore the previously selected file, or fall back to the last tab
         let selKey = selectedTabKey
@@ -852,5 +894,22 @@ final class FilePreviewModel: ObservableObject {
         lastNavigatedLine = 1
         loadFile(restoredSelection)
         loadTestFileCounterpart(for: restoredSelection)
+    }
+
+    // MARK: - Testing Helpers
+
+    /// Directly sets the open tabs list. For unit tests only.
+    func openTabsForTesting(_ urls: [URL]) {
+        openTabs = urls
+    }
+
+    /// Directly sets the recently viewed URLs list. For unit tests only.
+    func recentlyViewedURLsForTesting(_ urls: [URL]) {
+        recentlyViewedURLs = urls
+    }
+
+    /// Exposes the private LRU eviction method for unit tests.
+    func evictLRUTabIfNeededForTesting(keeping url: URL) {
+        evictLRUTabIfNeeded(keeping: url)
     }
 }
