@@ -404,8 +404,11 @@ struct ContentView: View {
                 fileTreeModel.start(rootURL: url)
                 commitHistoryModel.start(rootURL: url)
 
-                // In screenshot mode, auto-select a file so the preview shows content
+                // In screenshot mode, auto-select a file so the preview shows content.
+                // Reset any persisted tab / pin state so the screenshot is deterministic
+                // regardless of what the developer had previously open.
                 if screenshotMode {
+                    filePreview.close(persist: false)
                     let candidates = ["README.md", "Package.swift", "ContentView.swift"]
                     for name in candidates {
                         if let entry = fileTreeModel.entries.first(where: { $0.name == name }) {
