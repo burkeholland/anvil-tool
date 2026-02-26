@@ -92,6 +92,26 @@ final class TerminalInputProxy: ObservableObject {
         send("@\(sanitizePath(relativePath)) ")
     }
 
+    /// Composes a contextual question about the selected code and inserts it into the terminal
+    /// input **without** sending (no trailing newline), so the user can review before pressing
+    /// Enter. `intent` is a human-readable prefix such as "Ask about this".
+    /// Strips control characters (except newlines) from the code to prevent terminal injection.
+    func composeCodeQuestion(intent: String, relativePath: String, language: String?, startLine: Int, endLine: Int, code: String) {
+        let sanitizedPath = sanitizePath(relativePath)
+        let lineRange = startLine == endLine ? "line \(startLine)" : "lines \(startLine)-\(endLine)"
+        let sanitizedCode = code.unicodeScalars
+            .filter { $0.value == 0x0A || ($0.value >= 0x20 && $0.value != 0x7F) }
+            .map { Character($0) }
+        let lang = language ?? ""
+        let prompt: String
+        if code.isEmpty {
+            prompt = "\(intent): \(sanitizedPath) \(lineRange)"
+        } else {
+            prompt = "\(intent): \(sanitizedPath) \(lineRange)\n```\(lang)\n\(String(sanitizedCode))\n```"
+        }
+        send(prompt)
+    }
+
     /// Sends a formatted code snippet to the terminal with file path and line range context.
     /// Strips control characters (except newlines) from the code to prevent terminal injection.
     /// When `code` is empty, sends only the file path and line range.

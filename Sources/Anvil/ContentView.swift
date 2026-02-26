@@ -223,7 +223,18 @@ struct ContentView: View {
                 splitPreview.toggle()
             } : nil,
             recentProjects: recentProjects,
-            onOpenRecentProject: { url in openDirectory(url) }
+            onOpenRecentProject: { url in openDirectory(url) },
+            onAskAboutSelection: filePreview.selectedURL != nil ? { [weak filePreview, weak terminalProxy] in
+                guard let model = filePreview, !model.selectionCode.isEmpty else { return }
+                terminalProxy?.composeCodeQuestion(
+                    intent: "Ask about this",
+                    relativePath: model.relativePath,
+                    language: model.highlightLanguage,
+                    startLine: model.selectionStartLine,
+                    endLine: model.selectionEndLine,
+                    code: model.selectionCode
+                )
+            } : nil
         ))
     }
 
@@ -2142,6 +2153,7 @@ private struct FocusedSceneModifier: ViewModifier {
     var onToggleSplitPreview: (() -> Void)?
     var recentProjects: RecentProjectsModel
     var onOpenRecentProject: ((URL) -> Void)?
+    var onAskAboutSelection: (() -> Void)?
 
     func body(content: Content) -> some View {
         content
@@ -2190,7 +2202,8 @@ private struct FocusedSceneModifier: ViewModifier {
                 onGoToTestFile: onGoToTestFile,
                 onToggleSplitPreview: onToggleSplitPreview,
                 recentProjects: recentProjects,
-                onOpenRecentProject: onOpenRecentProject
+                onOpenRecentProject: onOpenRecentProject,
+                onAskAboutSelection: onAskAboutSelection
             ))
     }
 }
@@ -2293,6 +2306,7 @@ private struct FocusedSceneModifierD: ViewModifier {
     var onToggleSplitPreview: (() -> Void)?
     var recentProjects: RecentProjectsModel
     var onOpenRecentProject: ((URL) -> Void)?
+    var onAskAboutSelection: (() -> Void)?
 
     func body(content: Content) -> some View {
         content
@@ -2303,6 +2317,7 @@ private struct FocusedSceneModifierD: ViewModifier {
             .focusedSceneValue(\.toggleSplitPreview, onToggleSplitPreview)
             .focusedSceneObject(recentProjects)
             .focusedSceneValue(\.openRecentProject, onOpenRecentProject)
+            .focusedSceneValue(\.askAboutSelection, onAskAboutSelection)
     }
 }
 

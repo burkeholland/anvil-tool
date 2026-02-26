@@ -13,6 +13,11 @@ struct FilePreviewView: View {
     @EnvironmentObject var terminalProxy: TerminalInputProxy
     @State private var showGoToLine = false
     @State private var goToLineText = ""
+    // MARK: Selection action menu state
+    @State private var selectionText = ""
+    @State private var selectionStartLine = 0
+    @State private var selectionEndLine = 0
+    @State private var showSelectionMenu = false
 
     /// Gutter changes for the current file, cached for navigation.
     private var currentGutterChanges: [Int: GutterChangeKind] {
@@ -435,6 +440,18 @@ struct FilePreviewView: View {
                                 code: code
                             )
                         },
+                        onSelectionChange: { code, start, end in
+                            selectionText = code
+                            selectionStartLine = start
+                            selectionEndLine = end
+                            model.updateSelection(code: code, startLine: start, endLine: end)
+                            withAnimation(.easeOut(duration: 0.15)) {
+                                showSelectionMenu = !code.isEmpty
+                            }
+                        },
+                        onAskAboutSelection: { intent, code, start, end in
+                            sendCodeQuestion(intent: intent, code: code, startLine: start, endLine: end)
+                        },
                         diagnosticAnnotations: diagnosticsForCurrentFile,
                         isEditable: model.isEditing,
                         onContentChange: { [model] text in
@@ -518,6 +535,28 @@ struct FilePreviewView: View {
                     }
                     .transition(.move(edge: .top).combined(with: .opacity))
                 }
+
+                // Selection action menu overlay
+                if showSelectionMenu && model.activeTab == .source {
+                    VStack {
+                        SelectionActionMenu { intent in
+                            sendCodeQuestion(
+                                intent: intent,
+                                code: selectionText,
+                                startLine: selectionStartLine,
+                                endLine: selectionEndLine
+                            )
+                            withAnimation(.easeOut(duration: 0.12)) {
+                                showSelectionMenu = false
+                            }
+                        }
+                        .padding(.top, 10)
+                        Spacer()
+                    }
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .allowsHitTesting(true)
+                }
             }
 
             // Copilot prompt bar
@@ -571,6 +610,19 @@ struct FilePreviewView: View {
                 .lineLimit(1)
                 .truncationMode(.head)
         }
+    }
+
+    /// Composes and inserts a contextual question prompt into the terminal for the given selection.
+    /// Shared by both the floating menu and the ⌘⇧E / context menu code paths.
+    private func sendCodeQuestion(intent: String, code: String, startLine: Int, endLine: Int) {
+        terminalProxy.composeCodeQuestion(
+            intent: intent,
+            relativePath: model.relativePath,
+            language: model.highlightLanguage,
+            startLine: startLine,
+            endLine: endLine,
+            code: code
+        )
     }
 }
 
@@ -915,10 +967,13 @@ struct PreviewTabItem: View {
 }
 
 /// NSTextView subclass that adds a "Send to Terminal" context menu item and
-/// handles the ⌘⇧T keyboard shortcut for sending selected code to the terminal.
+/// handles the ⌘⇧T keyboard shortcut for sending selected code to the terminal,
+/// plus ⌘⇧E for "Ask about this" and corresponding context menu items.
 private final class PreviewTextView: NSTextView {
     /// Called when the user triggers "Send to Terminal" via context menu or ⌘⇧T.
     var onSendToTerminal: (() -> Void)?
+    /// Called when the user triggers "Ask about this" via context menu or ⌘⇧E.
+    var onAskAboutSelection: ((String) -> Void)?
     /// Called when the user triggers ⌘S (save).
     var onSave: (() -> Void)?
 
@@ -935,17 +990,49 @@ private final class PreviewTextView: NSTextView {
             menu.insertItem(NSMenuItem.separator(), at: 0)
             menu.insertItem(item, at: 0)
         }
+        if onAskAboutSelection != nil && selectedRange().length > 0 {
+            let improveItem = NSMenuItem(
+                title: "Improve this",
+                action: #selector(handleImproveSelection(_:)),
+                keyEquivalent: ""
+            )
+            improveItem.target = self
+            let explainItem = NSMenuItem(
+                title: "Explain this",
+                action: #selector(handleExplainSelection(_:)),
+                keyEquivalent: ""
+            )
+            explainItem.target = self
+            let askItem = NSMenuItem(
+                title: "Ask about this",
+                action: #selector(handleAskAboutSelection(_:)),
+                keyEquivalent: "e"
+            )
+            askItem.keyEquivalentModifierMask = [.command, .shift]
+            askItem.target = self
+            menu.insertItem(NSMenuItem.separator(), at: 0)
+            menu.insertItem(improveItem, at: 0)
+            menu.insertItem(explainItem, at: 0)
+            menu.insertItem(askItem, at: 0)
+        }
         return menu
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        if event.modifierFlags.intersection([.command, .shift, .option, .control]) == [.command, .shift],
+        let mods = event.modifierFlags.intersection([.command, .shift, .option, .control])
+        if mods == [.command, .shift],
+           event.characters?.lowercased() == "e",
+           let handler = onAskAboutSelection {
+            handler("Ask about this")
+            return true
+        }
+        if mods == [.command, .shift],
            event.characters?.lowercased() == "t",
            let handler = onSendToTerminal {
             handler()
             return true
         }
-        if event.modifierFlags.intersection([.command, .shift, .option, .control]) == .command,
+        if mods == .command,
            event.characters?.lowercased() == "s",
            let handler = onSave {
             handler()
@@ -956,6 +1043,18 @@ private final class PreviewTextView: NSTextView {
 
     @objc private func handleSendToTerminal(_ sender: Any) {
         onSendToTerminal?()
+    }
+
+    @objc private func handleAskAboutSelection(_ sender: Any) {
+        onAskAboutSelection?("Ask about this")
+    }
+
+    @objc private func handleExplainSelection(_ sender: Any) {
+        onAskAboutSelection?("Explain this")
+    }
+
+    @objc private func handleImproveSelection(_ sender: Any) {
+        onAskAboutSelection?("Improve this")
     }
 }
 
@@ -978,6 +1077,12 @@ struct HighlightedTextView: NSViewRepresentable {
     /// Called when the user triggers "Send to Terminal". Receives the selected code (or empty
     /// string when nothing is selected), plus the 1-based start and end line numbers.
     var onSendToTerminal: ((String, Int, Int) -> Void)?
+    /// Called when text selection changes. Receives the selected code and 1-based start/end line
+    /// numbers. Called with empty string and zeroed lines when the selection is cleared.
+    var onSelectionChange: ((String, Int, Int) -> Void)?
+    /// Called when the user triggers an ask-about-selection action (⌘⇧E, context menu, or
+    /// floating menu button). Receives intent, code, startLine, endLine.
+    var onAskAboutSelection: ((String, String, Int, Int) -> Void)?
     /// Build diagnostic annotations for the current file, keyed by 1-based line number.
     /// When non-empty, gutter dots are drawn (red for errors, yellow for warnings, blue for notes).
     var diagnosticAnnotations: [Int: BuildDiagnostic] = [:]
@@ -1036,6 +1141,8 @@ struct HighlightedTextView: NSViewRepresentable {
         context.coordinator.fileDiff = fileDiff
         context.coordinator.onRevertHunk = onRevertHunk
         context.coordinator.onSendToTerminalAction = onSendToTerminal
+        context.coordinator.onSelectionChangeAction = onSelectionChange
+        context.coordinator.onAskAboutSelectionAction = onAskAboutSelection
         context.coordinator.onContentChangeAction = onContentChange
         context.coordinator.onSaveAction = onSave
         context.coordinator.isEditing = isEditable
@@ -1048,6 +1155,9 @@ struct HighlightedTextView: NSViewRepresentable {
         let coordinator = context.coordinator
         textView.onSendToTerminal = { [weak coordinator] in
             coordinator?.sendCurrentSelectionToTerminal()
+        }
+        textView.onAskAboutSelection = { [weak coordinator] intent in
+            coordinator?.askAboutCurrentSelection(intent: intent)
         }
         textView.onSave = { [weak coordinator] in
             coordinator?.onSaveAction?()
@@ -1075,10 +1185,15 @@ struct HighlightedTextView: NSViewRepresentable {
         context.coordinator.fileDiff = fileDiff
         context.coordinator.onRevertHunk = onRevertHunk
         context.coordinator.onSendToTerminalAction = onSendToTerminal
+        context.coordinator.onSelectionChangeAction = onSelectionChange
+        context.coordinator.onAskAboutSelectionAction = onAskAboutSelection
         if let textView = context.coordinator.textView as? PreviewTextView {
             let coordinator = context.coordinator
             textView.onSendToTerminal = onSendToTerminal != nil ? { [weak coordinator] in
                 coordinator?.sendCurrentSelectionToTerminal()
+            } : nil
+            textView.onAskAboutSelection = onAskAboutSelection != nil ? { [weak coordinator] intent in
+                coordinator?.askAboutCurrentSelection(intent: intent)
             } : nil
         }
 
@@ -1101,6 +1216,12 @@ struct HighlightedTextView: NSViewRepresentable {
         var onRevertHunk: ((DiffHunk) -> Void)?
         /// Called when the user triggers "Send to Terminal". Receives code, startLine, endLine.
         var onSendToTerminalAction: ((String, Int, Int) -> Void)?
+        /// Called when text selection changes. Receives code, startLine, endLine.
+        /// Called with empty string and zeroed lines when the selection is cleared.
+        var onSelectionChangeAction: ((String, Int, Int) -> Void)?
+        /// Called when the user triggers an ask-about-selection action (⌘⇧E, context menu, or
+        /// floating menu). Receives intent, code, startLine, endLine.
+        var onAskAboutSelectionAction: ((String, String, Int, Int) -> Void)?
         /// Called whenever the user edits text. Receives the full current text.
         var onContentChangeAction: ((String) -> Void)?
         /// Called when the user triggers ⌘S.
@@ -1111,6 +1232,8 @@ struct HighlightedTextView: NSViewRepresentable {
         private var lastContent: String?
         private var lastLanguage: String?
         private var activePopover: NSPopover?
+        /// Debounce task for selection-change reporting.
+        private var selectionDebounceTask: DispatchWorkItem?
 
         override init() {
             super.init()
@@ -1123,6 +1246,54 @@ struct HighlightedTextView: NSViewRepresentable {
             guard let textView = notification.object as? NSTextView else { return }
             onContentChangeAction?(textView.string)
             rulerView?.refreshAfterContentChange()
+        }
+
+        func textViewDidChangeSelection(_ notification: Notification) {
+            // Debounce using DispatchWorkItem to avoid firing on every drag step
+            selectionDebounceTask?.cancel()
+            let task = DispatchWorkItem { [weak self] in self?.reportCurrentSelection() }
+            selectionDebounceTask = task
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: task)
+        }
+
+        private func reportCurrentSelection() {
+            guard let textView = textView,
+                  let action = onSelectionChangeAction else { return }
+            let sel = textView.selectedRange()
+            guard sel.length > 0 else {
+                action("", 0, 0)
+                return
+            }
+            let nsString = textView.string as NSString
+            let code = nsString.substring(with: sel)
+            let startLine = nsString.substring(to: sel.location).components(separatedBy: "\n").count
+            let endCharIndex = max(0, NSMaxRange(sel) - 1)
+            let endLine = nsString.substring(to: min(endCharIndex, nsString.length))
+                .components(separatedBy: "\n").count
+            action(code, startLine, endLine)
+        }
+
+        /// Computes the selected code and line range, then invokes `onAskAboutSelectionAction`
+        /// with the chosen intent (used by the context menu and ⌘⇧E shortcut).
+        func askAboutCurrentSelection(intent: String) {
+            guard let textView = textView else { return }
+            let nsString = textView.string as NSString
+            let sel = textView.selectedRange()
+            let code: String
+            let startLine: Int
+            let endLine: Int
+            if sel.length > 0 {
+                code = nsString.substring(with: sel)
+                startLine = nsString.substring(to: sel.location).components(separatedBy: "\n").count
+                let endCharIndex = max(0, NSMaxRange(sel) - 1)
+                endLine = nsString.substring(to: min(endCharIndex, nsString.length))
+                    .components(separatedBy: "\n").count
+            } else {
+                startLine = visibleTopLine()
+                endLine = visibleBottomLine()
+                code = ""
+            }
+            onAskAboutSelectionAction?(intent, code, startLine, endLine)
         }
 
         func applyHighlighting(content: String, language: String?) {
