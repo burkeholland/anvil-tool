@@ -308,12 +308,26 @@ capture_app_screenshot() {
 
   # Launch in background (no focus steal)
   open -g "$APP_BUNDLE"
-  sleep 4
+  sleep 6
 
-  # Briefly activate so macOS composites the window, then hide
+  # Activate, resize to a good size, and wait for file tree to load
   osascript -e '
     tell application "Anvil" to activate
-    delay 2
+    delay 1
+    tell application "System Events"
+      tell process "Anvil"
+        try
+          set frontmost to true
+          -- Resize window to a good screenshot size
+          tell window 1
+            set position to {100, 100}
+            set size to {1400, 900}
+          end tell
+        end try
+      end tell
+    end tell
+    -- Give file tree time to enumerate and render
+    delay 5
   ' 2>/dev/null || true
 
   # Find the content window (largest by area, skip menu bar items)
