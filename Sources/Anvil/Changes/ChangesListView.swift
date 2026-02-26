@@ -16,6 +16,8 @@ struct ChangesListView: View {
     var lastTaskPrompt: String? = nil
     @EnvironmentObject var terminalProxy: TerminalInputProxy
     @State private var fileToDiscard: ChangedFile?
+    @State private var fileToRedo: ChangedFile?
+    @State private var redoPromptText: String = ""
     @State private var showDiscardAllConfirm = false
     @State private var showUndoCommitConfirm = false
     @State private var stashToDrop: StashEntry?
@@ -645,6 +647,23 @@ struct ChangesListView: View {
                     Text("This will permanently delete stash@{\(stash.index)} (\(stash.cleanMessage)). This cannot be undone.")
                 }
             }
+            .sheet(isPresented: Binding(
+                get: { fileToRedo != nil },
+                set: { if !$0 { fileToRedo = nil } }
+            )) {
+                RedoWithFeedbackSheet(
+                    promptText: $redoPromptText,
+                    onSubmit: {
+                        if let file = fileToRedo {
+                            model.discardChanges(for: file)
+                            if filePreview.selectedURL == file.url { filePreview.refresh() }
+                            terminalProxy.sendPrompt(redoPromptText)
+                        }
+                        fileToRedo = nil
+                    },
+                    onCancel: { fileToRedo = nil }
+                )
+            }
     }
 
     private var contentList: some View {
@@ -689,6 +708,10 @@ struct ChangesListView: View {
             .animation(.easeInOut(duration: 0.2), value: model.lastDiscardedHunkPatch != nil)
             .animation(.easeInOut(duration: 0.2), value: model.activeDiscardBannerEntry != nil)
             .animation(.easeInOut(duration: 0.2), value: showCopiedConfirmation)
+    }
+
+    private func redoPrompt(for file: ChangedFile) -> String {
+        "Please redo the changes to \(file.relativePath) — "
     }
 
     private func copySummaryToClipboard() {
@@ -799,6 +822,10 @@ struct ChangesListView: View {
             onToggleReview: { model.toggleReviewed(file) },
             onOpenFile: { filePreview.select(file.url) },
             onDiscard: { fileToDiscard = file },
+            onRedo: {
+                fileToRedo = file
+                redoPromptText = redoPrompt(for: file)
+            },
             onStageHunk: file.diff.map { diff in
                 { hunk in model.stageHunk(patch: DiffParser.reconstructPatch(fileDiff: diff, hunk: hunk)) }
             },
@@ -1010,6 +1037,13 @@ struct ChangesListView: View {
             fileToDiscard = file
         } label: {
             Label("Discard Changes…", systemImage: "arrow.uturn.backward")
+        }
+
+        Button {
+            fileToRedo = file
+            redoPromptText = redoPrompt(for: file)
+        } label: {
+            Label("Redo with Feedback…", systemImage: "arrow.uturn.right")
         }
     }
 }
@@ -1757,6 +1791,7 @@ struct ChangedFileRow: View {
     var onToggleReview: (() -> Void)? = nil
     var onOpenFile: (() -> Void)? = nil
     var onDiscard: (() -> Void)? = nil
+    var onRedo: (() -> Void)? = nil
     var onStageHunk: ((DiffHunk) -> Void)? = nil
     var onUnstageHunk: ((DiffHunk) -> Void)? = nil
     var onDiscardHunk: ((DiffHunk) -> Void)? = nil
@@ -1876,6 +1911,19 @@ struct ChangedFileRow: View {
                 }
                 .buttonStyle(.borderless)
                 .help("Discard Changes…")
+            }
+
+            // Redo button (arrow.uturn.right, shown on hover)
+            if let onRedo, isHovering {
+                Button {
+                    onRedo()
+                } label: {
+                    Image(systemName: "arrow.uturn.right")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.blue.opacity(0.8))
+                }
+                .buttonStyle(.borderless)
+                .help("Redo with Feedback…")
             }
 
             // Staging indicator
@@ -2299,5 +2347,46 @@ struct PRStatusRow: View {
             .controlSize(.mini)
         }
         .padding(.vertical, 2)
+    }
+}
+
+// MARK: - Redo With Feedback Sheet
+
+/// A sheet that presents a pre-filled, editable prompt asking Copilot to redo
+/// the changes to a specific file. On submit the prompt is sent to the terminal.
+struct RedoWithFeedbackSheet: View {
+    @Binding var promptText: String
+    var onSubmit: () -> Void
+    var onCancel: () -> Void
+
+    @FocusState private var isTextFieldFocused: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Redo with Feedback")
+                .font(.headline)
+
+            Text("Describe what went wrong so Copilot can try again. The file's changes will be discarded before the prompt is sent.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            TextField("Prompt", text: $promptText, axis: .vertical)
+                .textFieldStyle(.roundedBorder)
+                .lineLimit(4...8)
+                .focused($isTextFieldFocused)
+                .onSubmit { onSubmit() }
+
+            HStack {
+                Spacer()
+                Button("Cancel", role: .cancel) { onCancel() }
+                    .keyboardShortcut(.cancelAction)
+                Button("Send") { onSubmit() }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(promptText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+        }
+        .padding(20)
+        .frame(minWidth: 420, maxWidth: 520)
+        .onAppear { isTextFieldFocused = true }
     }
 }
