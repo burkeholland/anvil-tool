@@ -1821,6 +1821,11 @@ struct ToolbarView: View {
         }
         .padding(.horizontal, Spacing.md)
         .padding(.vertical, Spacing.sm)
+        .background(.bar)
+        .overlay(alignment: .bottom) { Divider() }
+    }
+
+    /// Quick check for whether any instruction files exist in the project.
     private var hasInstructionFiles: Bool {
         guard let rootURL = workingDirectory.directoryURL else { return false }
         let fm = FileManager.default
@@ -2457,6 +2462,12 @@ struct SidebarView: View {
             .padding(.top, Spacing.md)
             .padding(.bottom, Spacing.sm)
             .padding(.horizontal, Spacing.md)
+            .background(.bar)
+
+            Divider()
+
+            // Content
+            switch activeTab {
             case .files:
                 if let rootURL = model.directoryURL {
                     FileTreeView(rootURL: rootURL, filePreview: filePreview, model: fileTreeModel, activityModel: activityModel, contextStore: contextStore)

@@ -99,6 +99,7 @@ private struct TerminalTabItem: View {
 
     var body: some View {
         HStack(spacing: Spacing.sm) {
+            Image(systemName: tab.launchCopilot ? "sparkle" : "terminal")
                 .font(.system(size: 10))
                 .foregroundStyle(tab.launchCopilot && isActive ? .purple : .secondary)
 
