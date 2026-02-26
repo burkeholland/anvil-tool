@@ -282,7 +282,16 @@ struct FilePreviewView: View {
                             }
                         } : nil,
                         blameLines: model.showBlame ? model.blameLines : [],
-                        scrollToLine: $model.scrollToLine
+                        scrollToLine: $model.scrollToLine,
+                        onSendToTerminal: { [model, terminalProxy] code, startLine, endLine in
+                            terminalProxy.sendCodeSnippet(
+                                relativePath: model.relativePath,
+                                language: model.highlightLanguage,
+                                startLine: startLine,
+                                endLine: endLine,
+                                code: code
+                            )
+                        }
                     )
                 } else {
                     Spacer()
@@ -701,6 +710,43 @@ struct PreviewTabItem: View {
     }
 }
 
+/// NSTextView subclass that adds a "Send to Terminal" context menu item and
+/// handles the ⌘⇧T keyboard shortcut for sending selected code to the terminal.
+private final class PreviewTextView: NSTextView {
+    /// Called when the user triggers "Send to Terminal" via context menu or ⌘⇧T.
+    var onSendToTerminal: (() -> Void)?
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let menu = super.menu(for: event) ?? NSMenu()
+        if onSendToTerminal != nil {
+            let item = NSMenuItem(
+                title: "Send to Terminal",
+                action: #selector(handleSendToTerminal(_:)),
+                keyEquivalent: "t"
+            )
+            item.keyEquivalentModifierMask = [.command, .shift]
+            item.target = self
+            menu.insertItem(NSMenuItem.separator(), at: 0)
+            menu.insertItem(item, at: 0)
+        }
+        return menu
+    }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if event.modifierFlags.intersection([.command, .shift, .option, .control]) == [.command, .shift],
+           event.characters?.lowercased() == "t",
+           let handler = onSendToTerminal {
+            handler()
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+
+    @objc private func handleSendToTerminal(_ sender: Any) {
+        onSendToTerminal?()
+    }
+}
+
 /// NSViewRepresentable wrapper around NSTextView with Highlightr syntax highlighting
 /// and a line number gutter with optional change indicators.
 struct HighlightedTextView: NSViewRepresentable {
@@ -715,6 +761,9 @@ struct HighlightedTextView: NSViewRepresentable {
     var blameLines: [BlameLine] = []
     /// Binding to scroll to a specific line (1-based). Set to nil after scrolling.
     @Binding var scrollToLine: Int?
+    /// Called when the user triggers "Send to Terminal". Receives the selected code (or empty
+    /// string when nothing is selected), plus the 1-based start and end line numbers.
+    var onSendToTerminal: ((String, Int, Int) -> Void)?
 
     func makeNSView(context: Context) -> NSScrollView {
         let scrollView = NSScrollView()
@@ -723,7 +772,7 @@ struct HighlightedTextView: NSViewRepresentable {
         scrollView.autohidesScrollers = true
         scrollView.drawsBackground = false
 
-        let textView = NSTextView()
+        let textView = PreviewTextView()
         textView.isEditable = false
         textView.isSelectable = true
         textView.isRichText = true
@@ -758,9 +807,15 @@ struct HighlightedTextView: NSViewRepresentable {
         context.coordinator.rulerView = rulerView
         context.coordinator.fileDiff = fileDiff
         context.coordinator.onRevertHunk = onRevertHunk
+        context.coordinator.onSendToTerminalAction = onSendToTerminal
         context.coordinator.applyHighlighting(content: content, language: language)
         rulerView.gutterChanges = gutterChanges
         rulerView.blameLines = blameLines
+
+        let coordinator = context.coordinator
+        textView.onSendToTerminal = { [weak coordinator] in
+            coordinator?.sendCurrentSelectionToTerminal()
+        }
 
         return scrollView
     }
@@ -771,6 +826,13 @@ struct HighlightedTextView: NSViewRepresentable {
         context.coordinator.rulerView?.blameLines = blameLines
         context.coordinator.fileDiff = fileDiff
         context.coordinator.onRevertHunk = onRevertHunk
+        context.coordinator.onSendToTerminalAction = onSendToTerminal
+        if let textView = context.coordinator.textView as? PreviewTextView {
+            let coordinator = context.coordinator
+            textView.onSendToTerminal = onSendToTerminal != nil ? { [weak coordinator] in
+                coordinator?.sendCurrentSelectionToTerminal()
+            } : nil
+        }
 
         if let line = scrollToLine {
             DispatchQueue.main.async {
@@ -789,6 +851,8 @@ struct HighlightedTextView: NSViewRepresentable {
         weak var rulerView: LineNumberRulerView?
         var fileDiff: FileDiff?
         var onRevertHunk: ((DiffHunk) -> Void)?
+        /// Called when the user triggers "Send to Terminal". Receives code, startLine, endLine.
+        var onSendToTerminalAction: ((String, Int, Int) -> Void)?
         private let highlightr: Highlightr? = Highlightr()
         private var lastContent: String?
         private var lastLanguage: String?
@@ -921,6 +985,47 @@ struct HighlightedTextView: NSViewRepresentable {
             let content = textView.string as NSString
             let upToVisible = content.substring(to: charRange.location)
             return upToVisible.components(separatedBy: "\n").count
+        }
+
+        /// Returns the approximate 1-based line number at the bottom of the visible area.
+        func visibleBottomLine() -> Int {
+            guard let textView = textView,
+                  let layoutManager = textView.layoutManager,
+                  let textContainer = textView.textContainer,
+                  let scrollView = textView.enclosingScrollView else { return 1 }
+
+            let visibleRect = scrollView.contentView.bounds
+            let glyphRange = layoutManager.glyphRange(forBoundingRect: visibleRect, in: textContainer)
+            let charRange = layoutManager.characterRange(forGlyphRange: glyphRange, actualGlyphRange: nil)
+            let content = textView.string as NSString
+            let endIndex = min(NSMaxRange(charRange), content.length)
+            let upToEnd = content.substring(to: endIndex)
+            return upToEnd.components(separatedBy: "\n").count
+        }
+
+        /// Computes the selection (or visible range if nothing is selected) and invokes
+        /// `onSendToTerminalAction` with the code string and 1-based start/end line numbers.
+        func sendCurrentSelectionToTerminal() {
+            guard let textView = textView else { return }
+            let nsString = textView.string as NSString
+            let sel = textView.selectedRange()
+
+            let code: String
+            let startLine: Int
+            let endLine: Int
+
+            if sel.length > 0 {
+                code = nsString.substring(with: sel)
+                startLine = nsString.substring(to: sel.location).components(separatedBy: "\n").count
+                let endCharIndex = max(0, NSMaxRange(sel) - 1)
+                endLine = nsString.substring(to: endCharIndex).components(separatedBy: "\n").count
+            } else {
+                startLine = visibleTopLine()
+                endLine = visibleBottomLine()
+                code = ""
+            }
+
+            onSendToTerminalAction?(code, startLine, endLine)
         }
     }
 }
