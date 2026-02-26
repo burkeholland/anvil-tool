@@ -298,11 +298,19 @@ capture_app_screenshot() {
   local tab="$1"
   local output="$2"
 
-  # Set sidebar tab + project + ensure sidebar visible via UserDefaults before launch
-  defaults write dev.burkeholland.anvil "sidebarTab" "$tab"
+  # Map tab name to ⌘ shortcut number
+  local shortcut
+  case "$tab" in
+    files)   shortcut="1" ;;
+    changes) shortcut="2" ;;
+    activity) shortcut="3" ;;
+    search)  shortcut="4" ;;
+    history) shortcut="5" ;;
+    *)       shortcut="1" ;;
+  esac
+
+  # Set project directory via UserDefaults before launch
   defaults write dev.burkeholland.anvil "dev.anvil.lastOpenedDirectory" "$SCRIPT_DIR"
-  defaults write dev.burkeholland.anvil "showSidebar" -bool true
-  defaults write dev.burkeholland.anvil "sidebarWidth" -float 240
 
   # Kill any existing Anvil instance
   local existing_pid
@@ -312,12 +320,12 @@ capture_app_screenshot() {
   open -g "$APP_BUNDLE"
   sleep 6
 
-  # Activate, resize to a good size, and wait for file tree to load
-  osascript -e '
-    tell application "Anvil" to activate
-    delay 1
-    tell application "System Events"
-      tell process "Anvil"
+  # Activate, resize, and use ⌘N keystroke to switch tab (forces sidebar open)
+  osascript -e "
+    tell application \"Anvil\" to activate
+    delay 2
+    tell application \"System Events\"
+      tell process \"Anvil\"
         try
           set frontmost to true
           -- Resize window to a good screenshot size
@@ -325,12 +333,14 @@ capture_app_screenshot() {
             set position to {100, 100}
             set size to {1400, 900}
           end tell
+          -- Send ⌘${shortcut} to switch sidebar tab (also forces sidebar visible)
+          keystroke \"${shortcut}\" using command down
         end try
       end tell
     end tell
     -- Give file tree time to enumerate and render
     delay 5
-  ' 2>/dev/null || true
+  " 2>/dev/null || true
 
   # Find the content window (largest by area, skip menu bar items)
   local window_id
