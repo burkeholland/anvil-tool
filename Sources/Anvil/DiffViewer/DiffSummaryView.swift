@@ -19,6 +19,33 @@ struct DiffSummaryView: View {
     }
 
     var body: some View {
+        contentWithFocusedValues
+            .focusedValue(\.stageFocusedHunk, changesModel.focusedHunk != nil ? { changesModel.stageFocusedHunk() } : nil)
+            .focusedValue(\.discardFocusedHunk, changesModel.focusedHunk != nil ? { changesModel.discardFocusedHunk() } : nil)
+            .focusedValue(\.toggleFocusedFileReviewed, changesModel.focusedFile != nil ? { changesModel.toggleFocusedFileReviewed() } : nil)
+            .focusedValue(\.openFocusedFile, changesModel.focusedFile != nil ? {
+                if let url = changesModel.focusedFile?.url { onSelectFile?(url) }
+            } : nil)
+            .focusedValue(\.requestFix, changesModel.focusedFile != nil ? {
+                if let file = changesModel.focusedFile {
+                    requestFix(for: file, hunk: changesModel.focusedHunk)
+                }
+            } : nil)
+            .focusedValue(\.toggleDiffViewMode, {
+                diffMode = (DiffViewMode(rawValue: diffMode) ?? .unified).toggled.rawValue
+            })
+    }
+
+    // Split from body to stay within Swift type-checker expression limits.
+    private var contentWithFocusedValues: some View {
+        contentView
+            .focusedValue(\.nextReviewFile, { changesModel.focusNextFile() })
+            .focusedValue(\.previousReviewFile, { changesModel.focusPreviousFile() })
+            .focusedValue(\.nextHunk, { changesModel.focusNextHunk() })
+            .focusedValue(\.previousHunk, { changesModel.focusPreviousHunk() })
+    }
+
+    private var contentView: some View {
         VStack(spacing: 0) {
             // Header bar
             summaryHeader
@@ -101,21 +128,6 @@ struct DiffSummaryView: View {
                 return .ignored
             }
         }
-        .focusedValue(\.nextReviewFile, { changesModel.focusNextFile() })
-        .focusedValue(\.previousReviewFile, { changesModel.focusPreviousFile() })
-        .focusedValue(\.nextHunk, { changesModel.focusNextHunk() })
-        .focusedValue(\.previousHunk, { changesModel.focusPreviousHunk() })
-        .focusedValue(\.stageFocusedHunk, changesModel.focusedHunk != nil ? { changesModel.stageFocusedHunk() } : nil)
-        .focusedValue(\.discardFocusedHunk, changesModel.focusedHunk != nil ? { changesModel.discardFocusedHunk() } : nil)
-        .focusedValue(\.toggleFocusedFileReviewed, changesModel.focusedFile != nil ? { changesModel.toggleFocusedFileReviewed() } : nil)
-        .focusedValue(\.openFocusedFile, changesModel.focusedFile != nil ? {
-            if let url = changesModel.focusedFile?.url { onSelectFile?(url) }
-        } : nil)
-        .focusedValue(\.requestFix, changesModel.focusedFile != nil ? {
-            if let file = changesModel.focusedFile {
-                requestFix(for: file, hunk: changesModel.focusedHunk)
-            }
-        } : nil)
         .animation(.easeInOut(duration: 0.15), value: requestFixContext != nil)
     }
 
