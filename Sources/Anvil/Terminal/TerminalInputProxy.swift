@@ -29,31 +29,40 @@ final class TerminalInputProxy: ObservableObject {
         send("\u{1B}\(sequence)")
     }
 
+    /// Sanitizes a file path by stripping control characters to prevent terminal injection.
+    private func sanitizePath(_ path: String) -> String {
+        let chars = path.unicodeScalars
+            .filter { $0.value >= 0x20 && $0 != "\u{7F}" }
+            .map { Character($0) }
+        return String(chars)
+    }
+
+    /// Sends `/context add <relativePath>` to the terminal to add a file to the Copilot CLI context.
+    /// Strips control characters to prevent terminal injection.
+    func addToContext(relativePath: String) {
+        send("/context add \(sanitizePath(relativePath))\n")
+    }
+
     /// Sends @relativePath to the terminal for Copilot CLI file mentions.
     /// Strips control characters to prevent terminal injection.
     func mentionFile(relativePath: String) {
-        let sanitized = relativePath.unicodeScalars
-            .filter { $0.value >= 0x20 && $0 != "\u{7F}" }
-            .map { Character($0) }
-        send("@\(String(sanitized)) ")
+        send("@\(sanitizePath(relativePath)) ")
     }
 
     /// Sends a formatted code snippet to the terminal with file path and line range context.
     /// Strips control characters (except newlines) from the code to prevent terminal injection.
     /// When `code` is empty, sends only the file path and line range.
     func sendCodeSnippet(relativePath: String, language: String?, startLine: Int, endLine: Int, code: String) {
-        let sanitizedPath = relativePath.unicodeScalars
-            .filter { $0.value >= 0x20 && $0 != "\u{7F}" }
-            .map { Character($0) }
+        let sanitizedPath = sanitizePath(relativePath)
         let lineRange = startLine == endLine ? "line \(startLine)" : "lines \(startLine)-\(endLine)"
         if code.isEmpty {
-            send("\(String(sanitizedPath)) \(lineRange)\n")
+            send("\(sanitizedPath) \(lineRange)\n")
         } else {
             let sanitizedCode = code.unicodeScalars
                 .filter { $0.value == 0x0A || ($0.value >= 0x20 && $0 != "\u{7F}") }
                 .map { Character($0) }
             let lang = language ?? ""
-            send("\(String(sanitizedPath)) \(lineRange):\n```\(lang)\n\(String(sanitizedCode))\n```\n")
+            send("\(sanitizedPath) \(lineRange):\n```\(lang)\n\(String(sanitizedCode))\n```\n")
         }
     }
 

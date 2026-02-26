@@ -215,6 +215,18 @@ struct FilePreviewView: View {
                 .help("Mention in Terminal (@)")
                 .disabled(model.selectedURL == nil)
 
+                // Add to Copilot context
+                Button {
+                    terminalProxy.addToContext(relativePath: model.relativePath)
+                } label: {
+                    Image(systemName: "scope")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.borderless)
+                .help("Add to Copilot Context (/context add)")
+                .disabled(model.selectedURL == nil)
+
                 Button {
                     if let url = model.selectedURL {
                         ExternalEditorManager.openFile(url)

@@ -292,6 +292,12 @@ struct FileTreeView: View {
 
         if !isDirectory {
             Button {
+                terminalProxy.addToContext(relativePath: relativePath(of: url))
+            } label: {
+                Label("Add to Copilot Context", systemImage: "scope")
+            }
+
+            Button {
                 terminalProxy.mentionFile(relativePath: relativePath(of: url))
             } label: {
                 Label("Mention in Terminal", systemImage: "terminal")
