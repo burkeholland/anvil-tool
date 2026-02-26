@@ -70,6 +70,9 @@ struct ContentView: View {
     /// Debounces auto-follow navigation to avoid thrashing the preview pane
     /// during burst file writes.
     @StateObject private var followAgent = FollowAgentController()
+    /// Floating diff toast stack shown on every agent file write.
+    @StateObject private var diffToastController = DiffToastController()
+    @AppStorage("autoDiffToasts") private var autoDiffToasts = true
 
     private var overlayStack: some View {
         ZStack {
@@ -111,6 +114,22 @@ struct ContentView: View {
                     .onTapGesture { showKeyboardShortcuts = false }
 
                 KeyboardShortcutsView(onDismiss: { showKeyboardShortcuts = false })
+            }
+
+            // Floating diff toasts (bottom-right, only when a project is open)
+            if workingDirectory.directoryURL != nil {
+                DiffToastOverlay(
+                    controller: diffToastController,
+                    onOpenInChanges: { item in
+                        if let idx = changesModel.changedFiles.firstIndex(where: { $0.url == item.fileURL }) {
+                            changesModel.focusedFileIndex = idx
+                        }
+                        sidebarTab = .changes
+                        showSidebar = true
+                        showDiffSummary = true
+                        diffToastController.dismiss(id: item.id)
+                    }
+                )
             }
         }
         .dropDestination(for: URL.self) { urls, _ in
@@ -269,6 +288,7 @@ struct ContentView: View {
                 fileTreeModel.start(rootURL: url)
                 commitHistoryModel.start(rootURL: url)
             }
+            diffToastController.dismissAll()
         }
         .onChange(of: activityModel.latestFileChange) { _, change in
             guard autoFollow, let change = change else { return }
@@ -282,6 +302,15 @@ struct ContentView: View {
         .onChange(of: activityModel.latestFileChange) { _, change in
             guard change != nil else { return }
             checkBranchGuard()
+        }
+        .onChange(of: activityModel.latestFileChange) { _, change in
+            // Only show diff toasts during active agent sessions (after the user
+            // has sent at least one prompt), so startup filesystem scans don't
+            // trigger spurious toasts on project open.
+            guard autoDiffToasts, let change = change,
+                  let rootURL = workingDirectory.directoryURL,
+                  terminalProxy.promptSentCount > 0 else { return }
+            diffToastController.reportFileChange(change.url, rootURL: rootURL)
         }
         .onChange(of: filePreview.selectedURL) { _, newURL in
             // Keep tree expanded to the selected file regardless of how it was opened
@@ -1712,7 +1741,7 @@ struct ToolbarView: View {
     var onFocusTerminal: (() -> Void)?
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: Spacing.md) {
             Button {
                 showSidebar.toggle()
             } label: {
@@ -1738,7 +1767,7 @@ struct ToolbarView: View {
                 Button {
                     showBranchPicker.toggle()
                 } label: {
-                    HStack(spacing: 4) {
+                    HStack(spacing: Spacing.xs) {
                         Image(systemName: "arrow.triangle.branch")
                             .font(.system(size: 11))
                             .foregroundStyle(.secondary)
@@ -1772,94 +1801,37 @@ struct ToolbarView: View {
 
             Spacer()
 
-            AgentModePill(mode: agentMode, model: agentModel)
+            // Group 2: Unified agent status pill (mode + activity + session health)
+            UnifiedAgentStatusPill(
+                activityModel: activityModel,
+                sessionHealthMonitor: sessionHealthMonitor,
+                isAgentWaitingForInput: isAgentWaitingForInput,
+                agentMode: agentMode,
+                agentModel: agentModel,
+                onFocusTerminal: onFocusTerminal ?? {},
+                onCompact: onCompact
+            )
 
-            if isAgentWaitingForInput {
-                AgentInputIndicator(onFocusTerminal: onFocusTerminal ?? {})
-                    .transition(.opacity.combined(with: .scale(scale: 0.9)))
-            }
-
-            AgentActivityIndicator(activityModel: activityModel)
-
-            SessionHealthView(monitor: sessionHealthMonitor, onCompact: onCompact)
-
-            Button {
-                showCopilotActions.toggle()
-            } label: {
-                Image(systemName: "terminal")
-                    .foregroundStyle(.secondary)
-            }
-            .buttonStyle(.borderless)
-            .help("Copilot Actions")
-            .popover(isPresented: $showCopilotActions, arrowEdge: .bottom) {
-                CopilotActionsView(onDismiss: { showCopilotActions = false })
-            }
-
-            Button {
-                showPromptHistory.toggle()
-            } label: {
-                Image(systemName: "clock.arrow.circlepath")
-                    .foregroundStyle(.secondary)
-            }
-            .buttonStyle(.borderless)
-            .help("Prompt History (⌘Y)")
-            .popover(isPresented: $showPromptHistory, arrowEdge: .bottom) {
-                PromptHistoryView(
-                    store: promptHistoryStore,
-                    onDismiss: { showPromptHistory = false }
-                )
-            }
-
-            Button {
-                autoFollow.toggle()
-            } label: {
-                Image(systemName: autoFollow ? "eye" : "eye.slash")
-                    .foregroundStyle(autoFollow ? .primary : .secondary)
-            }
-            .buttonStyle(.borderless)
-            .help(autoFollow ? "Follow Agent: On (⌘⇧A)" : "Follow Agent: Off (⌘⇧A)")
-
-            Button {
-                showInstructions.toggle()
-            } label: {
-                Image(systemName: "doc.text")
-                    .foregroundStyle(hasInstructionFiles ? .primary : .secondary)
-            }
-            .buttonStyle(.borderless)
-            .help("Project Instructions")
-            .popover(isPresented: $showInstructions, arrowEdge: .bottom) {
-                if let rootURL = workingDirectory.directoryURL {
-                    InstructionsView(
-                        rootURL: rootURL,
-                        filePreview: filePreview,
-                        onDismiss: { showInstructions = false }
-                    )
-                }
-            }
-
-            Button {
-                showProjectSwitcher.toggle()
-            } label: {
-                Image(systemName: "arrow.triangle.swap")
-            }
-            .buttonStyle(.borderless)
-            .help("Switch Project")
-            .popover(isPresented: $showProjectSwitcher, arrowEdge: .bottom) {
-                ProjectSwitcherView(
-                    recentProjects: recentProjects,
-                    currentPath: workingDirectory.directoryURL?.standardizedFileURL.path,
-                    onSelect: { url in onSwitchProject(url) },
-                    onBrowse: { onOpenDirectory() },
-                    onClone: onCloneRepository,
-                    onDismiss: { showProjectSwitcher = false }
-                )
-            }
+            // Group 3: Overflow menu with secondary actions
+            ToolbarOverflowMenu(
+                autoFollow: $autoFollow,
+                showCopilotActions: $showCopilotActions,
+                showPromptHistory: $showPromptHistory,
+                showInstructions: $showInstructions,
+                showProjectSwitcher: $showProjectSwitcher,
+                workingDirectory: workingDirectory,
+                filePreview: filePreview,
+                recentProjects: recentProjects,
+                promptHistoryStore: promptHistoryStore,
+                onOpenDirectory: onOpenDirectory,
+                onSwitchProject: onSwitchProject,
+                onCloneRepository: onCloneRepository
+            )
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(.horizontal, Spacing.md)
+        .padding(.vertical, Spacing.sm)
         .background(.bar)
         .overlay(alignment: .bottom) { Divider() }
-        .animation(.easeInOut(duration: 0.2), value: isAgentWaitingForInput)
     }
 
     /// Quick check for whether any instruction files exist in the project.
@@ -1874,6 +1846,444 @@ struct ToolbarView: View {
         // Also check for custom .instructions.md files
         let customDir = rootURL.appendingPathComponent(".github/instructions")
         return fm.fileExists(atPath: customDir.path)
+    }
+}
+
+// MARK: - Unified Agent Status Pill
+
+/// Single clickable toolbar pill that unifies AgentModePill, AgentInputIndicator,
+/// AgentActivityIndicator, and SessionHealthView into one element.
+/// When the agent is waiting for input, clicking focuses the terminal.
+/// Otherwise, clicking opens an expanded popover with full session details.
+private struct UnifiedAgentStatusPill: View {
+    @ObservedObject var activityModel: ActivityFeedModel
+    @ObservedObject var sessionHealthMonitor: SessionHealthMonitor
+    var isAgentWaitingForInput: Bool
+    var agentMode: AgentMode?
+    var agentModel: String?
+    var onFocusTerminal: () -> Void
+    var onCompact: () -> Void
+
+    @EnvironmentObject private var terminalProxy: TerminalInputProxy
+    @State private var showPopover = false
+    @State private var isPulsing = false
+
+    private var needsPulse: Bool {
+        isAgentWaitingForInput || activityModel.isAgentActive
+    }
+
+    private var dotColor: Color {
+        if isAgentWaitingForInput { return .orange }
+        if activityModel.isAgentActive { return .green }
+        if activityModel.sessionStats.isActive { return .green.opacity(0.6) }
+        return Color.secondary.opacity(0.3)
+    }
+
+    private var pillBackground: Color {
+        if isAgentWaitingForInput { return .orange.opacity(0.12) }
+        if activityModel.isAgentActive { return .green.opacity(0.1) }
+        return Color.secondary.opacity(0.07)
+    }
+
+    private var statusText: String {
+        if isAgentWaitingForInput { return "Needs input" }
+        if activityModel.isAgentActive {
+            if let change = activityModel.latestFileChange {
+                return change.url.lastPathComponent
+            }
+            return "Working…"
+        }
+        if activityModel.sessionStats.isActive {
+            let n = activityModel.sessionStats.totalFilesTouched
+            return "\(n) file\(n == 1 ? "" : "s")"
+        }
+        return "Idle"
+    }
+
+    private var contextBarColor: Color {
+        if sessionHealthMonitor.contextFillness > 0.8 { return .orange }
+        if sessionHealthMonitor.contextFillness > 0.5 { return .yellow }
+        return Color(nsColor: .systemGreen)
+    }
+
+    private var helpText: String {
+        if isAgentWaitingForInput {
+            return "Agent is waiting for your input — click to focus terminal"
+        }
+        if activityModel.isAgentActive {
+            return "Agent is actively making changes — click for details"
+        }
+        let n = activityModel.sessionStats.totalFilesTouched
+        return n > 0
+            ? "Agent idle — \(n) file\(n == 1 ? "" : "s") touched this session — click for details"
+            : "Agent idle — no changes this session — click for details"
+    }
+
+    var body: some View {
+        Button {
+            if isAgentWaitingForInput {
+                onFocusTerminal()
+            } else {
+                showPopover.toggle()
+            }
+        } label: {
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(dotColor)
+                    .frame(width: 7, height: 7)
+                    .scaleEffect(isPulsing ? 1.35 : 1.0)
+                    .animation(
+                        needsPulse
+                            ? .easeInOut(duration: 0.65).repeatForever(autoreverses: true)
+                            : .default,
+                        value: isPulsing
+                    )
+                    .onChange(of: isAgentWaitingForInput) { _, new in isPulsing = new || activityModel.isAgentActive }
+                    .onChange(of: activityModel.isAgentActive) { _, new in isPulsing = new || isAgentWaitingForInput }
+                    .onAppear { isPulsing = needsPulse }
+
+                if let mode = agentMode {
+                    Text(mode.displayName)
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.primary)
+                }
+
+                Text(statusText)
+                    .font(.system(size: 10))
+                    .foregroundStyle(isAgentWaitingForInput ? .orange : .secondary)
+                    .lineLimit(1)
+
+                Text(sessionHealthMonitor.elapsedString)
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(.tertiary)
+
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        RoundedRectangle(cornerRadius: 2)
+                            .fill(Color.secondary.opacity(0.2))
+                        RoundedRectangle(cornerRadius: 2)
+                            .fill(contextBarColor)
+                            .frame(width: max(0, geo.size.width * sessionHealthMonitor.contextFillness))
+                            .animation(.easeInOut(duration: 0.4), value: sessionHealthMonitor.contextFillness)
+                    }
+                }
+                .frame(width: 28, height: 5)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(pillBackground)
+            )
+        }
+        .buttonStyle(.plain)
+        .help(helpText)
+        .popover(isPresented: $showPopover, arrowEdge: .bottom) {
+            UnifiedAgentPopover(
+                activityModel: activityModel,
+                sessionHealthMonitor: sessionHealthMonitor,
+                agentMode: agentMode,
+                agentModel: agentModel,
+                onJumpToTerminal: {
+                    showPopover = false
+                    onFocusTerminal()
+                },
+                onCompact: onCompact
+            )
+        }
+        .animation(.easeInOut(duration: 0.2), value: isAgentWaitingForInput)
+        .animation(.easeInOut(duration: 0.2), value: activityModel.isAgentActive)
+    }
+}
+
+/// Expanded popover for the unified agent status pill.
+/// Shows mode/model controls, session health, and activity stats.
+private struct UnifiedAgentPopover: View {
+    @ObservedObject var activityModel: ActivityFeedModel
+    @ObservedObject var sessionHealthMonitor: SessionHealthMonitor
+    var agentMode: AgentMode?
+    var agentModel: String?
+    var onJumpToTerminal: () -> Void
+    var onCompact: () -> Void
+
+    @EnvironmentObject private var terminalProxy: TerminalInputProxy
+
+    private var contextBarColor: Color {
+        if sessionHealthMonitor.contextFillness > 0.8 { return .orange }
+        if sessionHealthMonitor.contextFillness > 0.5 { return .yellow }
+        return Color(nsColor: .systemGreen)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Header: status indicator + mode/model controls
+            HStack(spacing: 8) {
+                Circle()
+                    .fill(activityModel.isAgentActive ? Color.green : Color.secondary.opacity(0.4))
+                    .frame(width: 7, height: 7)
+                Text(activityModel.isAgentActive ? "Working…" : "Agent Idle")
+                    .font(.system(size: 12, weight: .semibold))
+                Spacer()
+                if let mode = agentMode {
+                    Button {
+                        terminalProxy.send(mode.next.activateCommand)
+                    } label: {
+                        Text(mode.displayName)
+                            .font(.system(size: 10, weight: .medium))
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(
+                                RoundedRectangle(cornerRadius: 3)
+                                    .fill(Color.secondary.opacity(0.1))
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .help("Mode: \(mode.displayName) — click to cycle")
+                }
+                if let model = agentModel {
+                    Text(model)
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+
+            Divider()
+
+            // Session health row
+            HStack(spacing: 8) {
+                Text("Session")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                Text(sessionHealthMonitor.elapsedString)
+                    .font(.system(size: 11, design: .monospaced))
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        RoundedRectangle(cornerRadius: 2).fill(Color.secondary.opacity(0.2))
+                        RoundedRectangle(cornerRadius: 2)
+                            .fill(contextBarColor)
+                            .frame(width: max(0, geo.size.width * sessionHealthMonitor.contextFillness))
+                            .animation(.easeInOut(duration: 0.4), value: sessionHealthMonitor.contextFillness)
+                    }
+                }
+                .frame(width: 52, height: 5)
+                Text("\(Int(sessionHealthMonitor.contextFillness * 100))%")
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                if sessionHealthMonitor.isSaturated {
+                    Button(action: onCompact) {
+                        HStack(spacing: 3) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .font(.system(size: 9))
+                            Text("Compact")
+                                .font(.system(size: 10))
+                        }
+                        .foregroundStyle(.orange)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Context may be saturated — send /compact to the terminal")
+                    .transition(.opacity.combined(with: .scale(scale: 0.85, anchor: .leading)))
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+
+            Divider()
+
+            // Activity stats
+            VStack(alignment: .leading, spacing: 10) {
+                let stats = activityModel.sessionStats
+                if stats.totalFilesTouched > 0 {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Files Changed")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                        HStack(spacing: 10) {
+                            if stats.filesCreated > 0 {
+                                Label("\(stats.filesCreated) added", systemImage: "plus.circle.fill")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(.green)
+                            }
+                            if stats.filesModified > 0 {
+                                Label("\(stats.filesModified) modified", systemImage: "pencil.circle.fill")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(.orange)
+                            }
+                            if stats.filesDeleted > 0 {
+                                Label("\(stats.filesDeleted) deleted", systemImage: "minus.circle.fill")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(.red)
+                            }
+                        }
+                    }
+                    if stats.totalAdditions > 0 || stats.totalDeletions > 0 {
+                        HStack(spacing: 8) {
+                            if stats.totalAdditions > 0 {
+                                Text("+\(stats.totalAdditions)")
+                                    .font(.system(size: 11, design: .monospaced))
+                                    .foregroundStyle(.green)
+                            }
+                            if stats.totalDeletions > 0 {
+                                Text("-\(stats.totalDeletions)")
+                                    .font(.system(size: 11, design: .monospaced))
+                                    .foregroundStyle(.red)
+                            }
+                        }
+                    }
+                    if stats.commitCount > 0 {
+                        Label("\(stats.commitCount) commit\(stats.commitCount == 1 ? "" : "s")", systemImage: "arrow.triangle.branch")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.purple)
+                    }
+                } else {
+                    Text("No changes this session")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+
+            Divider()
+
+            Button(action: onJumpToTerminal) {
+                HStack(spacing: 6) {
+                    Image(systemName: "terminal")
+                        .font(.system(size: 11))
+                    Text("Jump to Terminal")
+                        .font(.system(size: 12))
+                    Spacer()
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+        }
+        .frame(width: 300)
+        .animation(.easeInOut(duration: 0.3), value: sessionHealthMonitor.isSaturated)
+    }
+}
+
+// MARK: - Toolbar Overflow Menu
+
+/// `...` overflow button containing secondary toolbar actions:
+/// Follow Agent toggle, Copilot Actions, Prompt History, Instructions, and Switch Project.
+/// Uses a single popover anchor so only one panel is shown at a time.
+private struct ToolbarOverflowMenu: View {
+    @Binding var autoFollow: Bool
+    @Binding var showCopilotActions: Bool
+    @Binding var showPromptHistory: Bool
+    @Binding var showInstructions: Bool
+    @Binding var showProjectSwitcher: Bool
+    @ObservedObject var workingDirectory: WorkingDirectoryModel
+    var filePreview: FilePreviewModel
+    @ObservedObject var recentProjects: RecentProjectsModel
+    @ObservedObject var promptHistoryStore: PromptHistoryStore
+    var onOpenDirectory: () -> Void
+    var onSwitchProject: (URL) -> Void
+    var onCloneRepository: () -> Void
+
+    private enum ActivePanel: Identifiable {
+        case copilotActions, promptHistory, instructions, projectSwitcher
+        var id: Self { self }
+    }
+
+    @State private var activePanel: ActivePanel? = nil
+
+    var body: some View {
+        Menu {
+            Toggle(isOn: $autoFollow) {
+                Label(autoFollow ? "Follow Agent: On" : "Follow Agent: Off",
+                      systemImage: autoFollow ? "eye" : "eye.slash")
+            }
+            Divider()
+            Button {
+                activePanel = .copilotActions
+            } label: {
+                Label("Copilot Actions", systemImage: "terminal")
+            }
+            Button {
+                activePanel = .promptHistory
+            } label: {
+                Label("Prompt History", systemImage: "clock.arrow.circlepath")
+            }
+            Button {
+                activePanel = .instructions
+            } label: {
+                Label("Instructions", systemImage: "doc.text")
+            }
+            Divider()
+            Button {
+                activePanel = .projectSwitcher
+            } label: {
+                Label("Switch Project", systemImage: "arrow.triangle.swap")
+            }
+        } label: {
+            Image(systemName: "ellipsis")
+                .frame(width: 24, height: 24)
+                .contentShape(Rectangle())
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("More Options")
+        .popover(item: $activePanel, arrowEdge: .bottom) { panel in
+            switch panel {
+            case .copilotActions:
+                CopilotActionsView(onDismiss: { activePanel = nil })
+            case .promptHistory:
+                PromptHistoryView(
+                    store: promptHistoryStore,
+                    onDismiss: { activePanel = nil }
+                )
+            case .instructions:
+                if let rootURL = workingDirectory.directoryURL {
+                    InstructionsView(
+                        rootURL: rootURL,
+                        filePreview: filePreview,
+                        onDismiss: { activePanel = nil }
+                    )
+                }
+            case .projectSwitcher:
+                ProjectSwitcherView(
+                    recentProjects: recentProjects,
+                    currentPath: workingDirectory.directoryURL?.standardizedFileURL.path,
+                    onSelect: { url in
+                        activePanel = nil
+                        onSwitchProject(url)
+                    },
+                    onBrowse: {
+                        activePanel = nil
+                        onOpenDirectory()
+                    },
+                    onClone: {
+                        activePanel = nil
+                        onCloneRepository()
+                    },
+                    onDismiss: { activePanel = nil }
+                )
+            }
+        }
+        // Sync incoming bindings (e.g. from keyboard shortcuts) → local panel state
+        .onChange(of: showCopilotActions) { _, v in if v && activePanel != .copilotActions { activePanel = .copilotActions } }
+        .onChange(of: showPromptHistory) { _, v in if v && activePanel != .promptHistory { activePanel = .promptHistory } }
+        .onChange(of: showInstructions) { _, v in if v && activePanel != .instructions { activePanel = .instructions } }
+        .onChange(of: showProjectSwitcher) { _, v in if v && activePanel != .projectSwitcher { activePanel = .projectSwitcher } }
+        // Sync local panel state → bindings
+        .onChange(of: activePanel) { _, v in
+            let isCopilot = v == .copilotActions
+            let isHistory = v == .promptHistory
+            let isInstructions = v == .instructions
+            let isSwitcher = v == .projectSwitcher
+            if showCopilotActions != isCopilot { showCopilotActions = isCopilot }
+            if showPromptHistory != isHistory { showPromptHistory = isHistory }
+            if showInstructions != isInstructions { showInstructions = isInstructions }
+            if showProjectSwitcher != isSwitcher { showProjectSwitcher = isSwitcher }
+        }
     }
 }
 
@@ -2033,7 +2443,7 @@ struct SidebarView: View {
 
                 SidebarTabButton(
                     title: "Activity",
-                    systemImage: "clock",
+                    systemImage: "waveform",
                     isActive: activeTab == .activity,
                     badge: activityUnread > 0 ? activityUnread : nil
                 ) {
@@ -2058,7 +2468,9 @@ struct SidebarView: View {
 
                 Spacer()
             }
-            .padding(.horizontal, 4)
+            .padding(.top, Spacing.md)
+            .padding(.bottom, Spacing.sm)
+            .padding(.horizontal, Spacing.md)
             .background(.bar)
 
             Divider()
@@ -2070,7 +2482,7 @@ struct SidebarView: View {
                     FileTreeView(rootURL: rootURL, filePreview: filePreview, model: fileTreeModel, activityModel: activityModel, contextStore: contextStore)
                         .id(rootURL)
                 } else {
-                    VStack(spacing: 12) {
+                    VStack(spacing: Spacing.md) {
                         Spacer()
                         Image(systemName: "folder.badge.questionmark")
                             .font(.system(size: 32))
@@ -2103,7 +2515,7 @@ struct SidebarView: View {
                         rootURL: rootURL
                     )
                 } else {
-                    VStack(spacing: 12) {
+                    VStack(spacing: Spacing.md) {
                         Spacer()
                         Image(systemName: "clock.arrow.circlepath")
                             .font(.system(size: 32))
@@ -2142,22 +2554,30 @@ struct SidebarTabButton: View {
 
     var body: some View {
         Button(action: action) {
-            ZStack(alignment: .topTrailing) {
-                Image(systemName: systemImage)
-                    .font(.system(size: 14, weight: isActive ? .semibold : .regular))
-                    .foregroundStyle(isActive ? Color.accentColor : (isHovering ? .primary : .secondary))
-                    .frame(width: 32, height: 28)
+            VStack(spacing: 2) {
+                ZStack(alignment: .topTrailing) {
+                    Image(systemName: systemImage)
+                        .font(.system(size: 14, weight: isActive ? .semibold : .regular))
+                        .foregroundStyle(isActive ? Color.accentColor : (isHovering ? .primary : .secondary))
+                        .frame(width: 32, height: 22)
 
-                if let badge = badge {
-                    Text("\(min(badge, 99))")
-                        .font(.system(size: 8, weight: .bold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 3)
-                        .padding(.vertical, 1)
-                        .background(Capsule().fill(Color.accentColor))
-                        .offset(x: 6, y: -4)
+                    if let badge = badge {
+                        Text("\(min(badge, 99))")
+                            .font(.system(size: 8, weight: .bold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 3)
+                            .padding(.vertical, 1)
+                            .background(Capsule().fill(Color.accentColor))
+                            .offset(x: 6, y: -4)
+                    }
                 }
+
+                Text(title)
+                    .font(.system(size: 9))
+                    .foregroundStyle(isActive ? Color.accentColor : (isHovering ? .primary : .secondary))
+                    .lineLimit(1)
             }
+            .frame(width: 48, height: 44)
             .background(
                 RoundedRectangle(cornerRadius: 6)
                     .fill(isActive
