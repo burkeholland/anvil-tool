@@ -15,6 +15,9 @@ final class TerminalInputProxy: ObservableObject {
     /// Optional store for recording prompt history.
     var historyStore: PromptHistoryStore?
 
+    /// Optional session health monitor updated on each prompt turn.
+    var sessionMonitor: SessionHealthMonitor?
+
     private var currentFindTerm: String = ""
     private var currentFindOptions: SearchOptions = SearchOptions()
 
@@ -25,6 +28,7 @@ final class TerminalInputProxy: ObservableObject {
     /// Records the prompt in history and sends it followed by a newline to the active terminal.
     func sendPrompt(_ text: String) {
         historyStore?.add(text)
+        sessionMonitor?.recordTurn()
         send(text + "\n")
     }
 
