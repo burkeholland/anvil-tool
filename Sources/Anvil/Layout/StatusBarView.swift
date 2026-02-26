@@ -10,7 +10,7 @@ struct StatusBarView: View {
         HStack(spacing: 0) {
             // Left: Selected file info
             if filePreview.selectedURL != nil {
-                HStack(spacing: 5) {
+                HStack(spacing: Spacing.sm) {
                     Image(systemName: "doc")
                         .font(.system(size: 9))
                     Text(filePreview.relativePath)
