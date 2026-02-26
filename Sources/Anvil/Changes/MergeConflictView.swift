@@ -5,15 +5,22 @@ import SwiftUI
 struct MergeConflictView: View {
     @ObservedObject var model: MergeConflictModel
     var onDismiss: (() -> Void)?
+    /// Called when the user wants to open a different conflicted file from the progress bar.
+    var onNavigateToFile: ((URL) -> Void)?
 
     var body: some View {
         VStack(spacing: 0) {
             headerBar
             Divider()
 
+            if model.totalConflictFileCount > 1 {
+                fileProgressBar
+                Divider()
+            }
+
             if model.blocks.isEmpty {
                 emptyState
-            } else if model.allResolved && model.isStaged {
+            } else if model.isStaged {
                 resolvedState
             } else {
                 conflictList
@@ -67,26 +74,114 @@ struct MergeConflictView: View {
         .background(Color(nsColor: .windowBackgroundColor))
     }
 
+    // MARK: - Multi-file progress bar
+
+    private var fileProgressBar: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 4) {
+                ForEach(model.allConflictURLs, id: \.self) { url in
+                    let isStaged = model.stagedFileURLs.contains(url)
+                    let isCurrent = url == model.fileURL
+                    Button {
+                        if !isCurrent {
+                            onNavigateToFile?(url)
+                        }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: isStaged ? "checkmark.circle.fill" : "circle")
+                                .font(.system(size: 9))
+                                .foregroundStyle(isStaged ? Color.green : Color.orange)
+                            Text(url.lastPathComponent)
+                                .font(.system(size: 10, design: .monospaced))
+                                .lineLimit(1)
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(isCurrent ? Color.accentColor.opacity(0.15) : Color.clear)
+                        .clipShape(RoundedRectangle(cornerRadius: 4))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 4)
+                                .stroke(isCurrent ? Color.accentColor.opacity(0.4) : Color.clear, lineWidth: 1)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(isCurrent ? Color.accentColor : Color.primary)
+                    .help(url.path)
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+        }
+        .background(Color(nsColor: .windowBackgroundColor).opacity(0.6))
+        .overlay(alignment: .trailing) {
+            let resolved = model.resolvedFileCount
+            let total = model.totalConflictFileCount
+            Text("\(resolved)/\(total) files")
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(
+                    LinearGradient(
+                        colors: [Color(nsColor: .windowBackgroundColor).opacity(0), Color(nsColor: .windowBackgroundColor).opacity(0.9)],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                )
+        }
+    }
+
     // MARK: - Conflict list
 
     private var conflictList: some View {
-        ScrollView(.vertical) {
-            LazyVStack(alignment: .leading, spacing: 0) {
-                if let errorMsg = model.errorMessage {
-                    errorBanner(errorMsg)
-                }
-                ForEach(Array(model.blocks.enumerated()), id: \.element.id) { index, block in
-                    ConflictBlockView(
-                        block: block,
-                        index: index + 1,
-                        onAcceptCurrent:  { model.acceptCurrent(id: block.id) },
-                        onAcceptIncoming: { model.acceptIncoming(id: block.id) },
-                        onAcceptBoth:     { model.acceptBoth(id: block.id) },
-                        onUnresolve:      { model.unresolve(id: block.id) }
-                    )
-                    Divider()
+        VStack(spacing: 0) {
+            ScrollView(.vertical) {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    if let errorMsg = model.errorMessage {
+                        errorBanner(errorMsg)
+                    }
+                    ForEach(Array(model.blocks.enumerated()), id: \.element.id) { index, block in
+                        ConflictBlockView(
+                            block: block,
+                            index: index + 1,
+                            onAcceptCurrent:  { model.acceptCurrent(id: block.id) },
+                            onAcceptIncoming: { model.acceptIncoming(id: block.id) },
+                            onAcceptBoth:     { model.acceptBoth(id: block.id) },
+                            onUnresolve:      { model.unresolve(id: block.id) }
+                        )
+                        Divider()
+                    }
                 }
             }
+
+            if model.allResolved {
+                markResolvedBar
+            }
+        }
+    }
+
+    // MARK: - Mark Resolved bar
+
+    private var markResolvedBar: some View {
+        VStack(spacing: 0) {
+            Divider()
+            HStack(spacing: 10) {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+                    .font(.system(size: 13))
+                Text("All conflicts resolved")
+                    .font(.system(size: 12, weight: .medium))
+                Spacer()
+                Button("Mark Resolved") {
+                    model.writeAndStage()
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .tint(.green)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(Color.green.opacity(0.07))
         }
     }
 
@@ -119,11 +214,20 @@ struct MergeConflictView: View {
             Text("The file has been written and staged.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            Button("Done") {
-                onDismiss?()
+
+            if let nextURL = model.remainingConflictURLs.first {
+                Button("Next File: \(nextURL.lastPathComponent)") {
+                    onNavigateToFile?(nextURL)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+            } else {
+                Button("Done") {
+                    onDismiss?()
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.small)
             Spacer()
         }
         .frame(maxWidth: .infinity)

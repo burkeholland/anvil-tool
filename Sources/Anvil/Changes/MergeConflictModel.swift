@@ -15,16 +15,36 @@ final class MergeConflictModel: ObservableObject {
     /// Error message from the last operation.
     @Published var errorMessage: String?
 
+    /// All files in the repo that currently have conflicts.
+    @Published private(set) var allConflictURLs: [URL] = []
+    /// URLs of files that have been successfully staged (resolved).
+    @Published private(set) var stagedFileURLs: Set<URL> = []
+
     private var rootURL: URL?
+
+    // MARK: - Computed progress
+
+    /// Number of conflicted files that have been staged.
+    var resolvedFileCount: Int { stagedFileURLs.count }
+
+    /// Total number of conflicted files being tracked.
+    var totalConflictFileCount: Int { allConflictURLs.count }
+
+    /// Conflicted files that have NOT been staged yet.
+    var remainingConflictURLs: [URL] {
+        allConflictURLs.filter { !stagedFileURLs.contains($0) }
+    }
 
     // MARK: - Public API
 
     /// Load conflict blocks from `url` inside `root`.
-    func load(fileURL: URL, rootURL: URL) {
+    /// `allConflictURLs` lists every file in the repo that still has conflict markers.
+    func load(fileURL: URL, rootURL: URL, allConflictURLs: [URL] = []) {
         self.rootURL = rootURL
         self.fileURL = fileURL
         self.isStaged = false
         self.errorMessage = nil
+        self.allConflictURLs = allConflictURLs.isEmpty ? self.allConflictURLs : allConflictURLs
         guard let content = try? String(contentsOf: fileURL, encoding: .utf8) else {
             blocks = []
             return
@@ -41,6 +61,8 @@ final class MergeConflictModel: ObservableObject {
         isStaged = false
         errorMessage = nil
         rootURL = nil
+        allConflictURLs = []
+        stagedFileURLs = []
     }
 
     // MARK: - Resolution actions
@@ -83,6 +105,7 @@ final class MergeConflictModel: ObservableObject {
         let relativePath = fileURL.path.replacingOccurrences(
             of: rootURL.standardizedFileURL.path + "/", with: ""
         )
+        let stagedURL = fileURL
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let process = Process()
             process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
@@ -94,6 +117,7 @@ final class MergeConflictModel: ObservableObject {
             process.waitUntilExit()
             DispatchQueue.main.async {
                 self?.isStaged = true
+                self?.stagedFileURLs.insert(stagedURL)
             }
         }
     }
@@ -104,9 +128,6 @@ final class MergeConflictModel: ObservableObject {
         guard let idx = blocks.firstIndex(where: { $0.id == id }) else { return }
         blocks[idx].resolution = resolution
         updateAllResolved()
-        if allResolved {
-            writeAndStage()
-        }
     }
 
     private func updateAllResolved() {
