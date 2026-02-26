@@ -183,8 +183,8 @@ struct DiffHunkView: View {
             }
             if let onDiscard {
                 Button { onDiscard() } label: {
-                    Image(systemName: "arrow.uturn.backward.circle.fill")
-                        .font(.system(size: 14))
+                    Image(systemName: "trash.fill")
+                        .font(.system(size: 13))
                         .foregroundStyle(.red.opacity(0.8))
                 }
                 .buttonStyle(.borderless)

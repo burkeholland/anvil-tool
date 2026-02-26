@@ -420,11 +420,16 @@ struct ChangesListView: View {
                         DiscardRecoveryBanner(model: model)
                             .transition(.move(edge: .bottom).combined(with: .opacity))
                     }
+                    if model.lastDiscardedHunkPatch != nil {
+                        DiscardHunkRecoveryBanner(model: model)
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
                 }
             }
             .animation(.easeInOut(duration: 0.2), value: model.lastDiscardStashRef != nil)
             .animation(.easeInOut(duration: 0.2), value: model.lastUndoneCommitSHA != nil)
             .animation(.easeInOut(duration: 0.2), value: model.lastStashError != nil)
+            .animation(.easeInOut(duration: 0.2), value: model.lastDiscardedHunkPatch != nil)
     }
 
     // MARK: - Directory Grouping Helpers
@@ -1458,6 +1463,47 @@ struct DiscardRecoveryBanner: View {
 
             Button {
                 model.lastDiscardStashRef = nil
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .buttonStyle(.borderless)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(.ultraThinMaterial)
+        .overlay(alignment: .top) { Divider() }
+    }
+}
+
+/// Banner shown after "Discard Hunk" with a button to re-apply the discarded hunk.
+struct DiscardHunkRecoveryBanner: View {
+    @ObservedObject var model: ChangesModel
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "trash.circle")
+                .font(.system(size: 12))
+                .foregroundStyle(.orange)
+
+            Text("Hunk discarded.")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+
+            Spacer()
+
+            Button {
+                model.undoDiscardHunk()
+            } label: {
+                Text("Undo")
+                    .font(.system(size: 11, weight: .medium))
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+
+            Button {
+                model.lastDiscardedHunkPatch = nil
             } label: {
                 Image(systemName: "xmark")
                     .font(.system(size: 9, weight: .semibold))
