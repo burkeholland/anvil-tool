@@ -2414,7 +2414,7 @@ struct SidebarView: View {
 
                 SidebarTabButton(
                     title: "Activity",
-                    systemImage: "clock",
+                    systemImage: "waveform",
                     isActive: activeTab == .activity,
                     badge: activityUnread > 0 ? activityUnread : nil
                 ) {
@@ -2523,22 +2523,30 @@ struct SidebarTabButton: View {
 
     var body: some View {
         Button(action: action) {
-            ZStack(alignment: .topTrailing) {
-                Image(systemName: systemImage)
-                    .font(.system(size: 14, weight: isActive ? .semibold : .regular))
-                    .foregroundStyle(isActive ? Color.accentColor : (isHovering ? .primary : .secondary))
-                    .frame(width: 32, height: 28)
+            VStack(spacing: 2) {
+                ZStack(alignment: .topTrailing) {
+                    Image(systemName: systemImage)
+                        .font(.system(size: 14, weight: isActive ? .semibold : .regular))
+                        .foregroundStyle(isActive ? Color.accentColor : (isHovering ? .primary : .secondary))
+                        .frame(width: 32, height: 22)
 
-                if let badge = badge {
-                    Text("\(min(badge, 99))")
-                        .font(.system(size: 8, weight: .bold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 3)
-                        .padding(.vertical, 1)
-                        .background(Capsule().fill(Color.accentColor))
-                        .offset(x: 6, y: -4)
+                    if let badge = badge {
+                        Text("\(min(badge, 99))")
+                            .font(.system(size: 8, weight: .bold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 3)
+                            .padding(.vertical, 1)
+                            .background(Capsule().fill(Color.accentColor))
+                            .offset(x: 6, y: -4)
+                    }
                 }
+
+                Text(title)
+                    .font(.system(size: 9))
+                    .foregroundStyle(isActive ? Color.accentColor : (isHovering ? .primary : .secondary))
+                    .lineLimit(1)
             }
+            .frame(width: 48, height: 44)
             .background(
                 RoundedRectangle(cornerRadius: 6)
                     .fill(isActive
