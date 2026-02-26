@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "skills": {
+    "macos-design-guidelines": {
+      "source": "ehmo/platform-design-skills",
+      "sourceType": "github",
+      "computedHash": "0e93caff870fb9998c4bff62e8623457325d7fbf4014fc06829d2a015821ab61"
+    }
+  }
+}

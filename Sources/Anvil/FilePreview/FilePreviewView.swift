@@ -1298,8 +1298,10 @@ struct HighlightedTextView: NSViewRepresentable {
 
         func applyHighlighting(content: String, language: String?) {
             guard let textView = textView else { return }
-            // Skip if content hasn't changed
-            if content == lastContent && language == lastLanguage { return }
+            // Skip if content hasn't changed AND the textView already has it.
+            // The textView check guards against stale cache after SwiftUI recreates the NSView.
+            if content == lastContent && language == lastLanguage
+                && textView.string == content { return }
             // Don't replace user edits while in editing mode
             if isEditing && lastContent != nil { return }
             lastContent = content
