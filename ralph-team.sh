@@ -21,6 +21,7 @@ MAX_BACKLOG=5             # Stop filing issues when this many unassigned issues 
 LOOP_INTERVAL=300         # Seconds between cycles (5 min)
 LABEL="anvil-auto"        # Label applied to all auto-created issues
 REPO=""                   # Detected from gh repo view
+ISSUE_AUTHOR=""             # Detected from gh auth status
 DRY_RUN=false
 DEBUG=false
 DEBUG_PHASE=""            # Run only this phase in debug mode
@@ -58,6 +59,7 @@ REPO="$(gh repo view --json nameWithOwner -q '.nameWithOwner' 2>/dev/null)" || {
 }
 OWNER="$(echo "$REPO" | cut -d/ -f1)"
 REPO_NAME="$(echo "$REPO" | cut -d/ -f2)"
+ISSUE_AUTHOR="$(gh api user -q .login 2>/dev/null)" || ISSUE_AUTHOR="burkeholland"
 
 log "🏗️  ralph-team.sh starting for $REPO"
 log "   MAX_ACTIVE_AGENTS=$MAX_ACTIVE_AGENTS  MAX_BACKLOG=$MAX_BACKLOG"
@@ -287,7 +289,7 @@ phase_triage() {
 
   # Check open issues — use copilot to evaluate staleness
   local open_issues
-  open_issues="$(gh issue list --repo "$REPO" --label "$LABEL" --state open \
+  open_issues="$(gh issue list --repo "$REPO" --label "$LABEL" --author "$ISSUE_AUTHOR" --state open \
     --json number,title,body \
     --jq 'length')" || true
 
@@ -295,7 +297,7 @@ phase_triage() {
     log "   $open_issues open issues — checking for stale ones..."
 
     local issue_list
-    issue_list="$(gh issue list --repo "$REPO" --label "$LABEL" --state open \
+    issue_list="$(gh issue list --repo "$REPO" --label "$LABEL" --author "$ISSUE_AUTHOR" --state open \
       --json number,title --jq '.[] | "\(.number)\t\(.title)"')"
 
     # Check which issues were closed by merged Copilot PRs (using GitHub's linked references)
@@ -341,7 +343,7 @@ phase_plan() {
 
   # Count open unassigned issues
   local unassigned_count
-  unassigned_count="$(gh issue list --repo "$REPO" --label "$LABEL" --state open \
+  unassigned_count="$(gh issue list --repo "$REPO" --label "$LABEL" --author "$ISSUE_AUTHOR" --state open \
     --json number,assignees \
     --jq '[.[] | select(.assignees | length == 0)] | length')" || unassigned_count=0
 
@@ -364,7 +366,7 @@ phase_plan() {
   local git_log file_list open_issue_titles
   git_log="$(git log --oneline -30)"
   file_list="$(find . -type f -not -path './.git/*' -not -path './.build/*' | head -80)"
-  open_issue_titles="$(gh issue list --repo "$REPO" --label "$LABEL" --state open \
+  open_issue_titles="$(gh issue list --repo "$REPO" --label "$LABEL" --author "$ISSUE_AUTHOR" --state open \
     --json title -q '.[].title' 2>/dev/null)" || open_issue_titles=""
 
   local plan_prompt
@@ -502,7 +504,7 @@ phase_assign() {
 
   # Get unassigned issues
   local unassigned
-  unassigned="$(gh issue list --repo "$REPO" --label "$LABEL" --state open \
+  unassigned="$(gh issue list --repo "$REPO" --label "$LABEL" --author "$ISSUE_AUTHOR" --state open \
     --json number,title,assignees \
     --jq '[.[] | select(.assignees | length == 0)] | sort_by(.number) | .[].number')" || return 0
 
