@@ -10,7 +10,10 @@ enum DiffViewMode: String, CaseIterable {
 struct DiffView: View {
     let diff: FileDiff
     var onStageHunk: ((DiffHunk) -> Void)?
+    var onUnstageHunk: ((DiffHunk) -> Void)?
     var onDiscardHunk: ((DiffHunk) -> Void)?
+    /// IDs of hunks that are at least partially reflected in the staged index.
+    var stagedHunkIDs: Set<Int> = []
     @AppStorage("diffViewMode") private var mode: String = DiffViewMode.unified.rawValue
 
     private var viewMode: DiffViewMode {
@@ -20,7 +23,14 @@ struct DiffView: View {
     var body: some View {
         switch viewMode {
         case .unified:
-            UnifiedDiffView(diff: diff, mode: $mode, onStageHunk: onStageHunk, onDiscardHunk: onDiscardHunk)
+            UnifiedDiffView(
+                diff: diff,
+                mode: $mode,
+                onStageHunk: onStageHunk,
+                onUnstageHunk: onUnstageHunk,
+                onDiscardHunk: onDiscardHunk,
+                stagedHunkIDs: stagedHunkIDs
+            )
         case .sideBySide:
             SideBySideDiffView(diff: diff, mode: $mode)
         }
@@ -32,7 +42,9 @@ struct UnifiedDiffView: View {
     let diff: FileDiff
     @Binding var mode: String
     var onStageHunk: ((DiffHunk) -> Void)?
+    var onUnstageHunk: ((DiffHunk) -> Void)?
     var onDiscardHunk: ((DiffHunk) -> Void)?
+    var stagedHunkIDs: Set<Int> = []
 
     var body: some View {
         let highlights = DiffSyntaxHighlighter.highlight(diff: diff)
@@ -47,7 +59,9 @@ struct UnifiedDiffView: View {
                     DiffHunkView(
                         hunk: hunk,
                         syntaxHighlights: highlights,
+                        isStaged: stagedHunkIDs.contains(hunk.id),
                         onStage: onStageHunk.map { handler in { handler(hunk) } },
+                        onUnstage: onUnstageHunk.map { handler in { handler(hunk) } },
                         onDiscard: onDiscardHunk.map { handler in { handler(hunk) } }
                     )
                 }
@@ -89,21 +103,24 @@ struct DiffStatsBar: View {
 struct DiffHunkView: View {
     let hunk: DiffHunk
     var syntaxHighlights: [Int: AttributedString] = [:]
+    /// Whether this hunk is at least partially reflected in the staged index.
+    var isStaged: Bool = false
     var onStage: (() -> Void)?
+    var onUnstage: (() -> Void)?
     var onDiscard: (() -> Void)?
     var onRequestFix: (() -> Void)?
     var isFocused: Bool = false
     @State private var isHovered = false
 
     private var hasActions: Bool {
-        onStage != nil || onDiscard != nil || onRequestFix != nil
+        onStage != nil || onUnstage != nil || onDiscard != nil || onRequestFix != nil
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             ForEach(hunk.lines) { line in
                 if line.kind == .hunkHeader && hasActions {
-                    DiffLineView(line: line, syntaxHighlight: syntaxHighlights[line.id])
+                    DiffLineView(line: line, syntaxHighlight: syntaxHighlights[line.id], hunkStagedTint: isStaged ? stagedHeaderTint : nil)
                         .overlay(alignment: .trailing) {
                             hunkActions
                                 .opacity(isHovered ? 1 : 0)
@@ -112,7 +129,7 @@ struct DiffHunkView: View {
                             isHovered = hovering
                         }
                 } else {
-                    DiffLineView(line: line, syntaxHighlight: syntaxHighlights[line.id])
+                    DiffLineView(line: line, syntaxHighlight: syntaxHighlights[line.id], hunkStagedTint: isStaged ? stagedLineTint(for: line.kind) : nil)
                 }
             }
         }
@@ -128,6 +145,21 @@ struct DiffHunkView: View {
         }
     }
 
+    /// Blue tint applied to the hunk header row when the hunk is staged.
+    private var stagedHeaderTint: Color {
+        Color.blue.opacity(0.12)
+    }
+
+    /// Returns a per-line staged tint colour, or nil when no tint should be applied.
+    private func stagedLineTint(for kind: DiffLine.Kind) -> Color? {
+        switch kind {
+        case .addition: return Color.blue.opacity(0.08)
+        case .deletion: return Color.purple.opacity(0.08)
+        case .context:  return nil
+        case .hunkHeader: return nil
+        }
+    }
+
     @ViewBuilder
     private var hunkActions: some View {
         HStack(spacing: 2) {
@@ -139,6 +171,15 @@ struct DiffHunkView: View {
                 }
                 .buttonStyle(.borderless)
                 .help("Stage this hunk")
+            }
+            if let onUnstage {
+                Button { onUnstage() } label: {
+                    Image(systemName: "minus.circle.fill")
+                        .font(.system(size: 14))
+                        .foregroundStyle(.blue)
+                }
+                .buttonStyle(.borderless)
+                .help("Unstage this hunk")
             }
             if let onDiscard {
                 Button { onDiscard() } label: {
@@ -172,6 +213,8 @@ struct DiffHunkView: View {
 struct DiffLineView: View {
     let line: DiffLine
     var syntaxHighlight: AttributedString?
+    /// Optional extra tint overlay applied when the containing hunk is staged.
+    var hunkStagedTint: Color?
 
     var body: some View {
         HStack(spacing: 0) {
@@ -203,6 +246,11 @@ struct DiffLineView: View {
         .padding(.horizontal, 4)
         .frame(height: 20)
         .background(backgroundColor)
+        .overlay {
+            if let tint = hunkStagedTint {
+                tint
+            }
+        }
     }
 
     @ViewBuilder

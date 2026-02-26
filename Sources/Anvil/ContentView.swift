@@ -864,6 +864,12 @@ struct ContentView: View {
                 changesModel?.stageFocusedHunk()
             },
 
+            PaletteCommand(id: "unstage-focused-hunk", title: "Unstage Focused Hunk", icon: "minus.circle", shortcut: "u", category: "Review") {
+                changesModel.focusedHunk != nil
+            } action: { [weak changesModel] in
+                changesModel?.unstageFocusedHunk()
+            },
+
             PaletteCommand(id: "discard-focused-hunk", title: "Discard Focused Hunk", icon: "arrow.uturn.backward.circle", shortcut: "⌦", category: "Review") {
                 changesModel.focusedHunk != nil
             } action: { [weak changesModel] in

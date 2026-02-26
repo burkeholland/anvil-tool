@@ -348,6 +348,11 @@ final class ChangesModel: ObservableObject {
         stageHunk(patch: DiffParser.reconstructPatch(fileDiff: diff, hunk: hunk))
     }
 
+    func unstageFocusedHunk() {
+        guard let file = focusedFile, let hunk = focusedHunk, let diff = file.diff else { return }
+        unstageHunk(patch: DiffParser.reconstructPatch(fileDiff: diff, hunk: hunk))
+    }
+
     func discardFocusedHunk() {
         guard let file = focusedFile, let hunk = focusedHunk, let diff = file.diff else { return }
         discardHunk(patch: DiffParser.reconstructPatch(fileDiff: diff, hunk: hunk))

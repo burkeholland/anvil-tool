@@ -14,6 +14,7 @@ final class FilePreviewModel: ObservableObject {
     @Published private(set) var openTabs: [URL] = []
     @Published private(set) var fileContent: String?
     @Published private(set) var fileDiff: FileDiff?
+    @Published private(set) var stagedFileDiff: FileDiff?
     @Published private(set) var isLoading = false
     @Published var activeTab: PreviewTab = .source
     @Published private(set) var lineCount: Int = 0
@@ -181,6 +182,7 @@ final class FilePreviewModel: ObservableObject {
         openTabs.removeAll()
         fileContent = nil
         fileDiff = nil
+        stagedFileDiff = nil
         lineCount = 0
         lastNavigatedLine = 1
         previewImage = nil
@@ -223,6 +225,7 @@ final class FilePreviewModel: ObservableObject {
                     content = nil
                 }
                 let diff = DiffProvider.diff(for: url, in: root)
+                let staged = DiffProvider.stagedDiff(for: url, in: root)
                 DispatchQueue.main.async {
                     guard self?.selectedURL == url else { return }
                     if content != self?.fileContent {
@@ -230,6 +233,7 @@ final class FilePreviewModel: ObservableObject {
                         self?.lineCount = content?.components(separatedBy: "\n").count ?? 0
                     }
                     self?.fileDiff = diff
+                    self?.stagedFileDiff = staged
                     // Reconcile active tab if current selection is no longer valid
                     if let current = self?.activeTab {
                         if current == .changes && diff == nil {
@@ -316,11 +320,13 @@ final class FilePreviewModel: ObservableObject {
                     content = nil
                 }
                 let diff: FileDiff? = root.flatMap { DiffProvider.diff(for: url, in: $0) }
+                let staged: FileDiff? = root.flatMap { DiffProvider.stagedDiff(for: url, in: $0) }
                 DispatchQueue.main.async {
                     guard self?.selectedURL == url else { return }
                     self?.fileContent = content
                     self?.lineCount = content?.components(separatedBy: "\n").count ?? 0
                     self?.fileDiff = diff
+                    self?.stagedFileDiff = staged
                     self?.previewImage = nil
                     self?.imageSize = nil
                     self?.imageFileSize = nil

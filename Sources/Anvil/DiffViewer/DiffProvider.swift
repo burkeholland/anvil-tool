@@ -3,6 +3,15 @@ import Foundation
 /// Runs `git diff` and returns parsed results.
 enum DiffProvider {
 
+    /// Get the staged diff for a specific file (`git diff --cached` vs HEAD).
+    /// Returns nil when there are no staged changes for the file.
+    static func stagedDiff(for fileURL: URL, in directory: URL) -> FileDiff? {
+        let relativePath = relativePath(of: fileURL, in: directory)
+        guard let output = runGitDiff(args: ["diff", "--cached", "--", relativePath], at: directory),
+              !output.isEmpty else { return nil }
+        return DiffParser.parseSingleFile(output)
+    }
+
     /// Get the diff for a specific file (all uncommitted changes vs HEAD).
     /// Falls back to a synthetic all-additions diff for untracked files.
     static func diff(for fileURL: URL, in directory: URL) -> FileDiff? {
