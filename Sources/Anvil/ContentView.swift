@@ -394,6 +394,7 @@ struct ContentView: View {
             onDismiss: {
                 showTaskBanner = false
             },
+            taskPrompt: promptHistoryStore.entries.first?.text,
             changedFiles: changesModel.changedFiles,
             onOpenFileDiff: { file in
                 if let idx = changesModel.changedFiles.firstIndex(where: { $0.id == file.id }) {
@@ -435,7 +436,8 @@ struct ContentView: View {
                             showDiffSummary = false
                             showBranchDiff = false
                             showMergeConflict = true
-                        }
+                        },
+                        lastTaskPrompt: promptHistoryStore.entries.first?.text
                     )
                         .frame(width: max(sidebarWidth, 0))
 
@@ -1694,6 +1696,7 @@ struct SidebarView: View {
     var onBranchDiff: (() -> Void)?
     var onCreatePR: (() -> Void)?
     var onResolveConflicts: ((URL) -> Void)?
+    var lastTaskPrompt: String? = nil
 
     @State private var changesUnread: Int = 0
     @State private var activityUnread: Int = 0
@@ -1777,7 +1780,7 @@ struct SidebarView: View {
                 }
 
             case .changes:
-                ChangesListView(model: changesModel, filePreview: filePreview, workingDirectory: model, activityFeedModel: activityModel, onReviewAll: onReviewAll, onBranchDiff: onBranchDiff, onCreatePR: onCreatePR, onResolveConflicts: onResolveConflicts)
+                ChangesListView(model: changesModel, filePreview: filePreview, workingDirectory: model, activityFeedModel: activityModel, onReviewAll: onReviewAll, onBranchDiff: onBranchDiff, onCreatePR: onCreatePR, onResolveConflicts: onResolveConflicts, lastTaskPrompt: lastTaskPrompt)
 
             case .activity:
                 ActivityFeedView(model: activityModel, filePreview: filePreview, rootURL: model.directoryURL)
