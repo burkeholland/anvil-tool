@@ -502,47 +502,79 @@ Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>" --quiet
     log "   No changes to commit."
   fi
 
-  # ── File / update visual review issue ──────────────────────────────────
+  # ── Evergreen design refinement issue ────────────────────────────────
+  # Maintain a single standing issue for continuous design polish.
+  # Update it each cycle with fresh screenshots; create if it doesn't exist.
   local base_url="https://raw.githubusercontent.com/$REPO/main/$SCREENSHOT_DIR"
-  local issue_title="Visual review: app screenshots ($timestamp)"
+  local evergreen_title="Design refinement: continuous visual polish"
+
+  # Check if the evergreen issue already exists
+  local existing_issue
+  existing_issue="$(gh issue list --repo "$REPO" --label "$LABEL" --state open \
+    --json number,title \
+    --jq ".[] | select(.title == \"$evergreen_title\") | .number" \
+    2>/dev/null | head -1)" || existing_issue=""
 
   local issue_body
   read -r -d '' issue_body << ISSUEEOF || true
-📸 **Automated visual review** — $timestamp
+🎨 **Continuous design refinement** — last updated $timestamp
 
-Review these screenshots of the Anvil app for any visual issues.
+This is an evergreen issue. On every cycle, review the latest screenshots and make one design improvement inspired by the clean, minimal aesthetic of [postrboard.com](https://postrboard.com).
 
-### File Explorer
+### Current Screenshots
+
+#### File Explorer
 ![File Explorer](${base_url}/screenshot.png)
 
-### Changes View
+#### Changes View
 ![Changes](${base_url}/screenshot-changes.png)
 
-### Commit History
+#### Commit History
 ![Commit History](${base_url}/screenshot-history.png)
 
 ---
 
-**What to look for:**
-- Broken or misaligned layouts
-- Overlapping or truncated text
-- Empty areas that should have content
-- UI elements that look wrong or out of place
-- Inconsistent spacing, colors, or typography
-- Anything that doesn't match a clean, minimal, polished macOS aesthetic
+### Design Reference
+The target look and feel is **postrboard.com** — study it carefully each cycle:
+- Clean, minimal, polished native macOS feel
+- Dark theme with clear visual hierarchy
+- Generous spacing and breathing room
+- Subtle borders and dividers (not harsh lines)
+- Refined typography — proper font weights, sizes, and letter spacing
+- Smooth transitions and micro-interactions
+- No visual clutter — every element earns its place
 
-**Design reference**: The target look and feel is clean and minimal — dark theme with clear hierarchy, no clutter, generous spacing. Reference: https://postrboard.com
+### What to improve (pick one per cycle)
+- Spacing and padding consistency across all panels
+- Color palette refinement (background shades, accent colors, text contrast)
+- Typography hierarchy (headings, body text, labels, monospace code)
+- Border and divider styling (subtle, not harsh)
+- Icon consistency and sizing
+- Sidebar polish (item spacing, hover states, selection highlighting)
+- Terminal panel appearance (prompt styling, output formatting)
+- Tab bar and toolbar refinement
+- Empty state designs (no file selected, no results, etc.)
+- Scroll bar styling
+- Focus rings and selection states
+- Any other visual detail that doesn't match the postrboard.com aesthetic
 
-If you find visual issues, describe them specifically and open a new issue for each fix. If everything looks good, close this issue.
+**Instructions**: Pick ONE specific improvement, implement it, and commit. Do NOT close this issue — it stays open for the next cycle. Add a comment describing what you changed.
 ISSUEEOF
 
-  # Always create a new visual review issue (one per cycle)
-  gh issue create --repo "$REPO" \
-    --title "$issue_title" \
-    --label "$LABEL" \
-    --body "$issue_body" \
-    2>/dev/null || true
-  log "   📝 Filed visual review issue."
+  if [ -n "$existing_issue" ]; then
+    # Update the existing issue body with fresh screenshots
+    gh issue edit "$existing_issue" --repo "$REPO" \
+      --body "$issue_body" \
+      2>/dev/null || true
+    log "   📝 Updated evergreen design issue #$existing_issue."
+  else
+    gh issue create --repo "$REPO" \
+      --title "$evergreen_title" \
+      --label "$LABEL" \
+      --body "$issue_body" \
+      2>/dev/null || true
+    log "   📝 Created evergreen design refinement issue."
+  fi
 }
 
 # ─── Phase 2: TRIAGE ────────────────────────────────────────────────────────
