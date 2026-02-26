@@ -1289,7 +1289,7 @@ struct ChangedFileRow: View {
                 Image(systemName: "circle.lefthalf.filled")
                     .font(.system(size: 12))
                     .foregroundStyle(.orange)
-                    .help("Partially staged — some hunks are staged, others are not")
+                    .help("Partially staged - some hunks are staged, others are not")
             case .unstaged:
                 EmptyView()
             }
