@@ -19,6 +19,8 @@ struct ChangesListView: View {
     @State private var stashToDrop: StashEntry?
     @State private var showOnlyUnreviewed = false
     @State private var collapsedGroups: Set<String> = []
+    @State private var stashSectionCollapsed = false
+    @State private var pendingStashMessage = ""
 
     private enum ChangeScope: String, CaseIterable {
         case all = "All Changes"
@@ -429,20 +431,53 @@ struct ChangesListView: View {
         }
         if !model.stashes.isEmpty || !model.changedFiles.isEmpty {
             Section {
-                ForEach(model.stashes) { stash in
-                    StashRow(
-                        stash: stash,
-                        model: model,
-                        filePreview: filePreview,
-                        onDropStash: { stashToDrop = stash }
-                    )
+                if !stashSectionCollapsed {
+                    if !model.changedFiles.isEmpty {
+                        HStack(spacing: 6) {
+                            TextField("Description (optional)", text: $pendingStashMessage)
+                                .textFieldStyle(.plain)
+                                .font(.system(size: 11))
+                                .foregroundStyle(.primary)
+                            Button {
+                                model.stashAll(message: pendingStashMessage)
+                                pendingStashMessage = ""
+                            } label: {
+                                Text("Stash Changes")
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(.teal.opacity(0.9))
+                            }
+                            .buttonStyle(.plain)
+                            .help("Stash all uncommitted changes")
+                        }
+                        .padding(.vertical, 2)
+                    }
+                    ForEach(model.stashes) { stash in
+                        StashRow(
+                            stash: stash,
+                            model: model,
+                            filePreview: filePreview,
+                            onDropStash: { stashToDrop = stash }
+                        )
+                    }
                 }
             } header: {
-                HStack {
-                    Text("Stashes")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                        .textCase(nil)
+                HStack(spacing: 4) {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            stashSectionCollapsed.toggle()
+                        }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: stashSectionCollapsed ? "chevron.right" : "chevron.down")
+                                .font(.system(size: 9, weight: .semibold))
+                                .foregroundStyle(.tertiary)
+                            Text("Stashes")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(.secondary)
+                                .textCase(nil)
+                        }
+                    }
+                    .buttonStyle(.plain)
                     if !model.stashes.isEmpty {
                         Text("\(model.stashes.count)")
                             .font(.system(size: 10, weight: .medium))
@@ -452,17 +487,6 @@ struct ChangesListView: View {
                             .background(Capsule().fill(Color.secondary.opacity(0.4)))
                     }
                     Spacer()
-                    if !model.changedFiles.isEmpty {
-                        Button {
-                            model.stashAll()
-                        } label: {
-                            Text("Stash All")
-                                .font(.system(size: 10))
-                                .foregroundStyle(.teal.opacity(0.9))
-                        }
-                        .buttonStyle(.plain)
-                        .help("Stash all uncommitted changes")
-                    }
                 }
             }
         }
@@ -1284,6 +1308,12 @@ struct StashRow: View {
                                 .foregroundStyle(.teal.opacity(0.8))
 
                             Spacer()
+
+                            if let files = stash.files {
+                                Text("\(files.count) file\(files.count == 1 ? "" : "s")")
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(.tertiary)
+                            }
 
                             Text(stash.relativeDate)
                                 .font(.system(size: 10))
