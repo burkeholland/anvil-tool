@@ -7,6 +7,10 @@ struct TaskCompleteBanner: View {
     let totalAdditions: Int
     let totalDeletions: Int
     let buildStatus: BuildVerifier.Status
+    /// Structured diagnostics parsed from the failed build output.
+    var buildDiagnostics: [BuildDiagnostic] = []
+    /// Called when the user taps a diagnostic row to navigate to the error location.
+    var onOpenDiagnostic: ((BuildDiagnostic) -> Void)?
     var onReviewAll: () -> Void
     var onStageAllAndCommit: () -> Void
     var onNewTask: () -> Void
@@ -105,19 +109,36 @@ struct TaskCompleteBanner: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
 
-            // Expandable build error output
-            if showBuildOutput, case .failed(let output) = buildStatus, !output.isEmpty {
+            // Expandable build error panel
+            if showBuildOutput, case .failed(let output) = buildStatus {
                 Divider()
-                ScrollView {
-                    Text(output)
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundStyle(.primary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(10)
-                        .textSelection(.enabled)
+                if buildDiagnostics.isEmpty {
+                    // Fallback: raw output when no diagnostics could be parsed
+                    ScrollView {
+                        Text(output)
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundStyle(.primary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(10)
+                            .textSelection(.enabled)
+                    }
+                    .frame(maxHeight: 180)
+                    .background(Color(nsColor: .textBackgroundColor).opacity(0.6))
+                } else {
+                    // Structured diagnostics list with click-to-navigate
+                    ScrollView {
+                        LazyVStack(spacing: 0) {
+                            ForEach(buildDiagnostics) { diagnostic in
+                                DiagnosticRow(diagnostic: diagnostic) {
+                                    onOpenDiagnostic?(diagnostic)
+                                }
+                                Divider().padding(.leading, 32)
+                            }
+                        }
+                    }
+                    .frame(maxHeight: 180)
+                    .background(Color(nsColor: .textBackgroundColor).opacity(0.6))
                 }
-                .frame(maxHeight: 180)
-                .background(Color(nsColor: .textBackgroundColor).opacity(0.6))
             }
         }
         .background(.ultraThinMaterial)
@@ -166,6 +187,11 @@ struct TaskCompleteBanner: View {
                     Text("Build failed")
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
+                    if !buildDiagnostics.isEmpty {
+                        Text("(\(buildDiagnostics.count))")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.tertiary)
+                    }
                     Image(systemName: showBuildOutput ? "chevron.up" : "chevron.down")
                         .font(.system(size: 9))
                         .foregroundStyle(.tertiary)
@@ -178,3 +204,67 @@ struct TaskCompleteBanner: View {
         }
     }
 }
+
+/// A single row in the diagnostics list, showing severity icon, message, and file location.
+private struct DiagnosticRow: View {
+    let diagnostic: BuildDiagnostic
+    let onTap: () -> Void
+
+    @State private var isHovering = false
+
+    var body: some View {
+        Button(action: onTap) {
+            HStack(spacing: 8) {
+                severityIcon
+                    .font(.system(size: 11))
+                    .frame(width: 14)
+
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(diagnostic.message)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.primary)
+                        .lineLimit(2)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                    HStack(spacing: 4) {
+                        Text(locationLabel)
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                    }
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .contentShape(Rectangle())
+            .background(isHovering ? Color.accentColor.opacity(0.08) : Color.clear)
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovering = $0 }
+        .help("Click to open file at \(locationLabel)")
+    }
+
+    @ViewBuilder
+    private var severityIcon: some View {
+        switch diagnostic.severity {
+        case .error:
+            Image(systemName: "xmark.octagon.fill")
+                .foregroundStyle(.red)
+        case .warning:
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.yellow)
+        case .note:
+            Image(systemName: "info.circle.fill")
+                .foregroundStyle(.blue)
+        }
+    }
+
+    private var locationLabel: String {
+        let filename = (diagnostic.filePath as NSString).lastPathComponent
+        if let col = diagnostic.column {
+            return "\(filename):\(diagnostic.line):\(col)"
+        }
+        return "\(filename):\(diagnostic.line)"
+    }
+}
+

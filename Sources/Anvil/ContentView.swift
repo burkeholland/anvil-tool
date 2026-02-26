@@ -435,6 +435,19 @@ struct ContentView: View {
                             totalAdditions: changesModel.totalAdditions,
                             totalDeletions: changesModel.totalDeletions,
                             buildStatus: buildVerifier.status,
+                            buildDiagnostics: buildVerifier.diagnostics,
+                            onOpenDiagnostic: { diagnostic in
+                                let rootURL = workingDirectory.directoryURL
+                                let url: URL
+                                if (diagnostic.filePath as NSString).isAbsolutePath {
+                                    url = URL(fileURLWithPath: diagnostic.filePath)
+                                } else if let root = rootURL {
+                                    url = root.appendingPathComponent(diagnostic.filePath)
+                                } else {
+                                    return
+                                }
+                                filePreview.select(url, line: diagnostic.line)
+                            },
                             onReviewAll: {
                                 showDiffSummary = true
                                 showTaskBanner = false
