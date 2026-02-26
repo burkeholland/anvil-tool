@@ -167,6 +167,12 @@ struct ContentView: View {
             } : nil,
             onSplitTerminalV: workingDirectory.directoryURL != nil ? {
                 terminalTabs.splitPane(direction: .vertical)
+            } : nil,
+            onNextPreviewTab: filePreview.openTabs.count > 1 ? { [weak filePreview] in
+                filePreview?.selectNextTab()
+            } : nil,
+            onPreviousPreviewTab: filePreview.openTabs.count > 1 ? { [weak filePreview] in
+                filePreview?.selectPreviousTab()
             } : nil
         ))
         .onChange(of: workingDirectory.directoryURL) { _, newURL in
@@ -1685,6 +1691,8 @@ private struct FocusedSceneModifier: ViewModifier {
     var onCloneRepository: (() -> Void)?
     var onSplitTerminalH: (() -> Void)?
     var onSplitTerminalV: (() -> Void)?
+    var onNextPreviewTab: (() -> Void)?
+    var onPreviousPreviewTab: (() -> Void)?
 
     func body(content: Content) -> some View {
         content
@@ -1725,6 +1733,10 @@ private struct FocusedSceneModifier: ViewModifier {
                 onCloneRepository: onCloneRepository,
                 onSplitTerminalH: onSplitTerminalH,
                 onSplitTerminalV: onSplitTerminalV
+            ))
+            .modifier(FocusedSceneModifierD(
+                onNextPreviewTab: onNextPreviewTab,
+                onPreviousPreviewTab: onPreviousPreviewTab
             ))
     }
 }
@@ -1816,6 +1828,17 @@ private struct FocusedSceneModifierC: ViewModifier {
             .focusedSceneValue(\.cloneRepository, onCloneRepository)
             .focusedSceneValue(\.splitTerminalH, onSplitTerminalH)
             .focusedSceneValue(\.splitTerminalV, onSplitTerminalV)
+    }
+}
+
+private struct FocusedSceneModifierD: ViewModifier {
+    var onNextPreviewTab: (() -> Void)?
+    var onPreviousPreviewTab: (() -> Void)?
+
+    func body(content: Content) -> some View {
+        content
+            .focusedSceneValue(\.nextPreviewTab, onNextPreviewTab)
+            .focusedSceneValue(\.previousPreviewTab, onPreviousPreviewTab)
     }
 }
 

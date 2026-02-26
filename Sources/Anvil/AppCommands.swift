@@ -159,6 +159,14 @@ struct RequestFixKey: FocusedValueKey {
     typealias Value = () -> Void
 }
 
+struct NextPreviewTabKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
+struct PreviousPreviewTabKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
 extension FocusedValues {
     var sidebarVisible: Binding<Bool>? {
         get { self[SidebarVisibleKey.self] }
@@ -354,6 +362,16 @@ extension FocusedValues {
         get { self[RequestFixKey.self] }
         set { self[RequestFixKey.self] = newValue }
     }
+
+    var nextPreviewTab: (() -> Void)? {
+        get { self[NextPreviewTabKey.self] }
+        set { self[NextPreviewTabKey.self] = newValue }
+    }
+
+    var previousPreviewTab: (() -> Void)? {
+        get { self[PreviousPreviewTabKey.self] }
+        set { self[PreviousPreviewTabKey.self] = newValue }
+    }
 }
 
 // MARK: - View Menu Commands
@@ -394,6 +412,8 @@ struct ViewCommands: Commands {
     @FocusedValue(\.toggleFocusedFileReviewed) var toggleFocusedFileReviewed
     @FocusedValue(\.openFocusedFile) var openFocusedFile
     @FocusedValue(\.requestFix) var requestFix
+    @FocusedValue(\.nextPreviewTab) var nextPreviewTab
+    @FocusedValue(\.previousPreviewTab) var previousPreviewTab
     @AppStorage("autoLaunchCopilot") private var autoLaunchCopilot = true
     @AppStorage("notificationsEnabled") private var notificationsEnabled = true
 
@@ -510,6 +530,18 @@ struct ViewCommands: Commands {
             }
             .keyboardShortcut("w", modifiers: .command)
             .disabled(previewOpen != true)
+
+            Button("Select Next Tab") {
+                nextPreviewTab?()
+            }
+            .keyboardShortcut(KeyEquivalent("\t"), modifiers: .control)
+            .disabled(nextPreviewTab == nil)
+
+            Button("Select Previous Tab") {
+                previousPreviewTab?()
+            }
+            .keyboardShortcut(KeyEquivalent("\t"), modifiers: [.control, .shift])
+            .disabled(previousPreviewTab == nil)
 
             Divider()
 

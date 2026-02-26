@@ -93,6 +93,10 @@ final class FilePreviewModel: ObservableObject {
         return Self.extensionToLanguage[ext]
     }
 
+    /// Maximum number of concurrently open tabs. Oldest (least-recently-used) tabs are
+    /// evicted when the limit is exceeded.
+    private static let maxOpenTabs = 12
+
     func select(_ url: URL, line: Int? = nil) {
         guard !url.hasDirectoryPath else { return }
         let wasCommitDiff = commitDiffContext != nil
@@ -103,6 +107,7 @@ final class FilePreviewModel: ObservableObject {
         // Add to tabs if not already open
         if !openTabs.contains(url) {
             openTabs.append(url)
+            evictLRUTabIfNeeded(keeping: url)
             saveOpenTabs()
         }
         // Reload if switching away from a commit diff for the same file
@@ -152,6 +157,7 @@ final class FilePreviewModel: ObservableObject {
         blameGeneration &+= 1
         if !openTabs.contains(url) {
             openTabs.append(url)
+            evictLRUTabIfNeeded(keeping: url)
             saveOpenTabs()
         }
         selectedURL = url
@@ -532,6 +538,46 @@ final class FilePreviewModel: ObservableObject {
             // Wrap around to last region
             scrollToLine = regions.last!.lowerBound
             lastNavigatedLine = regions.last!.lowerBound
+        }
+    }
+
+    // MARK: - Tab Cycling
+
+    /// Switches to the next tab, wrapping around.
+    func selectNextTab() {
+        guard openTabs.count > 1, let current = selectedURL,
+              let idx = openTabs.firstIndex(of: current) else { return }
+        let next = openTabs[(idx + 1) % openTabs.count]
+        select(next)
+    }
+
+    /// Switches to the previous tab, wrapping around.
+    func selectPreviousTab() {
+        guard openTabs.count > 1, let current = selectedURL,
+              let idx = openTabs.firstIndex(of: current) else { return }
+        let prev = openTabs[(idx - 1 + openTabs.count) % openTabs.count]
+        select(prev)
+    }
+
+    /// Evicts the least-recently-used tab when the open tab count exceeds `maxOpenTabs`.
+    /// The `keeping` URL is never evicted (it is the file just opened).
+    private func evictLRUTabIfNeeded(keeping url: URL) {
+        guard openTabs.count > Self.maxOpenTabs else { return }
+        // recentlyViewedURLs is most-recent-first; scan from the end to find the LRU tab
+        var evicted = false
+        for i in recentlyViewedURLs.indices.reversed() {
+            let candidate = recentlyViewedURLs[i]
+            if candidate != url, let idx = openTabs.firstIndex(of: candidate) {
+                openTabs.remove(at: idx)
+                evicted = true
+                break
+            }
+        }
+        // Fallback: evict the first tab that isn't the current one
+        if !evicted {
+            if let idx = openTabs.firstIndex(where: { $0 != url }) {
+                openTabs.remove(at: idx)
+            }
         }
     }
 
