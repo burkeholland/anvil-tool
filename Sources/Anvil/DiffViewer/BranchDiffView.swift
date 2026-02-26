@@ -19,6 +19,14 @@ struct BranchDiffView: View {
         model.files.filter { $0.diff != nil }
     }
 
+    /// Total risk flags detected across all hunks in all files.
+    private var totalRiskFlagCount: Int {
+        filesWithDiffs.reduce(0) { total, file in
+            guard let diff = file.diff else { return total }
+            return total + diff.hunks.reduce(0) { $0 + DiffRiskScanner.scan($1).count }
+        }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             branchDiffHeader
@@ -202,6 +210,17 @@ struct BranchDiffView: View {
                                 .font(.system(size: 10, design: .monospaced))
                                 .foregroundStyle(.secondary)
                         }
+                    }
+
+                    if totalRiskFlagCount > 0 {
+                        HStack(spacing: 4) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .font(.system(size: 9))
+                            Text("\(totalRiskFlagCount) risk flag\(totalRiskFlagCount == 1 ? "" : "s")")
+                                .font(.system(size: 10))
+                        }
+                        .foregroundStyle(.orange)
+                        .help("Risk flags detected in diff hunks — look for ⚠ icons in the hunk headers")
                     }
 
                     Spacer()
