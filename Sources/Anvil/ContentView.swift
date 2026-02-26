@@ -11,6 +11,7 @@ enum SidebarTab: String {
 struct ContentView: View {
     @StateObject private var workingDirectory = WorkingDirectoryModel()
     @StateObject private var filePreview = FilePreviewModel()
+    @StateObject private var filePreview2 = FilePreviewModel()
     @StateObject private var changesModel = ChangesModel()
     @StateObject private var activityModel = ActivityFeedModel()
     @StateObject private var recentProjects = RecentProjectsModel()
@@ -27,7 +28,9 @@ struct ContentView: View {
     @AppStorage("previewWidth") private var previewWidth: Double = 400
     @AppStorage("showSidebar") private var showSidebar = true
     @AppStorage("sidebarTab") private var sidebarTab: SidebarTab = .files
+    @AppStorage("splitPreview") private var splitPreview = false
     @State private var showQuickOpen = false
+    @State private var showSecondaryQuickOpen = false
     @State private var showMentionPicker = false
     @State private var showCommandPalette = false
     @State private var showBranchPicker = false
@@ -56,6 +59,7 @@ struct ContentView: View {
     @State private var showMergeConflict = false
     @StateObject private var mergeConflictModel = MergeConflictModel()
     @StateObject private var promptHistoryStore = PromptHistoryStore()
+    @StateObject private var promptMarkerStore = PromptMarkerStore()
     @StateObject private var sessionHealthMonitor = SessionHealthMonitor()
     @StateObject private var diffAnnotationStore = DiffAnnotationStore()
     @State private var showPromptHistory = false
@@ -64,7 +68,7 @@ struct ContentView: View {
     /// during burst file writes.
     @StateObject private var followAgent = FollowAgentController()
 
-    var body: some View {
+    private var overlayStack: some View {
         ZStack {
             Group {
                 if workingDirectory.directoryURL != nil {
@@ -141,6 +145,10 @@ struct ContentView: View {
             .opacity(0)
             .accessibilityHidden(true)
         }
+    }
+
+    private var bodyBase: some View {
+        overlayStack
         .modifier(FocusedSceneModifier(
             showSidebar: $showSidebar,
             sidebarTab: $sidebarTab,
@@ -227,8 +235,15 @@ struct ContentView: View {
             } : nil,
             onNewTask: workingDirectory.directoryURL != nil ? {
                 showNewTask = true
+            } : nil,
+            onToggleSplitPreview: workingDirectory.directoryURL != nil ? {
+                splitPreview.toggle()
             } : nil
         ))
+    }
+
+    var body: some View {
+        bodyBase
         .onChange(of: workingDirectory.directoryURL) { _, newURL in
             showTaskBanner = false
             showBranchGuardBanner = false
@@ -237,8 +252,11 @@ struct ContentView: View {
             testRunner.cancel()
             filePreview.close(persist: false)
             filePreview.rootDirectory = newURL
+            filePreview2.close(persist: false)
+            filePreview2.rootDirectory = newURL
             terminalTabs.reset()
             sessionHealthMonitor.reset()
+            promptMarkerStore.clear()
             promptHistoryStore.configure(projectPath: newURL?.standardizedFileURL.path)
             if let url = newURL {
                 recentProjects.recordOpen(url)
@@ -362,9 +380,11 @@ struct ContentView: View {
                 UserDefaults.standard.removeObject(forKey: "anvil.screenshotTab")
             }
             filePreview.rootDirectory = workingDirectory.directoryURL
+            filePreview2.rootDirectory = workingDirectory.directoryURL
             notificationManager.connect(to: activityModel)
             terminalProxy.historyStore = promptHistoryStore
             terminalProxy.sessionMonitor = sessionHealthMonitor
+            terminalProxy.markerStore = promptMarkerStore
             promptHistoryStore.configure(projectPath: workingDirectory.directoryURL?.standardizedFileURL.path)
             if let url = workingDirectory.directoryURL {
                 recentProjects.recordOpen(url)
@@ -503,6 +523,33 @@ struct ContentView: View {
         )
     }
 
+    /// Returns an EmbeddedTerminalView configured for the given tab, with the
+    /// active/inactive styling applied.  Extracted as a helper to keep `projectView`
+    /// under the Swift type-checker complexity limit.
+    private func makeTabTerminalView(for tab: TerminalTab) -> some View {
+        EmbeddedTerminalView(
+            workingDirectory: workingDirectory,
+            launchCopilotOverride: tab.launchCopilot,
+            isActiveTab: tab.id == terminalTabs.activeTabID,
+            onTitleChange: { title in
+                terminalTabs.updateTitle(for: tab.id, to: title)
+            },
+            onOpenFile: { url, line in
+                filePreview.select(url, line: line)
+            },
+            onOutputFilePath: { url in
+                guard autoFollow else { return }
+                followAgent.reportChange(url)
+            },
+            onAgentWaitingForInput: { waiting in
+                terminalTabs.setWaitingForInput(waiting, tabID: tab.id)
+            },
+            markerStore: promptMarkerStore
+        )
+        .opacity(tab.id == terminalTabs.activeTabID ? 1 : 0)
+        .allowsHitTesting(tab.id == terminalTabs.activeTabID)
+    }
+
     private var projectView: some View {
         ZStack {
             HStack(spacing: 0) {
@@ -596,26 +643,7 @@ struct ContentView: View {
                         if terminalTabs.isSplit, let splitTab = terminalTabs.splitTab {
                             let primaryPane = ZStack {
                                 ForEach(terminalTabs.tabs) { tab in
-                                    EmbeddedTerminalView(
-                                        workingDirectory: workingDirectory,
-                                        launchCopilotOverride: tab.launchCopilot,
-                                        isActiveTab: tab.id == terminalTabs.activeTabID,
-                                        onTitleChange: { title in
-                                            terminalTabs.updateTitle(for: tab.id, to: title)
-                                        },
-                                        onOpenFile: { url, line in
-                                            filePreview.select(url, line: line)
-                                        },
-                                        onOutputFilePath: { url in
-                                            guard autoFollow else { return }
-                                            followAgent.reportChange(url)
-                                        },
-                                        onAgentWaitingForInput: { waiting in
-                                            terminalTabs.setWaitingForInput(waiting, tabID: tab.id)
-                                        }
-                                    )
-                                    .opacity(tab.id == terminalTabs.activeTabID ? 1 : 0)
-                                    .allowsHitTesting(tab.id == terminalTabs.activeTabID)
+                                    makeTabTerminalView(for: tab)
                                 }
                             }
 
@@ -686,26 +714,7 @@ struct ContentView: View {
                         } else {
                             ZStack {
                                 ForEach(terminalTabs.tabs) { tab in
-                                    EmbeddedTerminalView(
-                                        workingDirectory: workingDirectory,
-                                        launchCopilotOverride: tab.launchCopilot,
-                                        isActiveTab: tab.id == terminalTabs.activeTabID,
-                                        onTitleChange: { title in
-                                            terminalTabs.updateTitle(for: tab.id, to: title)
-                                        },
-                                        onOpenFile: { url, line in
-                                            filePreview.select(url, line: line)
-                                        },
-                                        onOutputFilePath: { url in
-                                            guard autoFollow else { return }
-                                            followAgent.reportChange(url)
-                                        },
-                                        onAgentWaitingForInput: { waiting in
-                                            terminalTabs.setWaitingForInput(waiting, tabID: tab.id)
-                                        }
-                                    )
-                                    .opacity(tab.id == terminalTabs.activeTabID ? 1 : 0)
-                                    .allowsHitTesting(tab.id == terminalTabs.activeTabID)
+                                    makeTabTerminalView(for: tab)
                                 }
 
                                 // Drop overlay for file → terminal @ mentions
@@ -780,7 +789,7 @@ struct ContentView: View {
                     )
                 }
 
-                if filePreview.selectedURL != nil || showDiffSummary || showBranchDiff || showMergeConflict {
+                if filePreview.selectedURL != nil || showDiffSummary || showBranchDiff || showMergeConflict || splitPreview {
                     PanelDivider(
                         width: $previewWidth,
                         minWidth: 200,
@@ -788,53 +797,94 @@ struct ContentView: View {
                         edge: .trailing
                     )
 
-                    VStack(spacing: 0) {
-                        if showMergeConflict {
-                            MergeConflictView(
-                                model: mergeConflictModel,
-                                onDismiss: {
-                                    showMergeConflict = false
-                                    mergeConflictModel.close()
-                                },
-                                onNavigateToFile: { fileURL in
-                                    if let rootURL = workingDirectory.directoryURL {
-                                        mergeConflictModel.load(fileURL: fileURL, rootURL: rootURL, allConflictURLs: mergeConflictModel.allConflictURLs)
+                    Group {
+                        if !showMergeConflict && !showBranchDiff && !showDiffSummary && splitPreview {
+                            // Split file preview: two independent panels side by side
+                            HSplitView {
+                                VStack(spacing: 0) {
+                                    if let idx = currentChangeIndex {
+                                        ChangesNavigationBar(
+                                            currentIndex: idx,
+                                            totalCount: changesModel.changedFiles.count,
+                                            onPrevious: { navigateToPreviousChange() },
+                                            onNext: { navigateToNextChange() }
+                                        )
                                     }
+                                    FilePreviewView(model: filePreview, changesModel: changesModel, buildDiagnostics: buildVerifier.diagnostics)
                                 }
-                            )
-                        } else if showBranchDiff {
-                            BranchDiffView(
-                                model: branchDiffModel,
-                                annotationStore: diffAnnotationStore,
-                                onSelectFile: { path, _ in
-                                    showBranchDiff = false
-                                    if let root = workingDirectory.directoryURL {
-                                        let url = root.appendingPathComponent(path)
-                                        filePreview.select(url)
+                                FilePreviewView(
+                                    model: filePreview2,
+                                    changesModel: changesModel,
+                                    buildDiagnostics: buildVerifier.diagnostics,
+                                    onOpenFile: {
+                                        if let url = workingDirectory.directoryURL {
+                                            quickOpenModel.index(rootURL: url, recentURLs: filePreview2.recentlyViewedURLs)
+                                        }
+                                        showSecondaryQuickOpen = true
                                     }
-                                },
-                                onDismiss: { showBranchDiff = false }
-                            )
-                        } else if showDiffSummary {
-                            DiffSummaryView(
-                                changesModel: changesModel,
-                                onSelectFile: { url in
-                                    showDiffSummary = false
-                                    filePreview.select(url)
-                                },
-                                onDismiss: { showDiffSummary = false }
-                            )
-                        } else {
-                            if let idx = currentChangeIndex {
-                                ChangesNavigationBar(
-                                    currentIndex: idx,
-                                    totalCount: changesModel.changedFiles.count,
-                                    onPrevious: { navigateToPreviousChange() },
-                                    onNext: { navigateToNextChange() }
                                 )
                             }
+                        } else {
+                            VStack(spacing: 0) {
+                                if showMergeConflict {
+                                    MergeConflictView(
+                                        model: mergeConflictModel,
+                                        onDismiss: {
+                                            showMergeConflict = false
+                                            mergeConflictModel.close()
+                                        },
+                                        onNavigateToFile: { fileURL in
+                                            if let rootURL = workingDirectory.directoryURL {
+                                                mergeConflictModel.load(fileURL: fileURL, rootURL: rootURL, allConflictURLs: mergeConflictModel.allConflictURLs)
+                                            }
+                                        }
+                                    )
+                                } else if showBranchDiff {
+                                    BranchDiffView(
+                                        model: branchDiffModel,
+                                        annotationStore: diffAnnotationStore,
+                                        onSelectFile: { path, _ in
+                                            showBranchDiff = false
+                                            if let root = workingDirectory.directoryURL {
+                                                let url = root.appendingPathComponent(path)
+                                                filePreview.select(url)
+                                            }
+                                        },
+                                        onDismiss: { showBranchDiff = false },
+                                        onShowInPreview: { [weak filePreview] path, line in
+                                            showBranchDiff = false
+                                            if let root = workingDirectory.directoryURL {
+                                                let url = root.appendingPathComponent(path)
+                                                filePreview?.select(url, line: line)
+                                            }
+                                        }
+                                    )
+                                } else if showDiffSummary {
+                                    DiffSummaryView(
+                                        changesModel: changesModel,
+                                        onSelectFile: { url in
+                                            showDiffSummary = false
+                                            filePreview.select(url)
+                                        },
+                                        onDismiss: { showDiffSummary = false },
+                                        onShowFileAtLine: { [weak filePreview] url, line in
+                                            showDiffSummary = false
+                                            filePreview?.select(url, line: line)
+                                        }
+                                    )
+                                } else {
+                                    if let idx = currentChangeIndex {
+                                        ChangesNavigationBar(
+                                            currentIndex: idx,
+                                            totalCount: changesModel.changedFiles.count,
+                                            onPrevious: { navigateToPreviousChange() },
+                                            onNext: { navigateToNextChange() }
+                                        )
+                                    }
 
-                            FilePreviewView(model: filePreview, changesModel: changesModel, buildDiagnostics: buildVerifier.diagnostics)
+                                    FilePreviewView(model: filePreview, changesModel: changesModel, buildDiagnostics: buildVerifier.diagnostics)
+                                }
+                            }
                         }
                     }
                     .frame(width: max(previewWidth, 0))
@@ -893,6 +943,24 @@ struct ContentView: View {
                     .padding(6)
                     .allowsHitTesting(false)
             }
+
+            // Secondary panel Quick Open overlay
+            if showSecondaryQuickOpen {
+                Color.black.opacity(0.2)
+                    .ignoresSafeArea()
+                    .onTapGesture { dismissSecondaryQuickOpen() }
+
+                VStack {
+                    QuickOpenView(
+                        model: quickOpenModel,
+                        filePreview: filePreview2,
+                        onDismiss: { dismissSecondaryQuickOpen() }
+                    )
+                    .padding(.top, 60)
+
+                    Spacer()
+                }
+            }
         }
         .onChange(of: showQuickOpen) { _, isShowing in
             if isShowing, let url = workingDirectory.directoryURL {
@@ -941,6 +1009,11 @@ struct ContentView: View {
 
     private func dismissQuickOpen() {
         showQuickOpen = false
+        quickOpenModel.reset()
+    }
+
+    private func dismissSecondaryQuickOpen() {
+        showSecondaryQuickOpen = false
         quickOpenModel.reset()
     }
 
@@ -1000,6 +1073,11 @@ struct ContentView: View {
                 true
             } action: {
                 showSidebar.toggle()
+            },
+            PaletteCommand(id: "toggle-split-preview", title: splitPreview ? "Disable Split Preview" : "Enable Split Preview", icon: "rectangle.split.2x1", shortcut: "⌘\\", category: "View") {
+                hasProject
+            } action: {
+                splitPreview.toggle()
             },
             PaletteCommand(id: "show-files", title: "Show Files", icon: "folder", shortcut: "⌘1", category: "View") {
                 hasProject
@@ -1427,6 +1505,7 @@ struct ContentView: View {
         showBranchGuardBanner = false
         branchGuardTriggered = false
         filePreview.close(persist: false)
+        filePreview2.close(persist: false)
         showDiffSummary = false
         showBranchDiff = false
         showMergeConflict = false
@@ -2093,6 +2172,7 @@ private struct FocusedSceneModifier: ViewModifier {
     var onShowPromptHistory: (() -> Void)?
     var onGoToTestFile: (() -> Void)?
     var onNewTask: (() -> Void)?
+    var onToggleSplitPreview: (() -> Void)?
 
     func body(content: Content) -> some View {
         content
@@ -2139,7 +2219,8 @@ private struct FocusedSceneModifier: ViewModifier {
                 onPreviousPreviewTab: onPreviousPreviewTab,
                 onShowPromptHistory: onShowPromptHistory,
                 onGoToTestFile: onGoToTestFile,
-                onNewTask: onNewTask
+                onNewTask: onNewTask,
+                onToggleSplitPreview: onToggleSplitPreview
             ))
     }
 }
@@ -2240,6 +2321,7 @@ private struct FocusedSceneModifierD: ViewModifier {
     var onShowPromptHistory: (() -> Void)?
     var onGoToTestFile: (() -> Void)?
     var onNewTask: (() -> Void)?
+    var onToggleSplitPreview: (() -> Void)?
 
     func body(content: Content) -> some View {
         content
@@ -2248,6 +2330,7 @@ private struct FocusedSceneModifierD: ViewModifier {
             .focusedSceneValue(\.showPromptHistory, onShowPromptHistory)
             .focusedSceneValue(\.goToTestFile, onGoToTestFile)
             .focusedSceneValue(\.newTask, onNewTask)
+            .focusedSceneValue(\.toggleSplitPreview, onToggleSplitPreview)
     }
 }
 

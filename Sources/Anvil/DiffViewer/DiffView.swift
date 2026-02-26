@@ -64,6 +64,8 @@ struct DiffView: View {
     var onDiscardHunk: ((DiffHunk) -> Void)?
     /// IDs of hunks that are at least partially reflected in the staged index.
     var stagedHunkIDs: Set<Int> = []
+    /// Called with the new-file start line when the user taps "Show in Preview" on a hunk.
+    var onShowInPreview: ((Int) -> Void)?
     @AppStorage("diffViewMode") private var mode: String = DiffViewMode.unified.rawValue
 
     private var viewMode: DiffViewMode {
@@ -79,7 +81,8 @@ struct DiffView: View {
                 onStageHunk: onStageHunk,
                 onUnstageHunk: onUnstageHunk,
                 onDiscardHunk: onDiscardHunk,
-                stagedHunkIDs: stagedHunkIDs
+                stagedHunkIDs: stagedHunkIDs,
+                onShowInPreview: onShowInPreview
             )
         case .sideBySide:
             SideBySideDiffView(diff: diff, mode: $mode)
@@ -95,6 +98,8 @@ struct UnifiedDiffView: View {
     var onUnstageHunk: ((DiffHunk) -> Void)?
     var onDiscardHunk: ((DiffHunk) -> Void)?
     var stagedHunkIDs: Set<Int> = []
+    /// Called with the new-file start line when the user taps "Show in Preview" on a hunk.
+    var onShowInPreview: ((Int) -> Void)?
 
     var body: some View {
         let highlights = DiffSyntaxHighlighter.highlight(diff: diff)
@@ -112,7 +117,10 @@ struct UnifiedDiffView: View {
                         isStaged: stagedHunkIDs.contains(hunk.id),
                         onStage: onStageHunk.map { handler in { handler(hunk) } },
                         onUnstage: onUnstageHunk.map { handler in { handler(hunk) } },
-                        onDiscard: onDiscardHunk.map { handler in { handler(hunk) } }
+                        onDiscard: onDiscardHunk.map { handler in { handler(hunk) } },
+                        onShowInPreview: onShowInPreview.map { handler in
+                            { handler(hunk.newFileStartLine ?? 1) }
+                        }
                     )
                 }
             }
@@ -170,6 +178,7 @@ struct DiffHunkView: View {
     var onUnstage: (() -> Void)?
     var onDiscard: (() -> Void)?
     var onRequestFix: (() -> Void)?
+    var onShowInPreview: (() -> Void)?
     var isFocused: Bool = false
     /// File path used to wire up inline annotation support. `nil` disables annotation UI.
     var filePath: String? = nil
@@ -180,7 +189,7 @@ struct DiffHunkView: View {
     @State private var isHovered = false
 
     private var hasActions: Bool {
-        onStage != nil || onUnstage != nil || onDiscard != nil || onRequestFix != nil
+        onStage != nil || onUnstage != nil || onDiscard != nil || onRequestFix != nil || onShowInPreview != nil
     }
 
     var body: some View {
@@ -318,6 +327,15 @@ struct DiffHunkView: View {
                 }
                 .buttonStyle(.borderless)
                 .help("Request Fix for this hunk")
+            }
+            if let onShowInPreview {
+                Button { onShowInPreview() } label: {
+                    Image(systemName: "eye.fill")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.blue)
+                }
+                .buttonStyle(.borderless)
+                .help("Show in Preview")
             }
         }
         .padding(.horizontal, 6)
