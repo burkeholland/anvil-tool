@@ -4,9 +4,9 @@ import SwiftUI
 /// This is the "PR preview" — all changes the agent made across all commits on this branch.
 struct BranchDiffView: View {
     @ObservedObject var model: BranchDiffModel
+    @ObservedObject var annotationStore: DiffAnnotationStore
     var onSelectFile: ((String, URL) -> Void)?
     var onDismiss: (() -> Void)?
-    @ObservedObject var annotationStore: DiffAnnotationStore
     @State private var collapsedFiles: Set<String> = []
     @AppStorage("diffViewMode") private var diffMode: String = DiffViewMode.unified.rawValue
     @State private var requestFixContext: RequestFixContext?
