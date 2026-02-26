@@ -1800,9 +1800,7 @@ struct SidebarView: View {
     var onResolveConflicts: ((URL) -> Void)?
     var lastTaskPrompt: String? = nil
 
-    @State private var changesUnread: Int = 0
     @State private var activityUnread: Int = 0
-    @State private var filesUnread: Int = 0
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -1812,7 +1810,7 @@ struct SidebarView: View {
                     title: "Files",
                     systemImage: "folder",
                     isActive: activeTab == .files,
-                    badge: filesUnread > 0 ? filesUnread : nil
+                    badge: activeTab != .files && fileTreeModel.changedFileCount > 0 ? fileTreeModel.changedFileCount : nil
                 ) {
                     activeTab = .files
                 }
@@ -1821,7 +1819,7 @@ struct SidebarView: View {
                     title: "Changes",
                     systemImage: "arrow.triangle.2.circlepath",
                     isActive: activeTab == .changes,
-                    badge: changesUnread > 0 ? changesUnread : nil
+                    badge: activeTab != .changes && changesModel.changedFiles.count > 0 ? changesModel.changedFiles.count : nil
                 ) {
                     activeTab = .changes
                 }
@@ -1913,27 +1911,14 @@ struct SidebarView: View {
             }
         }
         .background(Color(nsColor: .controlBackgroundColor))
-        .onChange(of: changesModel.changedFiles.count) { oldCount, newCount in
-            if activeTab != .changes && newCount > oldCount {
-                changesUnread += newCount - oldCount
-            }
-        }
         .onChange(of: activityModel.events.count) { oldCount, newCount in
             if activeTab != .activity && newCount > oldCount {
                 activityUnread += newCount - oldCount
             }
         }
-        .onChange(of: fileTreeModel.changedFileCount) { oldCount, newCount in
-            if activeTab != .files && newCount > oldCount {
-                filesUnread += newCount - oldCount
-            }
-        }
         .onChange(of: activeTab) { _, newTab in
-            switch newTab {
-            case .files: filesUnread = 0
-            case .changes: changesUnread = 0
-            case .activity: activityUnread = 0
-            default: break
+            if newTab == .activity {
+                activityUnread = 0
             }
         }
     }
