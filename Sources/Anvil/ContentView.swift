@@ -1484,7 +1484,26 @@ struct ContentView: View {
             } action: { [weak terminalProxy] in
                 terminalProxy?.sendControl(0x0C)
             },
-        ])
+        ] + buildQuickActionCommands())
+    }
+
+    /// Builds PaletteCommand entries for auto-detected and custom quick actions.
+    private func buildQuickActionCommands() -> [PaletteCommand] {
+        guard let rootURL = workingDirectory.directoryURL else { return [] }
+        let actions = QuickActionsProvider.load(rootURL: rootURL)
+        return actions.map { action in
+            PaletteCommand(
+                id: "quick-action-\(action.id)",
+                title: action.name,
+                icon: action.icon,
+                shortcut: action.keybinding,
+                category: "Quick Actions"
+            ) {
+                self.workingDirectory.directoryURL != nil
+            } action: { [weak terminalProxy] in
+                terminalProxy?.sendPrompt(action.command)
+            }
+        }
     }
 
     private func closeCurrentProject() {
