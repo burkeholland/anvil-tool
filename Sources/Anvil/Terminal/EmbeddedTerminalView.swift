@@ -18,6 +18,9 @@ struct EmbeddedTerminalView: View {
     var onOpenFile: ((URL, Int?) -> Void)?
     /// Called when a resolvable file path is detected in the terminal's scrolled-in output.
     var onOutputFilePath: ((URL) -> Void)?
+    /// Called with `true` when the agent appears to be waiting for user input,
+    /// and with `false` when it resumes normal output.
+    var onAgentWaitingForInput: ((Bool) -> Void)?
     @AppStorage("autoLaunchCopilot") private var autoLaunchCopilot = true
     @AppStorage("terminalFontSize") private var fontSize: Double = 14
     @AppStorage("terminalThemeID") private var themeID: String = TerminalTheme.defaultDark.id
@@ -66,6 +69,7 @@ struct EmbeddedTerminalView: View {
                 onTitleChange: onTitleChange,
                 onOpenFile: onOpenFile,
                 onOutputFilePath: onOutputFilePath,
+                onAgentWaitingForInput: onAgentWaitingForInput,
                 onCopilotNotFound: {
                     copilotNotFound = true
                 },
@@ -237,6 +241,7 @@ private struct TerminalNSView: NSViewRepresentable {
     var onTitleChange: ((String) -> Void)?
     var onOpenFile: ((URL, Int?) -> Void)?
     var onOutputFilePath: ((URL) -> Void)?
+    var onAgentWaitingForInput: ((Bool) -> Void)?
     var onCopilotNotFound: (() -> Void)?
     var onOpenURL: ((URL) -> Void)?
 
@@ -271,6 +276,9 @@ private struct TerminalNSView: NSViewRepresentable {
         detector.onOpenURL = onOpenURL
         detector.attach(to: terminalView, rootURL: workingDirectory.directoryURL)
 
+        // Wire input-waiting detector
+        context.coordinator.agentInputWatcher.onStateChanged = onAgentWaitingForInput
+
         context.coordinator.lastFontSize = fontSize
         context.coordinator.lastThemeID = theme.id
 
@@ -292,6 +300,8 @@ private struct TerminalNSView: NSViewRepresentable {
         detector.onOpenFile = onOpenFile
         detector.onOutputFilePath = onOutputFilePath
         detector.onOpenURL = onOpenURL
+        // Keep input-watcher callback in sync
+        context.coordinator.agentInputWatcher.onStateChanged = onAgentWaitingForInput
         // Reconnect proxy when this tab becomes active
         if let proxy = terminalProxy, proxy.terminalView !== nsView {
             proxy.terminalView = nsView
@@ -315,6 +325,7 @@ private struct TerminalNSView: NSViewRepresentable {
         let onTitleChange: ((String) -> Void)?
         let onCopilotNotFound: (() -> Void)?
         let filePathDetector = TerminalFilePathDetector()
+        let agentInputWatcher = AgentInputWatcher()
         var lastFontSize: Double = 14
         var lastThemeID: String = TerminalTheme.defaultDark.id
 
@@ -363,6 +374,7 @@ private struct TerminalNSView: NSViewRepresentable {
         func rangeChanged(source: TerminalView, startY: Int, endY: Int) {
             guard let tv = source as? LocalProcessTerminalView else { return }
             filePathDetector.processTerminalRange(in: tv, startY: startY, endY: endY)
+            agentInputWatcher.processTerminalRange(in: tv, startY: startY, endY: endY)
         }
     }
 }
