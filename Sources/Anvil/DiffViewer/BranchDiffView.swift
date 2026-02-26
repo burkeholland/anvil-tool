@@ -7,6 +7,8 @@ struct BranchDiffView: View {
     @ObservedObject var annotationStore: DiffAnnotationStore
     var onSelectFile: ((String, URL) -> Void)?
     var onDismiss: (() -> Void)?
+    /// Called with `(filePath, lineNumber)` when the user taps "Show in Preview" on a hunk.
+    var onShowInPreview: ((String, Int) -> Void)?
     @State private var collapsedFiles: Set<String> = []
     @AppStorage("diffViewMode") private var diffMode: String = DiffViewMode.unified.rawValue
     @AppStorage("diffContextExpanded") private var contextExpanded = false
@@ -322,6 +324,9 @@ struct BranchDiffView: View {
                                             filePath: file.path,
                                             lineRange: hunk.newFileLineRange
                                         )
+                                    },
+                                    onShowInPreview: onShowInPreview.map { handler in
+                                        { handler(file.path, hunk.newFileStartLine ?? 1) }
                                     },
                                     filePath: file.path,
                                     lineAnnotations: annotationStore.lineAnnotations(forFile: file.path),

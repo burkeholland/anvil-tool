@@ -362,7 +362,11 @@ struct FilePreviewView: View {
                         onDiscardHunk: isLiveDiff ? changesModel.map { cm in
                             { hunk in cm.discardHunk(patch: DiffParser.reconstructPatch(fileDiff: diff, hunk: hunk)) }
                         } : nil,
-                        stagedHunkIDs: stagedIDs
+                        stagedHunkIDs: stagedIDs,
+                        onShowInPreview: { [model] line in
+                            model.activeTab = .source
+                            model.scrollToLine = line
+                        }
                     )
                 } else if model.activeTab == .rendered, model.isMarkdownFile, let content = model.fileContent {
                     MarkdownPreviewView(content: content)
