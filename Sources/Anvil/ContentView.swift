@@ -325,49 +325,7 @@ struct ContentView: View {
                 }
             }
         }
-        .onAppear {
-            let screenshotMode = UserDefaults.standard.bool(forKey: "anvil.screenshotMode")
-            if screenshotMode {
-                showSidebar = true
-                let tabName = UserDefaults.standard.string(forKey: "anvil.screenshotTab") ?? "files"
-                switch tabName {
-                case "changes": sidebarTab = .changes
-                case "activity": sidebarTab = .activity
-                case "search": sidebarTab = .search
-                case "history": sidebarTab = .history
-                case "tests": sidebarTab = .tests
-                default: sidebarTab = .files
-                }
-                // Clear the flag so normal launches aren't affected
-                UserDefaults.standard.removeObject(forKey: "anvil.screenshotMode")
-                UserDefaults.standard.removeObject(forKey: "anvil.screenshotTab")
-            }
-            filePreview.rootDirectory = workingDirectory.directoryURL
-            notificationManager.connect(to: activityModel)
-            terminalProxy.historyStore = promptHistoryStore
-            terminalProxy.sessionMonitor = sessionHealthMonitor
-            testRunner.resultsStore = testResultsStore
-            promptHistoryStore.configure(projectPath: workingDirectory.directoryURL?.standardizedFileURL.path)
-            if let url = workingDirectory.directoryURL {
-                recentProjects.recordOpen(url)
-                changesModel.start(rootURL: url)
-                activityModel.start(rootURL: url)
-                searchModel.setRoot(url)
-                fileTreeModel.start(rootURL: url)
-                commitHistoryModel.start(rootURL: url)
-
-                // In screenshot mode, auto-select a file so the preview shows content
-                if screenshotMode {
-                    let candidates = ["README.md", "Package.swift", "ContentView.swift"]
-                    for name in candidates {
-                        if let entry = fileTreeModel.entries.first(where: { $0.name == name }) {
-                            filePreview.select(entry.url)
-                            break
-                        }
-                    }
-                }
-            }
-        }
+        .onAppear { handleAppear() }
         .onReceive(NotificationCenter.default.publisher(for: AppDelegate.openDirectoryNotification)) { notification in
             if let url = notification.userInfo?["url"] as? URL {
                 openDirectory(url)
@@ -861,6 +819,50 @@ struct ContentView: View {
         .onChange(of: showMentionPicker) { _, isShowing in
             if isShowing, let url = workingDirectory.directoryURL {
                 quickOpenModel.index(rootURL: url, recentURLs: filePreview.recentlyViewedURLs)
+            }
+        }
+    }
+
+    private func handleAppear() {
+        let screenshotMode = UserDefaults.standard.bool(forKey: "anvil.screenshotMode")
+        if screenshotMode {
+            showSidebar = true
+            let tabName = UserDefaults.standard.string(forKey: "anvil.screenshotTab") ?? "files"
+            switch tabName {
+            case "changes": sidebarTab = .changes
+            case "activity": sidebarTab = .activity
+            case "search": sidebarTab = .search
+            case "history": sidebarTab = .history
+            case "tests": sidebarTab = .tests
+            default: sidebarTab = .files
+            }
+            // Clear the flag so normal launches aren't affected
+            UserDefaults.standard.removeObject(forKey: "anvil.screenshotMode")
+            UserDefaults.standard.removeObject(forKey: "anvil.screenshotTab")
+        }
+        filePreview.rootDirectory = workingDirectory.directoryURL
+        notificationManager.connect(to: activityModel)
+        terminalProxy.historyStore = promptHistoryStore
+        terminalProxy.sessionMonitor = sessionHealthMonitor
+        testRunner.resultsStore = testResultsStore
+        promptHistoryStore.configure(projectPath: workingDirectory.directoryURL?.standardizedFileURL.path)
+        if let url = workingDirectory.directoryURL {
+            recentProjects.recordOpen(url)
+            changesModel.start(rootURL: url)
+            activityModel.start(rootURL: url)
+            searchModel.setRoot(url)
+            fileTreeModel.start(rootURL: url)
+            commitHistoryModel.start(rootURL: url)
+
+            // In screenshot mode, auto-select a file so the preview shows content
+            if screenshotMode {
+                let candidates = ["README.md", "Package.swift", "ContentView.swift"]
+                for name in candidates {
+                    if let entry = fileTreeModel.entries.first(where: { $0.name == name }) {
+                        filePreview.select(entry.url)
+                        break
+                    }
+                }
             }
         }
     }
