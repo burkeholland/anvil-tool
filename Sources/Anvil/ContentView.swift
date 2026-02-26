@@ -270,6 +270,29 @@ struct ContentView: View {
             if case .passed = newStatus, let url = workingDirectory.directoryURL {
                 testRunner.run(at: url)
             }
+            // Send task-complete notification when the build fails (tests won't follow).
+            if case .failed = newStatus, showTaskBanner {
+                notificationManager.notifyTaskComplete(
+                    changedFileCount: changesModel.changedFiles.count,
+                    buildStatus: newStatus,
+                    testStatus: testRunner.status
+                )
+            }
+        }
+        .onChange(of: testRunner.status) { _, newStatus in
+            // Send task-complete notification once test results are final.
+            switch newStatus {
+            case .passed, .failed:
+                if showTaskBanner {
+                    notificationManager.notifyTaskComplete(
+                        changedFileCount: changesModel.changedFiles.count,
+                        buildStatus: buildVerifier.status,
+                        testStatus: newStatus
+                    )
+                }
+            default:
+                break
+            }
         }
         .onChange(of: terminalProxy.promptSentCount) { _, _ in
             // Record the current change set as the task-start baseline for scoped review.
