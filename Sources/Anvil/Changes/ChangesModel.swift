@@ -38,8 +38,8 @@ struct DiscardedFileEntry: Identifiable {
 
 /// Controls what the Changes panel diffs are compared against.
 enum DiffBaseline: String, CaseIterable {
-    case workingChanges  = "Working"
-    case sinceLastCommit = "Last Commit"
+    case workingChanges   = "Working"
+    case sinceLastCommit  = "Last Commit"
     case sinceBranchPoint = "Branch Point"
 
     var label: String { rawValue }
@@ -106,6 +106,75 @@ final class ChangesModel: ObservableObject {
     func recordTaskStart() {
         taskStartFiles = Set(changedFiles.map(\.relativePath))
         hasTaskStart = true
+    }
+
+    // MARK: - Diff Snapshots
+
+    /// A point-in-time capture of the diff state for iteration-round comparison.
+    struct DiffSnapshot: Identifiable {
+        let id: UUID
+        let timestamp: Date
+        /// Maps relative file path → FileDiff at snapshot time.
+        /// A `nil` inner value means the file had no parsed diff yet.
+        let diffs: [String: FileDiff?]
+
+        var label: String {
+            let f = DateFormatter()
+            f.timeStyle = .short
+            return f.string(from: timestamp)
+        }
+
+        /// Content-based fingerprint for a single hunk (ignores line numbers).
+        static func hunkFingerprint(_ hunk: DiffHunk) -> String {
+            hunk.lines.map { "\($0.kind):\($0.text)" }.joined(separator: "\n")
+        }
+    }
+
+    @Published private(set) var snapshots: [DiffSnapshot] = []
+    /// ID of the snapshot to compare against; when `nil`, the latest snapshot is used.
+    @Published var activeSnapshotID: UUID?
+
+    var activeSnapshot: DiffSnapshot? {
+        guard !snapshots.isEmpty else { return nil }
+        if let id = activeSnapshotID {
+            return snapshots.first { $0.id == id }
+        }
+        return snapshots.last
+    }
+
+    /// Captures the current diff state as a new snapshot and makes it the active one.
+    func takeSnapshot() {
+        let diffs = Dictionary(uniqueKeysWithValues: changedFiles.map { ($0.relativePath, $0.diff) })
+        let snap = DiffSnapshot(id: UUID(), timestamp: Date(), diffs: diffs)
+        snapshots.append(snap)
+        activeSnapshotID = snap.id
+    }
+
+    /// Files that have new or changed diffs since the active snapshot, with each file's
+    /// diff filtered to include only hunks not present in the snapshot.
+    var snapshotDeltaFiles: [ChangedFile] {
+        guard let snapshot = activeSnapshot else { return changedFiles }
+        var result: [ChangedFile] = []
+        for file in changedFiles {
+            if let snapshotEntry = snapshot.diffs[file.relativePath] {
+                // File was in snapshot — show only new/changed hunks
+                let snapshotPrints = Set((snapshotEntry?.hunks ?? []).map(DiffSnapshot.hunkFingerprint))
+                let newHunks = (file.diff?.hunks ?? []).filter {
+                    !snapshotPrints.contains(DiffSnapshot.hunkFingerprint($0))
+                }
+                guard !newHunks.isEmpty else { continue }
+                var filtered = file
+                if var diff = filtered.diff {
+                    diff.hunks = newHunks
+                    filtered.diff = diff
+                }
+                result.append(filtered)
+            } else {
+                // File not in snapshot → entirely new since snapshot
+                result.append(file)
+            }
+        }
+        return result
     }
 
     // MARK: - Review Tracking
@@ -723,6 +792,8 @@ final class ChangesModel: ObservableObject {
         focusedHunkIndex = nil
         taskStartFiles = []
         hasTaskStart = false
+        snapshots = []
+        activeSnapshotID = nil
     }
 
     func refresh() {
