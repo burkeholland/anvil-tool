@@ -129,6 +129,21 @@ final class TerminalInputProxy: ObservableObject {
         }
     }
 
+    /// Reads all lines from the terminal's scrollback buffer and returns them joined by
+    /// newlines.  SwiftTerm's `translateToString` already strips ANSI escape sequences
+    /// when it converts buffer cells to a plain-text string, so no further sanitization
+    /// is required for human-readable export.
+    func readTranscript() -> String {
+        guard let terminal = terminalView?.terminal else { return "" }
+        var lines: [String] = []
+        var row = 0
+        while let line = terminal.getScrollInvariantLine(row: row) {
+            lines.append(line.translateToString(trimRight: true))
+            row += 1
+        }
+        return lines.joined(separator: "\n")
+    }
+
     /// Called from the terminal's `rangeChanged` delegate to keep scroll metrics current.
     /// Updates `estimatedMaxScrollback` using the current `buffer.yDisp`, which equals
     /// the maximum scrollback depth when the terminal is pinned to the bottom.

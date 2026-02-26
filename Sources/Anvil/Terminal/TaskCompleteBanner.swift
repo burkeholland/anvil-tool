@@ -40,6 +40,10 @@ struct TaskCompleteBanner: View {
     var onNewTask: () -> Void
     var onDismiss: () -> Void
 
+    /// Called when the user taps "Export Session as Markdown".
+    /// When nil, the Export Session button is not shown.
+    var onExportSession: (() -> Void)? = nil
+
     /// The task prompt that initiated this work session, used to populate the copy summary.
     var taskPrompt: String? = nil
 
@@ -170,6 +174,16 @@ struct TaskCompleteBanner: View {
                         style: .secondary
                     ) {
                         onCreatePR?()
+                    }
+                }
+
+                if let exportHandler = onExportSession {
+                    BannerPillButton(
+                        icon: "arrow.down.doc",
+                        label: "Export Session",
+                        style: .secondary
+                    ) {
+                        exportHandler()
                     }
                 }
 
