@@ -110,10 +110,12 @@ final class ChangesModel: ObservableObject {
 
     // MARK: - Commit Message Generation
 
-    /// Generates a structured commit message from the current changes.
-    /// - Parameter allFiles: When `true`, uses all changed files (for Stage All & Commit).
-    ///   When `false` (default), uses staged files if any are staged, otherwise all changed files.
-    func generateCommitMessage(allFiles: Bool = false) -> String {
+    /// Generates a conventional commit message from the current changes.
+    /// - Parameters:
+    ///   - allFiles: When `true`, uses all changed files (for Stage All & Commit).
+    ///     When `false` (default), uses staged files if any are staged, otherwise all changed files.
+    ///   - sessionStats: Optional activity-feed session stats used to infer the conventional commit type.
+    func generateCommitMessage(allFiles: Bool = false, sessionStats: ActivityFeedModel.SessionStats? = nil) -> String {
         let files: [ChangedFile]
         if allFiles {
             files = changedFiles
@@ -127,8 +129,15 @@ final class ChangesModel: ObservableObject {
         let deleted = files.filter { $0.status == .deleted }
         let renamed = files.filter { $0.status == .renamed }
 
-        // Build subject line
-        let subject = buildSubject(added: added, modified: modified, deleted: deleted, renamed: renamed)
+        // Build subject line using conventional commit format when session stats are available
+        let subject: String
+        if let stats = sessionStats, stats.isActive {
+            subject = buildConventionalSubject(
+                files: files, added: added, modified: modified, deleted: deleted, sessionStats: stats
+            )
+        } else {
+            subject = buildSubject(added: added, modified: modified, deleted: deleted, renamed: renamed)
+        }
 
         // Build body with per-directory grouping, per-file stats, and extracted symbols
         var bodyLines: [String] = []
@@ -199,6 +208,61 @@ final class ChangesModel: ObservableObject {
         case "php":              return "php"
         default:                 return ""
         }
+    }
+
+    /// Builds a conventional commit subject line (`type(scope): description`) using activity stats.
+    private func buildConventionalSubject(
+        files: [ChangedFile],
+        added: [ChangedFile],
+        modified: [ChangedFile],
+        deleted: [ChangedFile],
+        sessionStats: ActivityFeedModel.SessionStats
+    ) -> String {
+        // Infer type from the dominant operation and diff stats
+        let commitType: String
+        if !added.isEmpty && added.count >= modified.count {
+            commitType = "feat"
+        } else if sessionStats.totalDeletions > sessionStats.totalAdditions && !deleted.isEmpty {
+            commitType = "fix"
+        } else if !modified.isEmpty && added.isEmpty {
+            commitType = "refactor"
+        } else {
+            commitType = added.isEmpty ? "fix" : "feat"
+        }
+
+        // Infer scope from the most common directory
+        let dirs = files.map(\.directoryPath).filter { !$0.isEmpty }
+        let scopeCandidate: String
+        if let mostCommon = dirs.max(by: { a, b in dirs.filter { $0 == a }.count < dirs.filter { $0 == b }.count }) {
+            // Use the last component of the directory path as a compact scope
+            scopeCandidate = (mostCommon as NSString).lastPathComponent
+        } else {
+            scopeCandidate = ""
+        }
+        let scopePart = scopeCandidate.isEmpty ? "" : "(\(scopeCandidate))"
+
+        // Build description from the primary change
+        let description: String
+        let dominantFiles: [ChangedFile]
+        if !added.isEmpty && added.count >= modified.count {
+            dominantFiles = added
+            let names = dominantFiles.prefix(2).map(\.fileName).joined(separator: ", ")
+            let extra = dominantFiles.count > 2 ? " and \(dominantFiles.count - 2) more" : ""
+            description = "add \(names)\(extra)"
+        } else if !modified.isEmpty {
+            dominantFiles = modified
+            let names = dominantFiles.prefix(2).map(\.fileName).joined(separator: ", ")
+            let extra = dominantFiles.count > 2 ? " and \(dominantFiles.count - 2) more" : ""
+            description = "update \(names)\(extra)"
+        } else if !deleted.isEmpty {
+            let names = deleted.prefix(2).map(\.fileName).joined(separator: ", ")
+            let extra = deleted.count > 2 ? " and \(deleted.count - 2) more" : ""
+            description = "remove \(names)\(extra)"
+        } else {
+            description = "update \(files.prefix(2).map(\.fileName).joined(separator: ", "))"
+        }
+
+        return "\(commitType)\(scopePart): \(description)"
     }
 
     private func buildSubject(added: [ChangedFile], modified: [ChangedFile], deleted: [ChangedFile], renamed: [ChangedFile]) -> String {
