@@ -66,6 +66,7 @@ struct KeyboardShortcutsView: View {
                             ("⌘D", "Split Terminal Right"),
                             ("⌘⇧D", "Split Terminal Down"),
                             ("⌘⇧M", "Mention File in Terminal"),
+                            ("⌘Y", "Prompt History"),
                             ("⌘+", "Increase Font Size"),
                             ("⌘−", "Decrease Font Size"),
                             ("⌘0", "Reset Font Size"),

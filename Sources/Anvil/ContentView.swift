@@ -51,6 +51,8 @@ struct ContentView: View {
     @State private var showCreatePR = false
     @State private var showMergeConflict = false
     @StateObject private var mergeConflictModel = MergeConflictModel()
+    @StateObject private var promptHistoryStore = PromptHistoryStore()
+    @State private var showPromptHistory = false
 
     var body: some View {
         ZStack {
@@ -179,6 +181,9 @@ struct ContentView: View {
             } : nil,
             onGoToSymbol: (filePreview.selectedURL != nil && filePreview.fileContent != nil && filePreview.activeTab == .source) ? { [weak filePreview] in
                 filePreview?.showSymbolOutline = true
+            } : nil,
+            onShowPromptHistory: workingDirectory.directoryURL != nil ? {
+                showPromptHistory = true
             } : nil
         ))
         .onChange(of: workingDirectory.directoryURL) { _, newURL in
@@ -190,6 +195,7 @@ struct ContentView: View {
             filePreview.close(persist: false)
             filePreview.rootDirectory = newURL
             terminalTabs.reset()
+            promptHistoryStore.configure(projectPath: newURL?.standardizedFileURL.path)
             if let url = newURL {
                 recentProjects.recordOpen(url)
                 changesModel.start(rootURL: url)
@@ -222,6 +228,13 @@ struct ContentView: View {
                 if let url = workingDirectory.directoryURL {
                     buildVerifier.run(at: url)
                 }
+                // Auto-select the first unreviewed changed file to kick off review workflow.
+                if autoFollow, let first = changesModel.changedFiles.first(where: { !changesModel.isReviewed($0) }) {
+                    filePreview.select(first.url)
+                    sidebarTab = .changes
+                    showSidebar = true
+                    fileTreeModel.revealFile(url: first.url)
+                }
             } else if isActive {
                 withAnimation(.easeInOut(duration: 0.25)) {
                     showTaskBanner = false
@@ -239,6 +252,8 @@ struct ContentView: View {
         .onAppear {
             filePreview.rootDirectory = workingDirectory.directoryURL
             notificationManager.connect(to: activityModel)
+            terminalProxy.historyStore = promptHistoryStore
+            promptHistoryStore.configure(projectPath: workingDirectory.directoryURL?.standardizedFileURL.path)
             if let url = workingDirectory.directoryURL {
                 recentProjects.recordOpen(url)
                 changesModel.start(rootURL: url)
@@ -267,6 +282,68 @@ struct ContentView: View {
                 onDismiss: { showCreatePR = false }
             )
         }
+    }
+
+    @ViewBuilder private var taskCompleteBannerView: some View {
+        let sensitiveCount = changesModel.changedFiles.filter { SensitiveFileClassifier.isSensitive($0.relativePath) }.count
+        TaskCompleteBanner(
+            changedFileCount: changesModel.changedFiles.count,
+            totalAdditions: changesModel.totalAdditions,
+            totalDeletions: changesModel.totalDeletions,
+            buildStatus: buildVerifier.status,
+            sensitiveFileCount: sensitiveCount,
+            buildDiagnostics: buildVerifier.diagnostics,
+            onOpenDiagnostic: { diagnostic in
+                let rootURL = workingDirectory.directoryURL
+                let url: URL
+                if (diagnostic.filePath as NSString).isAbsolutePath {
+                    url = URL(fileURLWithPath: diagnostic.filePath)
+                } else if let root = rootURL {
+                    url = root.appendingPathComponent(diagnostic.filePath)
+                } else {
+                    return
+                }
+                filePreview.select(url, line: diagnostic.line)
+            },
+            testStatus: testRunner.status,
+            onRunTests: workingDirectory.directoryURL != nil ? {
+                if let url = workingDirectory.directoryURL {
+                    testRunner.run(at: url)
+                }
+            } : nil,
+            onFixTestFailure: { output in
+                let prompt = "The test suite failed. Please fix the failing tests.\n\nTest output:\n\(output)"
+                terminalProxy.send(prompt + "\n")
+                showTaskBanner = false
+            },
+            onReviewAll: {
+                showDiffSummary = true
+                showTaskBanner = false
+            },
+            onStageAllAndCommit: {
+                changesModel.commitMessage = changesModel.generateCommitMessage(allFiles: true)
+                changesModel.stageAll()
+                sidebarTab = .changes
+                showTaskBanner = false
+            },
+            onNewTask: {
+                if let tv = terminalProxy.terminalView {
+                    tv.window?.makeFirstResponder(tv)
+                }
+                showTaskBanner = false
+            },
+            onDismiss: {
+                showTaskBanner = false
+            },
+            changedFiles: changesModel.changedFiles,
+            onOpenFileDiff: { file in
+                if let idx = changesModel.changedFiles.firstIndex(where: { $0.id == file.id }) {
+                    changesModel.focusedFileIndex = idx
+                }
+                showDiffSummary = true
+                showTaskBanner = false
+            }
+        )
     }
 
     private var projectView: some View {
@@ -317,11 +394,13 @@ struct ContentView: View {
                         activityModel: activityModel,
                         filePreview: filePreview,
                         recentProjects: recentProjects,
+                        promptHistoryStore: promptHistoryStore,
                         showSidebar: $showSidebar,
                         autoFollow: $autoFollow,
                         showBranchPicker: $showBranchPicker,
                         showInstructions: $showInstructions,
                         showCopilotActions: $showCopilotActions,
+                        showPromptHistory: $showPromptHistory,
                         showProjectSwitcher: $showProjectSwitcher,
                         onOpenDirectory: { browseForDirectory() },
                         onSwitchProject: { url in openDirectory(url) },
@@ -476,57 +555,8 @@ struct ContentView: View {
                     }
 
                     if showTaskBanner {
-                        TaskCompleteBanner(
-                            changedFileCount: changesModel.changedFiles.count,
-                            totalAdditions: changesModel.totalAdditions,
-                            totalDeletions: changesModel.totalDeletions,
-                            buildStatus: buildVerifier.status,
-                            sensitiveFileCount: changesModel.changedFiles.filter { SensitiveFileClassifier.isSensitive($0.relativePath) }.count,
-                            buildDiagnostics: buildVerifier.diagnostics,
-                            onOpenDiagnostic: { diagnostic in
-                                let rootURL = workingDirectory.directoryURL
-                                let url: URL
-                                if (diagnostic.filePath as NSString).isAbsolutePath {
-                                    url = URL(fileURLWithPath: diagnostic.filePath)
-                                } else if let root = rootURL {
-                                    url = root.appendingPathComponent(diagnostic.filePath)
-                                } else {
-                                    return
-                                }
-                                filePreview.select(url, line: diagnostic.line)
-                            },
-                            testStatus: testRunner.status,
-                            onRunTests: workingDirectory.directoryURL != nil ? {
-                                if let url = workingDirectory.directoryURL {
-                                    testRunner.run(at: url)
-                                }
-                            } : nil,
-                            onFixTestFailure: { output in
-                                let prompt = "The test suite failed. Please fix the failing tests.\n\nTest output:\n\(output)"
-                                terminalProxy.send(prompt + "\n")
-                                showTaskBanner = false
-                            },
-                            onReviewAll: {
-                                showDiffSummary = true
-                                showTaskBanner = false
-                            },
-                            onStageAllAndCommit: {
-                                changesModel.commitMessage = changesModel.generateCommitMessage(allFiles: true)
-                                changesModel.stageAll()
-                                sidebarTab = .changes
-                                showTaskBanner = false
-                            },
-                            onNewTask: {
-                                if let tv = terminalProxy.terminalView {
-                                    tv.window?.makeFirstResponder(tv)
-                                }
-                                showTaskBanner = false
-                            },
-                            onDismiss: {
-                                showTaskBanner = false
-                            }
-                        )
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                        taskCompleteBannerView
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
                     }
 
                     StatusBarView(
@@ -1056,6 +1086,11 @@ struct ContentView: View {
             } action: {
                 showCopilotActions = true
             },
+            PaletteCommand(id: "prompt-history", title: "Prompt History…", icon: "clock.arrow.circlepath", shortcut: "⌘Y", category: "Copilot") {
+                hasProject
+            } action: {
+                showPromptHistory = true
+            },
             PaletteCommand(id: "copilot-compact", title: "Copilot: Compact History", icon: "arrow.triangle.2.circlepath", shortcut: nil, category: "Copilot") {
                 hasProject
             } action: { [weak terminalProxy] in
@@ -1284,11 +1319,13 @@ struct ToolbarView: View {
     @ObservedObject var activityModel: ActivityFeedModel
     @ObservedObject var filePreview: FilePreviewModel
     @ObservedObject var recentProjects: RecentProjectsModel
+    @ObservedObject var promptHistoryStore: PromptHistoryStore
     @Binding var showSidebar: Bool
     @Binding var autoFollow: Bool
     @Binding var showBranchPicker: Bool
     @Binding var showInstructions: Bool
     @Binding var showCopilotActions: Bool
+    @Binding var showPromptHistory: Bool
     @Binding var showProjectSwitcher: Bool
     var onOpenDirectory: () -> Void
     var onSwitchProject: (URL) -> Void
@@ -1367,6 +1404,21 @@ struct ToolbarView: View {
             .help("Copilot Actions")
             .popover(isPresented: $showCopilotActions, arrowEdge: .bottom) {
                 CopilotActionsView(onDismiss: { showCopilotActions = false })
+            }
+
+            Button {
+                showPromptHistory.toggle()
+            } label: {
+                Image(systemName: "clock.arrow.circlepath")
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.borderless)
+            .help("Prompt History (⌘Y)")
+            .popover(isPresented: $showPromptHistory, arrowEdge: .bottom) {
+                PromptHistoryView(
+                    store: promptHistoryStore,
+                    onDismiss: { showPromptHistory = false }
+                )
             }
 
             Button {
@@ -1781,6 +1833,7 @@ private struct FocusedSceneModifier: ViewModifier {
     var onNextPreviewTab: (() -> Void)?
     var onPreviousPreviewTab: (() -> Void)?
     var onGoToSymbol: (() -> Void)?
+    var onShowPromptHistory: (() -> Void)?
 
     func body(content: Content) -> some View {
         content
@@ -1825,7 +1878,8 @@ private struct FocusedSceneModifier: ViewModifier {
             .modifier(FocusedSceneModifierD(
                 onNextPreviewTab: onNextPreviewTab,
                 onPreviousPreviewTab: onPreviousPreviewTab,
-                onGoToSymbol: onGoToSymbol
+                onGoToSymbol: onGoToSymbol,
+                onShowPromptHistory: onShowPromptHistory
             ))
     }
 }
@@ -1924,12 +1978,14 @@ private struct FocusedSceneModifierD: ViewModifier {
     var onNextPreviewTab: (() -> Void)?
     var onPreviousPreviewTab: (() -> Void)?
     var onGoToSymbol: (() -> Void)?
+    var onShowPromptHistory: (() -> Void)?
 
     func body(content: Content) -> some View {
         content
             .focusedSceneValue(\.nextPreviewTab, onNextPreviewTab)
             .focusedSceneValue(\.previousPreviewTab, onPreviousPreviewTab)
             .focusedSceneValue(\.goToSymbol, onGoToSymbol)
+            .focusedSceneValue(\.showPromptHistory, onShowPromptHistory)
     }
 }
 

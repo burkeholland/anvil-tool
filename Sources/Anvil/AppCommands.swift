@@ -171,6 +171,10 @@ struct GoToSymbolKey: FocusedValueKey {
     typealias Value = () -> Void
 }
 
+struct ShowPromptHistoryKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
 extension FocusedValues {
     var sidebarVisible: Binding<Bool>? {
         get { self[SidebarVisibleKey.self] }
@@ -381,6 +385,11 @@ extension FocusedValues {
         get { self[GoToSymbolKey.self] }
         set { self[GoToSymbolKey.self] = newValue }
     }
+
+    var showPromptHistory: (() -> Void)? {
+        get { self[ShowPromptHistoryKey.self] }
+        set { self[ShowPromptHistoryKey.self] = newValue }
+    }
 }
 
 // MARK: - View Menu Commands
@@ -424,6 +433,7 @@ struct ViewCommands: Commands {
     @FocusedValue(\.nextPreviewTab) var nextPreviewTab
     @FocusedValue(\.previousPreviewTab) var previousPreviewTab
     @FocusedValue(\.goToSymbol) var goToSymbol
+    @FocusedValue(\.showPromptHistory) var showPromptHistory
     @AppStorage("autoLaunchCopilot") private var autoLaunchCopilot = true
     @AppStorage("notificationsEnabled") private var notificationsEnabled = true
 
@@ -490,6 +500,12 @@ struct ViewCommands: Commands {
             }
             .keyboardShortcut("m", modifiers: [.command, .shift])
             .disabled(mentionInTerminal == nil)
+
+            Button("Prompt History…") {
+                showPromptHistory?()
+            }
+            .keyboardShortcut("y", modifiers: .command)
+            .disabled(showPromptHistory == nil)
 
             Divider()
 

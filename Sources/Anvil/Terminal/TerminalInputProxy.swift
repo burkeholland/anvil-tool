@@ -12,11 +12,20 @@ final class TerminalInputProxy: ObservableObject {
     /// Number of matches for the current search term across the full scrollback buffer.
     @Published var findMatchCount: Int = 0
 
+    /// Optional store for recording prompt history.
+    var historyStore: PromptHistoryStore?
+
     private var currentFindTerm: String = ""
     private var currentFindOptions: SearchOptions = SearchOptions()
 
     func send(_ text: String) {
         terminalView?.send(txt: text)
+    }
+
+    /// Records the prompt in history and sends it followed by a newline to the active terminal.
+    func sendPrompt(_ text: String) {
+        historyStore?.add(text)
+        send(text + "\n")
     }
 
     /// Sends a single control character (e.g. Ctrl+C = 0x03, Ctrl+D = 0x04).

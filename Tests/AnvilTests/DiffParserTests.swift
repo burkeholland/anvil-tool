@@ -197,10 +197,10 @@ final class DiffParserTests: XCTestCase {
 
     func testComputeCharDiffMiddleChange() {
         let (oldHL, newHL) = DiffParser.computeCharDiff(old: "let userId = guid()", new: "let userID = guid()")
-        // Common prefix: "let user", common suffix: " = guid()"
-        // old change: 8..<10 ("Id"), new change: 8..<10 ("ID")
-        XCTAssertEqual(oldHL, [8..<10])
-        XCTAssertEqual(newHL, [8..<10])
+        // Word-level LCS: "let", "=", "guid()" match; "userId" vs "userID" are the changed tokens
+        // "userId" occupies chars 4..<10 in the old string; "userID" occupies 4..<10 in the new string
+        XCTAssertEqual(oldHL, [4..<10])
+        XCTAssertEqual(newHL, [4..<10])
     }
 
     func testComputeCharDiffEntirelyDifferent() {
@@ -225,6 +225,58 @@ final class DiffParserTests: XCTestCase {
         XCTAssertTrue(newHL.isEmpty)
     }
 
+    // MARK: - Word-level LCS helpers
+
+    func testTokenize() {
+        let tokens = DiffParser.tokenize("let x = 42")
+        XCTAssertEqual(tokens.map(\.text), ["let", "x", "=", "42"])
+        XCTAssertEqual(tokens.map(\.range), [0..<3, 4..<5, 6..<7, 8..<10])
+    }
+
+    func testTokenizeLeadingTrailingWhitespace() {
+        let tokens = DiffParser.tokenize("  hello world  ")
+        XCTAssertEqual(tokens.map(\.text), ["hello", "world"])
+        XCTAssertEqual(tokens.map(\.range), [2..<7, 8..<13])
+    }
+
+    func testTokenizeEmpty() {
+        XCTAssertTrue(DiffParser.tokenize("").isEmpty)
+        XCTAssertTrue(DiffParser.tokenize("   ").isEmpty)
+    }
+
+    func testLCSTokenIndices() {
+        let pairs = DiffParser.lcsTokenIndices(old: ["a", "b", "c"], new: ["a", "x", "c"])
+        // LCS is ["a", "c"] at old indices (0, 2) and new indices (0, 2)
+        XCTAssertEqual(pairs.map(\.0), [0, 2])
+        XCTAssertEqual(pairs.map(\.1), [0, 2])
+    }
+
+    func testLCSTokenIndicesEmpty() {
+        XCTAssertTrue(DiffParser.lcsTokenIndices(old: [], new: ["a"]).isEmpty)
+        XCTAssertTrue(DiffParser.lcsTokenIndices(old: ["a"], new: []).isEmpty)
+    }
+
+    func testWordLevelDiffMiddleWordChanged() {
+        // "foo bar baz" → "foo ZAP baz": only the middle word changes
+        let (oldHL, newHL) = DiffParser.computeCharDiff(old: "foo bar baz", new: "foo ZAP baz")
+        XCTAssertEqual(oldHL, [4..<7])   // "bar"
+        XCTAssertEqual(newHL, [4..<7])   // "ZAP"
+    }
+
+    func testWordLevelDiffMultipleChangedWords() {
+        // "foo bar baz" → "qux bar quux": first and last words change, middle is common
+        let (oldHL, newHL) = DiffParser.computeCharDiff(old: "foo bar baz", new: "qux bar quux")
+        XCTAssertEqual(oldHL, [0..<3, 8..<11])    // "foo", "baz"
+        XCTAssertEqual(newHL, [0..<3, 8..<12])    // "qux", "quux"
+    }
+
+    func testWordLevelDiffAdjacentChangedTokensMerged() {
+        // "a b c d" → "a X Y d": two consecutive changed tokens merge into one range
+        let (oldHL, newHL) = DiffParser.computeCharDiff(old: "a b c d", new: "a X Y d")
+        XCTAssertEqual(oldHL, [2..<5])   // "b c" (merged)
+        XCTAssertEqual(newHL, [2..<5])   // "X Y" (merged)
+    }
+
     func testInlineHighlightsInParsedDiff() {
         let diffOutput = """
         diff --git a/test.swift b/test.swift
@@ -240,15 +292,16 @@ final class DiffParserTests: XCTestCase {
         let diffs = DiffParser.parse(diffOutput)
         let lines = diffs[0].hunks[0].lines
 
-        // Deletion line: "let value = oldFunc()" → highlight "old"
+        // Word-level LCS: "let", "value", "=" match; "oldFunc()" vs "newFunc()" are the changed tokens.
+        // "oldFunc()" occupies chars 12..<21 in "let value = oldFunc()"
         let deletionLine = lines.first { $0.kind == .deletion }!
         XCTAssertNotNil(deletionLine.inlineHighlights)
-        XCTAssertEqual(deletionLine.inlineHighlights, [12..<15])
+        XCTAssertEqual(deletionLine.inlineHighlights, [12..<21])
 
-        // Addition line: "let value = newFunc()" → highlight "new"
+        // Addition line: "let value = newFunc()" → highlight "newFunc()"
         let additionLine = lines.first { $0.kind == .addition }!
         XCTAssertNotNil(additionLine.inlineHighlights)
-        XCTAssertEqual(additionLine.inlineHighlights, [12..<15])
+        XCTAssertEqual(additionLine.inlineHighlights, [12..<21])
     }
 
     func testNoInlineHighlightsWhenUnpaired() {
