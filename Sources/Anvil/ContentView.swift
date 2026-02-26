@@ -1741,11 +1741,7 @@ struct ToolbarView: View {
     var onFocusTerminal: (() -> Void)?
 
     var body: some View {
-        HStack(spacing: 12) {
-            Button {
-                showSidebar.toggle()
-            } label: {
-                Image(systemName: "sidebar.leading")
+        HStack(spacing: Spacing.md) {
             }
             .buttonStyle(.borderless)
             .help("Toggle Sidebar (⌘B)")
@@ -1767,12 +1763,7 @@ struct ToolbarView: View {
                 Button {
                     showBranchPicker.toggle()
                 } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: "arrow.triangle.branch")
-                            .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
-                        Text(branch)
-                            .font(.system(.body, design: .monospaced))
+                    HStack(spacing: Spacing.xs) {
                             .lineLimit(1)
                             .truncationMode(.middle)
                         Image(systemName: "chevron.down")
@@ -1828,13 +1819,8 @@ struct ToolbarView: View {
                 onCloneRepository: onCloneRepository
             )
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(.bar)
-        .overlay(alignment: .bottom) { Divider() }
-    }
-
-    /// Quick check for whether any instruction files exist in the project.
+        .padding(.horizontal, Spacing.md)
+        .padding(.vertical, Spacing.sm)
     private var hasInstructionFiles: Bool {
         guard let rootURL = workingDirectory.directoryURL else { return false }
         let fm = FileManager.default
@@ -2468,21 +2454,15 @@ struct SidebarView: View {
 
                 Spacer()
             }
-            .padding(.top, 12)
-            .padding(.bottom, 8)
-            .padding(.horizontal, 12)
-            .background(.bar)
-
-            Divider()
-
-            // Content
-            switch activeTab {
+            .padding(.top, Spacing.md)
+            .padding(.bottom, Spacing.sm)
+            .padding(.horizontal, Spacing.md)
             case .files:
                 if let rootURL = model.directoryURL {
                     FileTreeView(rootURL: rootURL, filePreview: filePreview, model: fileTreeModel, activityModel: activityModel, contextStore: contextStore)
                         .id(rootURL)
                 } else {
-                    VStack(spacing: 12) {
+                    VStack(spacing: Spacing.md) {
                         Spacer()
                         Image(systemName: "folder.badge.questionmark")
                             .font(.system(size: 32))
@@ -2515,7 +2495,7 @@ struct SidebarView: View {
                         rootURL: rootURL
                     )
                 } else {
-                    VStack(spacing: 12) {
+                    VStack(spacing: Spacing.md) {
                         Spacer()
                         Image(systemName: "clock.arrow.circlepath")
                             .font(.system(size: 32))

@@ -98,8 +98,7 @@ private struct TerminalTabItem: View {
     @State private var isWaitingPulsing = false
 
     var body: some View {
-        HStack(spacing: 5) {
-            Image(systemName: tab.launchCopilot ? "sparkle" : "terminal")
+        HStack(spacing: Spacing.sm) {
                 .font(.system(size: 10))
                 .foregroundStyle(tab.launchCopilot && isActive ? .purple : .secondary)
 
