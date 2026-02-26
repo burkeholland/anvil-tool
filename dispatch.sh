@@ -343,14 +343,14 @@ PLIST
 
   # Launch via `open` (handles activation + window server registration properly)
   log "   Launching Anvil..."
-  open "$APP_BUNDLE"
+  open -g -j "$APP_BUNDLE"
   sleep 6
 
   # Find the content window (height > 50 to skip menu bar items)
   local window_id
   window_id="$(swift -e '
 import CoreGraphics
-if let windows = CGWindowListCopyWindowInfo(.optionOnScreenOnly, kCGNullWindowID) as? [[String: Any]] {
+if let windows = CGWindowListCopyWindowInfo([.optionAll], kCGNullWindowID) as? [[String: Any]] {
     for w in windows {
         let name = w[kCGWindowOwnerName as String] as? String ?? ""
         if name.contains("Anvil") {
