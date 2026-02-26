@@ -298,46 +298,19 @@ capture_app_screenshot() {
   local tab="$1"
   local output="$2"
 
-  # Map tab name to ⌘ shortcut number
-  local shortcut
-  case "$tab" in
-    files)   shortcut="1" ;;
-    changes) shortcut="2" ;;
-    activity) shortcut="3" ;;
-    search)  shortcut="4" ;;
-    history) shortcut="5" ;;
-    *)       shortcut="1" ;;
-  esac
-
-  # Set project directory via UserDefaults before launch
-  defaults write dev.burkeholland.anvil "dev.anvil.lastOpenedDirectory" "$SCRIPT_DIR"
-
   # Kill any existing Anvil instance
   local existing_pid
   existing_pid="$(pgrep -x Anvil)" && kill "$existing_pid" 2>/dev/null && sleep 1
 
-  # Launch in background (no focus steal)
-  open -g "$APP_BUNDLE"
+  # Launch with --screenshot-mode (forces sidebar open) and project path
+  open -g "$APP_BUNDLE" --args --screenshot-mode "$SCRIPT_DIR"
   sleep 3
 
-  # Activate, resize, and use ⌘N keystroke to switch tab (forces sidebar open)
-  osascript -e "
-    tell application \"Anvil\" to activate
-    delay 1
-    tell application \"System Events\"
-      tell process \"Anvil\"
-        try
-          set frontmost to true
-          tell window 1
-            set position to {100, 100}
-            set size to {1400, 900}
-          end tell
-          keystroke \"${shortcut}\" using command down
-        end try
-      end tell
-    end tell
-    delay 3
-  " 2>/dev/null || true
+  # Activate so macOS composites the window
+  osascript -e '
+    tell application "Anvil" to activate
+    delay 4
+  ' 2>/dev/null || true
 
   # Find the content window (largest by area, skip menu bar items)
   local window_id

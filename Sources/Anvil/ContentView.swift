@@ -273,6 +273,10 @@ struct ContentView: View {
             }
         }
         .onAppear {
+            if CommandLine.arguments.contains("--screenshot-mode") {
+                showSidebar = true
+                sidebarTab = .files
+            }
             filePreview.rootDirectory = workingDirectory.directoryURL
             notificationManager.connect(to: activityModel)
             terminalProxy.historyStore = promptHistoryStore
