@@ -64,6 +64,7 @@ struct KeyboardShortcutsView: View {
                         ])
 
                         shortcutSection("Terminal", shortcuts: [
+                            ("⌘⇧N", "New Task"),
                             ("⌘T", "New Shell Tab"),
                             ("⌘⇧T", "New Copilot Tab"),
                             ("⌘D", "Split Terminal Right"),

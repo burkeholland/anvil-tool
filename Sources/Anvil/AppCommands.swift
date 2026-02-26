@@ -179,6 +179,10 @@ struct ToggleDiffViewModeKey: FocusedValueKey {
     typealias Value = () -> Void
 }
 
+struct NewTaskKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
 extension FocusedValues {
     var sidebarVisible: Binding<Bool>? {
         get { self[SidebarVisibleKey.self] }
@@ -399,6 +403,11 @@ extension FocusedValues {
         get { self[ToggleDiffViewModeKey.self] }
         set { self[ToggleDiffViewModeKey.self] = newValue }
     }
+
+    var newTask: (() -> Void)? {
+        get { self[NewTaskKey.self] }
+        set { self[NewTaskKey.self] = newValue }
+    }
 }
 
 // MARK: - View Menu Commands
@@ -444,11 +453,20 @@ struct ViewCommands: Commands {
     @FocusedValue(\.showPromptHistory) var showPromptHistory
     @FocusedValue(\.goToTestFile) var goToTestFile
     @FocusedValue(\.toggleDiffViewMode) var toggleDiffViewMode
+    @FocusedValue(\.newTask) var newTask
     @AppStorage("autoLaunchCopilot") private var autoLaunchCopilot = true
     @AppStorage("notificationsEnabled") private var notificationsEnabled = true
 
     var body: some Commands {
         CommandGroup(after: .sidebar) {
+            Button("New Task…") {
+                newTask?()
+            }
+            .keyboardShortcut("n", modifiers: [.command, .shift])
+            .disabled(newTask == nil)
+
+            Divider()
+
             Button("Command Palette…") {
                 showCommandPalette?()
             }

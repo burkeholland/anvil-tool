@@ -40,6 +40,9 @@ struct ContentView: View {
     @StateObject private var testRunner = TestRunner()
     @State private var isDroppingFileToTerminal = false
     @State private var showTaskBanner = false
+    @State private var showNewTask = false
+    @State private var newTaskToast: String? = nil
+    @State private var newTaskToastDismissTask: DispatchWorkItem? = nil
     @State private var showBranchGuardBanner = false
     @State private var branchGuardTriggered = false
     @AppStorage("branchGuardBehavior") private var branchGuardBehavior = "warn"
@@ -102,7 +105,23 @@ struct ContentView: View {
 
                 KeyboardShortcutsView(onDismiss: { showKeyboardShortcuts = false })
             }
+
+            // New-task confirmation toast
+            if let toast = newTaskToast {
+                VStack {
+                    Spacer()
+                    Text(toast)
+                        .font(.system(size: 12, weight: .medium))
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 9)
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+                        .padding(.bottom, 16)
+                }
+                .allowsHitTesting(false)
+                .transition(.opacity.combined(with: .move(edge: .bottom)))
+            }
         }
+        .animation(.easeInOut(duration: 0.25), value: newTaskToast != nil)
         .dropDestination(for: URL.self) { urls, _ in
             handleDrop(urls)
         } isTargeted: { targeted in
@@ -205,6 +224,9 @@ struct ContentView: View {
                 if let counterpart = filePreview?.testFileCounterpart {
                     filePreview?.select(counterpart)
                 }
+            } : nil,
+            onNewTask: workingDirectory.directoryURL != nil ? {
+                showNewTask = true
             } : nil
         ))
         .onChange(of: workingDirectory.directoryURL) { _, newURL in
@@ -375,6 +397,23 @@ struct ContentView: View {
                 onDismiss: { showCloneSheet = false }
             )
         }
+        .sheet(isPresented: $showNewTask) {
+            if let rootURL = workingDirectory.directoryURL {
+                NewTaskView(
+                    rootURL: rootURL,
+                    changedFiles: changesModel.changedFiles,
+                    stagedFiles: changesModel.stagedFiles,
+                    generatedCommitMessage: changesModel.generateCommitMessage(allFiles: true),
+                    lastPrompt: promptHistoryStore.entries.first?.text,
+                    onComplete: { toast in
+                        showNewTask = false
+                        showNewTaskToast(toast)
+                    },
+                    onDismiss: { showNewTask = false }
+                )
+                .environmentObject(terminalProxy)
+            }
+        }
         .sheet(isPresented: $showCreatePR) {
             CreatePullRequestView(
                 workingDirectory: workingDirectory,
@@ -446,10 +485,8 @@ struct ContentView: View {
                 showTaskBanner = false
             },
             onNewTask: {
-                if let tv = terminalProxy.terminalView {
-                    tv.window?.makeFirstResponder(tv)
-                }
                 showTaskBanner = false
+                showNewTask = true
             },
             onDismiss: {
                 showTaskBanner = false
@@ -532,6 +569,9 @@ struct ContentView: View {
                         onCompact: {
                             terminalProxy.send("/compact\n")
                             sessionHealthMonitor.reset()
+                        },
+                        onNewTask: {
+                            showNewTask = true
                         },
                         onFocusTerminal: {
                             if let tv = terminalProxy.terminalView {
@@ -877,6 +917,15 @@ struct ContentView: View {
             return
         }
         workingDirectory.setDirectory(url)
+    }
+
+    /// Shows a short confirmation toast that auto-dismisses after 3 seconds.
+    private func showNewTaskToast(_ message: String) {
+        newTaskToastDismissTask?.cancel()
+        newTaskToast = message
+        let task = DispatchWorkItem { newTaskToast = nil }
+        newTaskToastDismissTask = task
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3, execute: task)
     }
 
     private func browseForDirectory() {
@@ -1276,6 +1325,11 @@ struct ContentView: View {
             } action: {
                 showPromptHistory = true
             },
+            PaletteCommand(id: "new-task", title: "New Task…", icon: "plus.circle", shortcut: "⌘⇧N", category: "Actions") {
+                hasProject
+            } action: {
+                showNewTask = true
+            },
             PaletteCommand(id: "copilot-compact", title: "Copilot: Compact History", icon: "arrow.triangle.2.circlepath", shortcut: nil, category: "Copilot") {
                 hasProject
             } action: { [weak terminalProxy] in
@@ -1519,6 +1573,7 @@ struct ToolbarView: View {
     var onSwitchProject: (URL) -> Void
     var onCloneRepository: () -> Void
     var onCompact: () -> Void
+    var onNewTask: () -> Void
     /// Called when the "Agent needs input" indicator is tapped so the terminal
     /// can be focused.
     var onFocusTerminal: (() -> Void)?
@@ -1646,6 +1701,20 @@ struct ToolbarView: View {
                     )
                 }
             }
+
+            Button {
+                onNewTask()
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "plus.circle")
+                        .font(.system(size: 10))
+                    Text("New Task")
+                        .font(.system(size: 12))
+                }
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .help("New Task (⌘⇧N)")
 
             Button {
                 showProjectSwitcher.toggle()
@@ -2023,10 +2092,7 @@ private struct FocusedSceneModifier: ViewModifier {
     var onPreviousPreviewTab: (() -> Void)?
     var onShowPromptHistory: (() -> Void)?
     var onGoToTestFile: (() -> Void)?
-
-    func body(content: Content) -> some View {
-        content
-            .modifier(FocusedSceneModifierA(
+    var onNewTask: (() -> Void)?
                 showSidebar: $showSidebar,
                 sidebarTab: $sidebarTab,
                 autoFollow: $autoFollow,
@@ -2068,7 +2134,8 @@ private struct FocusedSceneModifier: ViewModifier {
                 onNextPreviewTab: onNextPreviewTab,
                 onPreviousPreviewTab: onPreviousPreviewTab,
                 onShowPromptHistory: onShowPromptHistory,
-                onGoToTestFile: onGoToTestFile
+                onGoToTestFile: onGoToTestFile,
+                onNewTask: onNewTask
             ))
     }
 }
@@ -2168,6 +2235,7 @@ private struct FocusedSceneModifierD: ViewModifier {
     var onPreviousPreviewTab: (() -> Void)?
     var onShowPromptHistory: (() -> Void)?
     var onGoToTestFile: (() -> Void)?
+    var onNewTask: (() -> Void)?
 
     func body(content: Content) -> some View {
         content
@@ -2175,6 +2243,7 @@ private struct FocusedSceneModifierD: ViewModifier {
             .focusedSceneValue(\.previousPreviewTab, onPreviousPreviewTab)
             .focusedSceneValue(\.showPromptHistory, onShowPromptHistory)
             .focusedSceneValue(\.goToTestFile, onGoToTestFile)
+            .focusedSceneValue(\.newTask, onNewTask)
     }
 }
 
