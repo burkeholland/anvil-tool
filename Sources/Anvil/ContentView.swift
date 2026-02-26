@@ -398,7 +398,8 @@ struct ContentView: View {
                         onCreatePR: { showCreatePR = true },
                         onResolveConflicts: { fileURL in
                             if let rootURL = workingDirectory.directoryURL {
-                                mergeConflictModel.load(fileURL: fileURL, rootURL: rootURL)
+                                let allConflictURLs = changesModel.conflictedFiles.map { $0.url }
+                                mergeConflictModel.load(fileURL: fileURL, rootURL: rootURL, allConflictURLs: allConflictURLs)
                             }
                             showDiffSummary = false
                             showBranchDiff = false
@@ -609,6 +610,11 @@ struct ContentView: View {
                                 onDismiss: {
                                     showMergeConflict = false
                                     mergeConflictModel.close()
+                                },
+                                onNavigateToFile: { fileURL in
+                                    if let rootURL = workingDirectory.directoryURL {
+                                        mergeConflictModel.load(fileURL: fileURL, rootURL: rootURL, allConflictURLs: mergeConflictModel.allConflictURLs)
+                                    }
                                 }
                             )
                         } else if showBranchDiff {
