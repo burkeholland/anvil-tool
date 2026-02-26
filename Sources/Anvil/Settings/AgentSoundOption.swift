@@ -4,7 +4,6 @@ import Foundation
 enum UserDefaultsKeys {
     static let playSoundOnAgentFinish = "playSoundOnAgentFinish"
     static let agentFinishSoundName = "agentFinishSoundName"
-    static let showNotificationOnAgentFinish = "showNotificationOnAgentFinish"
 }
 
 /// The set of curated macOS system sounds available in Anvil's settings.

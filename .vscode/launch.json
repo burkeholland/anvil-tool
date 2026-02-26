@@ -1,0 +1,24 @@
+{
+    "configurations": [
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:anvil}",
+            "name": "Debug Anvil",
+            "target": "Anvil",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug Anvil"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:anvil}",
+            "name": "Release Anvil",
+            "target": "Anvil",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release Anvil"
+        }
+    ]
+}
