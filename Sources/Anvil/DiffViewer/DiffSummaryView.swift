@@ -770,7 +770,7 @@ struct AnnotationsListView: View {
 
             if filteredAnnotations.isEmpty {
                 Spacer()
-                Text(annotationStore.isEmpty ? "No annotations yet" : "No results for "\(filterText)"")
+                Text(annotationStore.isEmpty ? "No annotations yet" : "No results for \"\(filterText)\"")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                 Spacer()
