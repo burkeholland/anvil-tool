@@ -130,6 +130,15 @@ phase_merge() {
     [ -z "$pr_num" ] && continue
     log "   Checking PR #$pr_num..."
 
+    # Only action PRs linked to issues with our label (ignore community PRs)
+    local linked_labels
+    linked_labels="$(gh pr view "$pr_num" --repo "$REPO" --json closingIssuesReferences \
+      --jq '[.closingIssuesReferences[].labels[].name] | join(",")')" || linked_labels=""
+    if ! echo "$linked_labels" | grep -q "$LABEL"; then
+      log "   ⏭️  PR #$pr_num not linked to a $LABEL issue. Skipping."
+      continue
+    fi
+
     if [ "$DRY_RUN" = true ]; then
       log "   [DRY RUN] Would attempt to merge PR #$pr_num"
       continue
