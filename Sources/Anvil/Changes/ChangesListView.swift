@@ -530,8 +530,16 @@ struct ChangesListView: View {
                     model.focusPreviousFile()
                     if let url = model.focusedFile?.url { filePreview.select(url) }
                     return .handled
-                case "j", "n": model.focusNextHunk(); return .handled
-                case "k", "p": model.focusPreviousHunk(); return .handled
+                case "n":
+                    model.focusNextUnreviewedFile()
+                    if let url = model.focusedFile?.url { filePreview.select(url) }
+                    return .handled
+                case "p":
+                    model.focusPreviousUnreviewedFile()
+                    if let url = model.focusedFile?.url { filePreview.select(url) }
+                    return .handled
+                case "j": model.focusNextHunk(); return .handled
+                case "k": model.focusPreviousHunk(); return .handled
                 case "s": model.stageFocusedHunk(); return .handled
                 case "u": model.unstageFocusedHunk(); return .handled
                 case "d": model.discardFocusedHunk(); return .handled
@@ -1155,6 +1163,15 @@ struct CommitFormView: View {
                     Text("\(model.unreviewedStagedCount) staged file\(model.unreviewedStagedCount == 1 ? "" : "s") not yet reviewed")
                         .font(.system(size: 10))
                         .foregroundStyle(.orange.opacity(0.9))
+                }
+            } else if model.reviewedCount > 0 && model.reviewedCount == model.changedFiles.count {
+                HStack(spacing: 4) {
+                    Image(systemName: "checkmark.seal.fill")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.green)
+                    Text("All changes reviewed — ready to commit")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.green.opacity(0.9))
                 }
             }
 

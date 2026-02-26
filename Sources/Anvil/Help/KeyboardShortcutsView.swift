@@ -56,6 +56,9 @@ struct KeyboardShortcutsView: View {
                             ("⌘⇧D", "Review All Changes"),
                             ("⌃⌘↓", "Next Changed File"),
                             ("⌃⌘↑", "Previous Changed File"),
+                            ("N", "Next Unreviewed File"),
+                            ("P", "Previous Unreviewed File"),
+                            ("R", "Toggle File Reviewed"),
                             ("⌘L", "Go to Line"),
                         ])
 

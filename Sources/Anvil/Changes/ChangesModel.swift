@@ -411,6 +411,30 @@ final class ChangesModel: ObservableObject {
         focusedHunkIndex = nil
     }
 
+    func focusNextUnreviewedFile() {
+        let unreviewedIndices = changedFiles.indices.filter { !reviewedPaths.contains(changedFiles[$0].relativePath) }
+        guard let firstUnreviewed = unreviewedIndices.first else { return }
+        if let current = focusedFileIndex,
+           let next = unreviewedIndices.first(where: { $0 > current }) {
+            focusedFileIndex = next
+        } else {
+            focusedFileIndex = firstUnreviewed
+        }
+        focusedHunkIndex = nil
+    }
+
+    func focusPreviousUnreviewedFile() {
+        let unreviewedIndices = changedFiles.indices.filter { !reviewedPaths.contains(changedFiles[$0].relativePath) }
+        guard let lastUnreviewed = unreviewedIndices.last else { return }
+        if let current = focusedFileIndex,
+           let prev = unreviewedIndices.last(where: { $0 < current }) {
+            focusedFileIndex = prev
+        } else {
+            focusedFileIndex = lastUnreviewed
+        }
+        focusedHunkIndex = nil
+    }
+
     func focusNextHunk() {
         guard let file = focusedFile,
               let hunks = file.diff?.hunks,
