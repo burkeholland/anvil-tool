@@ -41,6 +41,8 @@ final class ChangesModel: ObservableObject {
     @Published var lastUndoneCommitSHA: String?
     /// Error message from the most recent hunk-level operation.
     @Published var lastHunkError: String?
+    /// The patch that was last discarded via "Discard Hunk", kept for a few seconds so the user can undo.
+    @Published var lastDiscardedHunkPatch: String?
 
     // MARK: - Review Tracking
 
@@ -75,6 +77,7 @@ final class ChangesModel: ObservableObject {
     private var refreshGeneration: UInt64 = 0
     private var commitGeneration: UInt64 = 0
     private var stashGeneration: UInt64 = 0
+    private var discardHunkGeneration: UInt64 = 0
     private var fileWatcher: FileWatcher?
 
     deinit {
@@ -650,7 +653,34 @@ final class ChangesModel: ObservableObject {
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let (success, error) = Self.runGitApply(patch: patch, args: ["apply", "--reverse"], at: rootURL)
             DispatchQueue.main.async {
-                if !success { self?.lastHunkError = error ?? "Failed to discard hunk" }
+                if success {
+                    self?.discardHunkGeneration &+= 1
+                    let generation = self?.discardHunkGeneration ?? 0
+                    self?.lastDiscardedHunkPatch = patch
+                    // Auto-dismiss the undo toast after 8 seconds
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self] in
+                        if self?.discardHunkGeneration == generation {
+                            self?.lastDiscardedHunkPatch = nil
+                        }
+                    }
+                } else {
+                    self?.lastHunkError = error ?? "Failed to discard hunk"
+                }
+                self?.refresh()
+            }
+        }
+    }
+
+    /// Re-apply the last discarded hunk patch to undo a hunk discard.
+    func undoDiscardHunk() {
+        guard let rootURL = rootDirectory, let patch = lastDiscardedHunkPatch else { return }
+        discardHunkGeneration &+= 1
+        lastDiscardedHunkPatch = nil
+        lastHunkError = nil
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let (success, error) = Self.runGitApply(patch: patch, args: ["apply"], at: rootURL)
+            DispatchQueue.main.async {
+                if !success { self?.lastHunkError = error ?? "Failed to undo hunk discard" }
                 self?.refresh()
             }
         }
