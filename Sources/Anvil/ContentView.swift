@@ -304,8 +304,12 @@ struct ContentView: View {
             checkBranchGuard()
         }
         .onChange(of: activityModel.latestFileChange) { _, change in
+            // Only show diff toasts during active agent sessions (after the user
+            // has sent at least one prompt), so startup filesystem scans don't
+            // trigger spurious toasts on project open.
             guard autoDiffToasts, let change = change,
-                  let rootURL = workingDirectory.directoryURL else { return }
+                  let rootURL = workingDirectory.directoryURL,
+                  terminalProxy.promptSentCount > 0 else { return }
             diffToastController.reportFileChange(change.url, rootURL: rootURL)
         }
         .onChange(of: filePreview.selectedURL) { _, newURL in
