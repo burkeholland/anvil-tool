@@ -20,6 +20,14 @@ final class FileTreeModel: ObservableObject {
     @Published var showChangedOnly: Bool = false {
         didSet { rebuildEntries() }
     }
+    /// Absolute paths (standardized) of files referenced by the agent in terminal output.
+    @Published private(set) var agentReferencedPaths: Set<String> = []
+    /// When true, the tree shows only agent-referenced files and their ancestor directories.
+    @Published var showAgentTouchedOnly: Bool = false {
+        didSet { rebuildEntries() }
+    }
+    /// Ancestor directories of agent-referenced files, used for tree filtering.
+    private var agentTouchedDirPaths: Set<String> = []
     /// Flat list of all files for search filtering.
     @Published private(set) var searchResults: [FileSearchResult] = []
     /// Set when a file should be scrolled into view. Each reveal gets a unique token
@@ -86,7 +94,37 @@ final class FileTreeModel: ObservableObject {
 
     func isExpanded(_ url: URL) -> Bool {
         if showChangedOnly { return true }
+        if showAgentTouchedOnly { return true }
         return expandedDirs.contains(url)
+    }
+
+    /// Records that the agent referenced the given file in terminal output.
+    /// Idempotent — calling it multiple times for the same URL is a no-op.
+    func markAgentReference(_ url: URL) {
+        let path = url.standardizedFileURL.path
+        guard !agentReferencedPaths.contains(path) else { return }
+        agentReferencedPaths.insert(path)
+        updateAgentTouchedDirs(for: path)
+        if showAgentTouchedOnly { rebuildEntries() }
+    }
+
+    /// Clears all agent file references. Call when switching projects or starting a new session.
+    func clearAgentReferences() {
+        agentReferencedPaths = []
+        agentTouchedDirPaths = []
+        if showAgentTouchedOnly { rebuildEntries() }
+    }
+
+    private func updateAgentTouchedDirs(for path: String) {
+        guard let rootURL = rootURL else { return }
+        let rootPath = rootURL.standardizedFileURL.path
+        var dir = (path as NSString).deletingLastPathComponent
+        while dir.count >= rootPath.count {
+            agentTouchedDirPaths.insert(dir)
+            let parent = (dir as NSString).deletingLastPathComponent
+            if parent == dir { break }
+            dir = parent
+        }
     }
 
     /// Expands all ancestor directories of `url` so it becomes visible, then
@@ -104,6 +142,11 @@ final class FileTreeModel: ObservableObject {
         // mode so the file is actually visible in the tree after the reveal.
         if showChangedOnly && gitStatuses[url.standardizedFileURL.path] == nil {
             showChangedOnly = false
+        }
+
+        // Similarly exit agent-only mode if the file hasn't been referenced by the agent.
+        if showAgentTouchedOnly && !agentReferencedPaths.contains(url.standardizedFileURL.path) {
+            showAgentTouchedOnly = false
         }
 
         // Expand every ancestor directory from root down to the file's parent
@@ -253,6 +296,16 @@ final class FileTreeModel: ObservableObject {
                     buildEntries(for: child.url, depth: depth + 1, into: &entries)
                 } else {
                     guard gitStatuses[path] != nil else { continue }
+                    entries.append(child)
+                }
+            } else if showAgentTouchedOnly {
+                let path = child.url.standardizedFileURL.path
+                if child.isDirectory {
+                    guard agentTouchedDirPaths.contains(path) else { continue }
+                    entries.append(child)
+                    buildEntries(for: child.url, depth: depth + 1, into: &entries)
+                } else {
+                    guard agentReferencedPaths.contains(path) else { continue }
                     entries.append(child)
                 }
             } else {

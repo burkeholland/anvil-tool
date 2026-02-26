@@ -237,6 +237,7 @@ struct ContentView: View {
             terminalTabs.reset()
             sessionHealthMonitor.reset()
             promptMarkerStore.clear()
+            fileTreeModel.clearAgentReferences()
             promptHistoryStore.configure(projectPath: newURL?.standardizedFileURL.path)
             if let url = newURL {
                 recentProjects.recordOpen(url)
@@ -503,6 +504,7 @@ struct ContentView: View {
                 filePreview.select(url, line: line)
             },
             onOutputFilePath: { url in
+                fileTreeModel.markAgentReference(url)
                 guard autoFollow else { return }
                 followAgent.reportChange(url)
             },
@@ -652,6 +654,7 @@ struct ContentView: View {
                                         filePreview.select(url, line: line)
                                     },
                                     onOutputFilePath: { url in
+                                        fileTreeModel.markAgentReference(url)
                                         guard autoFollow else { return }
                                         followAgent.reportChange(url)
                                     },
