@@ -165,10 +165,19 @@ struct DiffSummaryView: View {
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
 
-                if changesModel.reviewedCount > 0 {
-                    Text("(\(changesModel.reviewedCount)/\(changesModel.changedFiles.count) reviewed)")
-                        .font(.system(size: 10))
-                        .foregroundStyle(changesModel.reviewedCount == changesModel.changedFiles.count ? .green : .blue.opacity(0.7))
+                if changesModel.reviewedCount > 0 || changesModel.needsWorkCount > 0 {
+                    let attested = changesModel.reviewedCount + changesModel.needsWorkCount
+                    let total = changesModel.changedFiles.count
+                    let isComplete = attested == total && total > 0
+                    if changesModel.needsWorkCount > 0 {
+                        Text("(\(changesModel.reviewedCount) reviewed · \(changesModel.needsWorkCount) needs work)")
+                            .font(.system(size: 10))
+                            .foregroundStyle(isComplete ? .green : .blue.opacity(0.7))
+                    } else {
+                        Text("(\(changesModel.reviewedCount)/\(total) reviewed)")
+                            .font(.system(size: 10))
+                            .foregroundStyle(isComplete ? .green : .blue.opacity(0.7))
+                    }
                 }
 
                 if totalRiskFlagCount > 0 {
@@ -362,16 +371,26 @@ struct DiffSummaryView: View {
                 .buttonStyle(.borderless)
                 .help("Request Fix for this file")
 
-                // Review toggle
+                // Review toggle — cycles: unreviewed → reviewed ✓ → needs work ✗ → unreviewed
                 Button {
                     changesModel.toggleReviewed(file)
                 } label: {
-                    Image(systemName: changesModel.isReviewed(file) ? "eye.fill" : "eye")
-                        .font(.system(size: 10))
-                        .foregroundStyle(changesModel.isReviewed(file) ? .blue : .secondary)
+                    Group {
+                        if changesModel.isReviewed(file) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundStyle(Color.green.opacity(0.8))
+                        } else if changesModel.isNeedsWork(file) {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(Color.red.opacity(0.8))
+                        } else {
+                            Image(systemName: "circle")
+                                .foregroundStyle(Color.secondary.opacity(0.5))
+                        }
+                    }
+                    .font(.system(size: 12))
                 }
                 .buttonStyle(.borderless)
-                .help(changesModel.isReviewed(file) ? "Mark as Unreviewed" : "Mark as Reviewed")
+                .help(changesModel.isReviewed(file) ? "Needs work (R)" : changesModel.isNeedsWork(file) ? "Clear review (R)" : "Mark as reviewed (R)")
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 6)

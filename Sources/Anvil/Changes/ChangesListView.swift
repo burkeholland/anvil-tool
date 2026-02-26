@@ -159,6 +159,7 @@ struct ChangesListView: View {
                     .buttonStyle(.plain)
                     ReviewProgressBar(
                         reviewed: model.reviewedCount,
+                        needsWork: model.needsWorkCount,
                         total: model.changedFiles.count,
                         showOnlyUnreviewed: $showOnlyUnreviewed,
                         onMarkAll: { model.markAllReviewed() },
@@ -436,7 +437,7 @@ struct ChangesListView: View {
             let covMap = testCoverageMap
             let refMap = brokenReferenceMap
             Section {
-                let files = showOnlyUnreviewed ? displayedStagedFiles.filter { !model.isReviewed($0) } : displayedStagedFiles
+                let files = showOnlyUnreviewed ? displayedStagedFiles.filter { !model.isReviewed($0) && !model.isNeedsWork($0) } : displayedStagedFiles
                 groupedFileRows(files: ReviewPriorityScorer.sorted(files), isStaged: true, coverageMap: covMap, brokenReferenceMap: refMap)
             } header: {
                 HStack(spacing: 8) {
@@ -462,7 +463,7 @@ struct ChangesListView: View {
             let covMap = testCoverageMap
             let refMap = brokenReferenceMap
             Section {
-                let files = showOnlyUnreviewed ? displayedUnstagedFiles.filter { !model.isReviewed($0) } : displayedUnstagedFiles
+                let files = showOnlyUnreviewed ? displayedUnstagedFiles.filter { !model.isReviewed($0) && !model.isNeedsWork($0) } : displayedUnstagedFiles
                 groupedFileRows(files: ReviewPriorityScorer.sorted(files), isStaged: false, coverageMap: covMap, brokenReferenceMap: refMap)
             } header: {
                 unstagedSectionHeader
@@ -897,6 +898,7 @@ struct ChangesListView: View {
             isSelected: filePreview.selectedURL == file.url,
             isStaged: isStaged,
             isReviewed: model.isReviewed(file),
+            isNeedsWork: model.isNeedsWork(file),
             isFocused: fileIdx == model.focusedFileIndex,
             isSensitive: isSensitive,
             showDirectoryLabel: showDirectoryLabel,
@@ -1067,14 +1069,16 @@ struct ChangesListView: View {
 
     @ViewBuilder
     private func changedFileContextMenu(file: ChangedFile, isStaged: Bool) -> some View {
-        // Review toggle
+        // Review toggle — cycles: unreviewed → reviewed ✓ → needs work ✗ → unreviewed
         Button {
             model.toggleReviewed(file)
         } label: {
             if model.isReviewed(file) {
-                Label("Mark as Unreviewed", systemImage: "eye.slash")
+                Label("Mark as Needs Work", systemImage: "xmark.circle")
+            } else if model.isNeedsWork(file) {
+                Label("Clear Review Status", systemImage: "circle")
             } else {
-                Label("Mark as Reviewed", systemImage: "eye")
+                Label("Mark as Reviewed", systemImage: "checkmark.circle")
             }
         }
 
@@ -1173,16 +1177,23 @@ struct ChangesListView: View {
 
 struct ReviewProgressBar: View {
     let reviewed: Int
+    var needsWork: Int = 0
     let total: Int
     @Binding var showOnlyUnreviewed: Bool
     var onMarkAll: () -> Void
     var onClearAll: () -> Void
 
-    private var progress: Double {
+    private var attested: Int { reviewed + needsWork }
+
+    private var reviewedProgress: Double {
         total > 0 ? Double(reviewed) / Double(total) : 0
     }
 
-    private var isComplete: Bool { reviewed == total && total > 0 }
+    private var needsWorkProgress: Double {
+        total > 0 ? Double(needsWork) / Double(total) : 0
+    }
+
+    private var isComplete: Bool { attested == total && total > 0 }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -1191,9 +1202,15 @@ struct ReviewProgressBar: View {
                     .font(.system(size: 10))
                     .foregroundStyle(isComplete ? .green : .blue.opacity(0.7))
 
-                Text("\(reviewed)/\(total) reviewed")
-                    .font(.system(size: 11))
-                    .foregroundStyle(isComplete ? .green : .secondary)
+                if needsWork > 0 {
+                    Text("\(reviewed) reviewed · \(needsWork) needs work · \(total) total")
+                        .font(.system(size: 11))
+                        .foregroundStyle(isComplete ? .green : .secondary)
+                } else {
+                    Text("\(reviewed)/\(total) reviewed")
+                        .font(.system(size: 11))
+                        .foregroundStyle(isComplete ? .green : .secondary)
+                }
 
                 Spacer()
 
@@ -1206,7 +1223,7 @@ struct ReviewProgressBar: View {
                 }
                 .buttonStyle(.plain)
 
-                if reviewed > 0 && !isComplete {
+                if attested > 0 && !isComplete {
                     Button {
                         onMarkAll()
                     } label: {
@@ -1217,7 +1234,7 @@ struct ReviewProgressBar: View {
                     .buttonStyle(.plain)
                 }
 
-                if reviewed > 0 {
+                if attested > 0 {
                     Button {
                         onClearAll()
                     } label: {
@@ -1229,16 +1246,26 @@ struct ReviewProgressBar: View {
                 }
             }
 
-            // Progress bar
+            // Segmented progress bar: green (reviewed) + red (needs work) + gray (unreviewed)
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
                     RoundedRectangle(cornerRadius: 2)
                         .fill(Color.secondary.opacity(0.15))
 
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(isComplete ? Color.green : Color.blue.opacity(0.6))
-                        .frame(width: geo.size.width * progress)
-                        .animation(.easeInOut(duration: 0.2), value: progress)
+                    HStack(spacing: 0) {
+                        if reviewedProgress > 0 {
+                            RoundedRectangle(cornerRadius: 2)
+                                .fill(Color.green.opacity(0.7))
+                                .frame(width: geo.size.width * reviewedProgress)
+                        }
+                        if needsWorkProgress > 0 {
+                            RoundedRectangle(cornerRadius: 2)
+                                .fill(Color.red.opacity(0.6))
+                                .frame(width: geo.size.width * needsWorkProgress)
+                        }
+                    }
+                    .animation(.easeInOut(duration: 0.2), value: reviewedProgress)
+                    .animation(.easeInOut(duration: 0.2), value: needsWorkProgress)
                 }
             }
             .frame(height: 3)
@@ -1302,6 +1329,9 @@ struct CommitFormView: View {
     var activityFeedModel: ActivityFeedModel? = nil
 
     @AppStorage("dev.anvil.commitMessageStyle") private var storedStyle: String = ChangesModel.CommitMessageStyle.conventional.rawValue
+    /// When true, committing with unreviewed staged files shows a confirmation dialog.
+    @AppStorage("dev.anvil.commitReviewGate") private var reviewGateEnabled: Bool = true
+    @State private var showUnreviewedCommitConfirm = false
 
     // MARK: - Style helpers
 
@@ -1458,7 +1488,11 @@ struct CommitFormView: View {
 
             HStack(spacing: 8) {
                 Button {
-                    model.commit()
+                    if reviewGateEnabled && model.unreviewedStagedCount > 0 {
+                        showUnreviewedCommitConfirm = true
+                    } else {
+                        model.commit()
+                    }
                 } label: {
                     HStack(spacing: 4) {
                         if model.isCommitting {
@@ -1473,6 +1507,18 @@ struct CommitFormView: View {
                 .controlSize(.small)
                 .disabled(!model.canCommit)
                 .help("Commit staged changes (⌘↩)")
+                .confirmationDialog(
+                    "\(model.unreviewedStagedCount) staged file\(model.unreviewedStagedCount == 1 ? "" : "s") not reviewed",
+                    isPresented: $showUnreviewedCommitConfirm,
+                    titleVisibility: .visible
+                ) {
+                    Button("Commit Anyway", role: .destructive) { model.commit() }
+                        .accessibilityLabel("Commit anyway, skipping review of \(model.unreviewedStagedCount) file\(model.unreviewedStagedCount == 1 ? "" : "s")")
+                    Button("Cancel", role: .cancel) {}
+                        .accessibilityLabel("Cancel commit")
+                } message: {
+                    Text("Some staged files haven't been reviewed yet. Commit anyway?")
+                }
 
                 Menu {
                     Button("Stage All & Commit") {
@@ -1491,6 +1537,9 @@ struct CommitFormView: View {
                         }
                         .disabled(model.changedFiles.isEmpty || model.commitMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     }
+
+                    Divider()
+                    Toggle("Require Review Before Commit", isOn: $reviewGateEnabled)
                 } label: {
                     Image(systemName: "chevron.down")
                         .font(.system(size: 9, weight: .semibold))
@@ -1519,8 +1568,14 @@ struct CommitFormView: View {
                     Text("\(model.unreviewedStagedCount) staged file\(model.unreviewedStagedCount == 1 ? "" : "s") not yet reviewed")
                         .font(.system(size: 10))
                         .foregroundStyle(.orange.opacity(0.9))
+                    if reviewGateEnabled {
+                        Image(systemName: "lock")
+                            .font(.system(size: 9))
+                            .foregroundStyle(.orange.opacity(0.7))
+                            .accessibilityLabel("Review gate enabled")
+                    }
                 }
-            } else if model.reviewedCount > 0 && model.reviewedCount == model.changedFiles.count {
+            } else if (model.reviewedCount + model.needsWorkCount) > 0 && (model.reviewedCount + model.needsWorkCount) == model.changedFiles.count {
                 HStack(spacing: 4) {
                     Image(systemName: "checkmark.seal.fill")
                         .font(.system(size: 10))
@@ -2020,6 +2075,7 @@ struct ChangedFileRow: View {
     let isSelected: Bool
     var isStaged: Bool = false
     var isReviewed: Bool = false
+    var isNeedsWork: Bool = false
     var isFocused: Bool = false
     var isSensitive: Bool = false
     var showDirectoryLabel: Bool = true
@@ -2062,7 +2118,7 @@ struct ChangedFileRow: View {
                         .font(.system(.body, design: .default))
                         .lineLimit(1)
                         .truncationMode(.middle)
-                        .foregroundStyle(isReviewed ? .secondary : .primary)
+                        .foregroundStyle((isReviewed || isNeedsWork) ? .secondary : .primary)
 
                     if isSensitive {
                         Text("⚠️")
@@ -2132,17 +2188,27 @@ struct ChangedFileRow: View {
             // Risk indicator dot
             ReviewPriorityIndicator(priority: priority)
 
-            // Review toggle button (checkbox)
+            // Review toggle button — cycles: unreviewed → reviewed ✓ → needs work ✗ → unreviewed
             if let onToggleReview {
                 Button {
                     onToggleReview()
                 } label: {
-                    Image(systemName: isReviewed ? "checkmark.circle.fill" : "circle")
-                        .font(.system(size: 13))
-                        .foregroundStyle(isReviewed ? Color.blue.opacity(0.8) : Color.secondary.opacity(0.4))
+                    Group {
+                        if isReviewed {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundStyle(Color.green.opacity(0.8))
+                        } else if isNeedsWork {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(Color.red.opacity(0.8))
+                        } else {
+                            Image(systemName: "circle")
+                                .foregroundStyle(Color.secondary.opacity(0.4))
+                        }
+                    }
+                    .font(.system(size: 13))
                 }
                 .buttonStyle(.borderless)
-                .help(isReviewed ? "Mark as unreviewed (R)" : "Mark as reviewed (R)")
+                .help(isReviewed ? "Needs work (R)" : isNeedsWork ? "Clear review (R)" : "Mark as reviewed (R)")
             }
 
             // Discard button (trash icon, shown on hover)

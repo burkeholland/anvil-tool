@@ -161,6 +161,8 @@ final class ChangesModel: ObservableObject {
 
     /// Relative paths the user has marked as reviewed in this session.
     @Published private(set) var reviewedPaths: Set<String> = []
+    /// Relative paths the user has marked as needing work.
+    @Published private(set) var needsWorkPaths: Set<String> = []
 
     // MARK: - Keyboard Navigation State
 
@@ -185,6 +187,8 @@ final class ChangesModel: ObservableObject {
     /// Fingerprints (adds:dels:staging) captured when each file was marked reviewed.
     /// Used to auto-clear review marks when a file's diff changes.
     private var reviewedFingerprints: [String: String] = [:]
+    /// Fingerprints captured when each file was marked as needing work.
+    private var needsWorkFingerprints: [String: String] = [:]
 
     private(set) var rootDirectory: URL?
     private var refreshGeneration: UInt64 = 0
@@ -511,20 +515,38 @@ final class ChangesModel: ObservableObject {
         changedFiles.filter { reviewedPaths.contains($0.relativePath) }.count
     }
 
-    /// Number of staged files that have not yet been marked reviewed.
+    /// Number of files marked as needing work.
+    var needsWorkCount: Int {
+        changedFiles.filter { needsWorkPaths.contains($0.relativePath) }.count
+    }
+
+    /// Number of staged files that have not yet been marked reviewed or needs-work.
     var unreviewedStagedCount: Int {
-        stagedFiles.filter { !reviewedPaths.contains($0.relativePath) }.count
+        stagedFiles.filter { !reviewedPaths.contains($0.relativePath) && !needsWorkPaths.contains($0.relativePath) }.count
     }
 
     func isReviewed(_ file: ChangedFile) -> Bool {
         reviewedPaths.contains(file.relativePath)
     }
 
+    func isNeedsWork(_ file: ChangedFile) -> Bool {
+        needsWorkPaths.contains(file.relativePath)
+    }
+
+    /// Cycles the review state: unreviewed → reviewed ✓ → needs work ✗ → unreviewed.
     func toggleReviewed(_ file: ChangedFile) {
         if reviewedPaths.contains(file.relativePath) {
+            // reviewed → needs work
             reviewedPaths.remove(file.relativePath)
             reviewedFingerprints.removeValue(forKey: file.relativePath)
+            needsWorkPaths.insert(file.relativePath)
+            needsWorkFingerprints[file.relativePath] = diffFingerprint(file)
+        } else if needsWorkPaths.contains(file.relativePath) {
+            // needs work → unreviewed
+            needsWorkPaths.remove(file.relativePath)
+            needsWorkFingerprints.removeValue(forKey: file.relativePath)
         } else {
+            // unreviewed → reviewed
             reviewedPaths.insert(file.relativePath)
             reviewedFingerprints[file.relativePath] = diffFingerprint(file)
         }
@@ -533,6 +555,8 @@ final class ChangesModel: ObservableObject {
 
     func markAllReviewed() {
         for file in changedFiles {
+            needsWorkPaths.remove(file.relativePath)
+            needsWorkFingerprints.removeValue(forKey: file.relativePath)
             reviewedPaths.insert(file.relativePath)
             reviewedFingerprints[file.relativePath] = diffFingerprint(file)
         }
@@ -542,27 +566,41 @@ final class ChangesModel: ObservableObject {
     func clearAllReviewed() {
         reviewedPaths.removeAll()
         reviewedFingerprints.removeAll()
+        needsWorkPaths.removeAll()
+        needsWorkFingerprints.removeAll()
         saveReviewedState()
     }
 
     // MARK: - Review Persistence
 
     private static let reviewedFingerprintsKeyPrefix = "com.anvil.reviewedFingerprints."
+    private static let needsWorkFingerprintsKeyPrefix = "com.anvil.needsWorkFingerprints."
 
     private func reviewedStateKey(for rootURL: URL) -> String {
         Self.reviewedFingerprintsKeyPrefix + rootURL.path
     }
 
+    private func needsWorkStateKey(for rootURL: URL) -> String {
+        Self.needsWorkFingerprintsKeyPrefix + rootURL.path
+    }
+
     private func saveReviewedState() {
         guard let rootURL = rootDirectory else { return }
         UserDefaults.standard.set(reviewedFingerprints, forKey: reviewedStateKey(for: rootURL))
+        UserDefaults.standard.set(needsWorkFingerprints, forKey: needsWorkStateKey(for: rootURL))
     }
 
     private func loadReviewedState(for rootURL: URL) {
         let key = reviewedStateKey(for: rootURL)
-        guard let stored = UserDefaults.standard.dictionary(forKey: key) as? [String: String] else { return }
-        reviewedFingerprints = stored
-        reviewedPaths = Set(stored.keys)
+        if let stored = UserDefaults.standard.dictionary(forKey: key) as? [String: String] {
+            reviewedFingerprints = stored
+            reviewedPaths = Set(stored.keys)
+        }
+        let nwKey = needsWorkStateKey(for: rootURL)
+        if let stored = UserDefaults.standard.dictionary(forKey: nwKey) as? [String: String] {
+            needsWorkFingerprints = stored
+            needsWorkPaths = Set(stored.keys)
+        }
     }
 
     // MARK: - Keyboard Navigation
@@ -588,7 +626,10 @@ final class ChangesModel: ObservableObject {
     }
 
     func focusNextUnreviewedFile() {
-        let unreviewedIndices = changedFiles.indices.filter { !reviewedPaths.contains(changedFiles[$0].relativePath) }
+        let unreviewedIndices = changedFiles.indices.filter {
+            !reviewedPaths.contains(changedFiles[$0].relativePath) &&
+            !needsWorkPaths.contains(changedFiles[$0].relativePath)
+        }
         guard let firstUnreviewed = unreviewedIndices.first else { return }
         if let current = focusedFileIndex,
            let next = unreviewedIndices.first(where: { $0 > current }) {
@@ -600,7 +641,10 @@ final class ChangesModel: ObservableObject {
     }
 
     func focusPreviousUnreviewedFile() {
-        let unreviewedIndices = changedFiles.indices.filter { !reviewedPaths.contains(changedFiles[$0].relativePath) }
+        let unreviewedIndices = changedFiles.indices.filter {
+            !reviewedPaths.contains(changedFiles[$0].relativePath) &&
+            !needsWorkPaths.contains(changedFiles[$0].relativePath)
+        }
         guard let lastUnreviewed = unreviewedIndices.last else { return }
         if let current = focusedFileIndex,
            let prev = unreviewedIndices.last(where: { $0 < current }) {
@@ -676,12 +720,19 @@ final class ChangesModel: ObservableObject {
         // Remove paths that are no longer in the changed list
         reviewedPaths = reviewedPaths.intersection(currentPaths)
         reviewedFingerprints = reviewedFingerprints.filter { currentPaths.contains($0.key) }
+        needsWorkPaths = needsWorkPaths.intersection(currentPaths)
+        needsWorkFingerprints = needsWorkFingerprints.filter { currentPaths.contains($0.key) }
         // Clear marks where the diff changed since review
         for file in newFiles {
             if let fingerprint = reviewedFingerprints[file.relativePath],
                fingerprint != diffFingerprint(file) {
                 reviewedPaths.remove(file.relativePath)
                 reviewedFingerprints.removeValue(forKey: file.relativePath)
+            }
+            if let fingerprint = needsWorkFingerprints[file.relativePath],
+               fingerprint != diffFingerprint(file) {
+                needsWorkPaths.remove(file.relativePath)
+                needsWorkFingerprints.removeValue(forKey: file.relativePath)
             }
         }
         saveReviewedState()
