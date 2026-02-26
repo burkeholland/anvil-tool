@@ -8,6 +8,8 @@ struct FilePreviewView: View {
     /// All build diagnostics from the most recent failed build.  Automatically
     /// cleared when the build passes (via BuildVerifier).
     var buildDiagnostics: [BuildDiagnostic] = []
+    /// Optional callback invoked when the panel is empty and the user requests to open a file.
+    var onOpenFile: (() -> Void)? = nil
     @EnvironmentObject var terminalProxy: TerminalInputProxy
     @State private var showGoToLine = false
     @State private var goToLineText = ""
@@ -362,7 +364,11 @@ struct FilePreviewView: View {
                         onDiscardHunk: isLiveDiff ? changesModel.map { cm in
                             { hunk in cm.discardHunk(patch: DiffParser.reconstructPatch(fileDiff: diff, hunk: hunk)) }
                         } : nil,
-                        stagedHunkIDs: stagedIDs
+                        stagedHunkIDs: stagedIDs,
+                        onShowInPreview: { [model] line in
+                            model.activeTab = .source
+                            model.scrollToLine = line
+                        }
                     )
                 } else if model.activeTab == .rendered, model.isMarkdownFile, let content = model.fileContent {
                     MarkdownPreviewView(content: content)
@@ -400,19 +406,40 @@ struct FilePreviewView: View {
                         diagnosticAnnotations: diagnosticsForCurrentFile
                     )
                 } else {
-                    Spacer()
-                    VStack(spacing: 8) {
-                        Image(systemName: "doc.questionmark")
-                            .font(.system(size: 28))
-                            .foregroundStyle(.tertiary)
-                        Text("Unable to preview this file")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                        Text("File may be binary or too large")
-                            .font(.caption)
-                            .foregroundStyle(.tertiary)
+                    if model.selectedURL == nil {
+                        // Panel is empty — show a friendly placeholder
+                        VStack(spacing: 12) {
+                            Image(systemName: "doc.on.doc")
+                                .font(.system(size: 32))
+                                .foregroundStyle(.tertiary)
+                            Text("No file open")
+                                .font(.title3)
+                                .foregroundStyle(.secondary)
+                            if let openFile = onOpenFile {
+                                Button("Open File…") { openFile() }
+                                    .controlSize(.small)
+                            } else {
+                                Text("Select a file from the sidebar")
+                                    .font(.caption)
+                                    .foregroundStyle(.tertiary)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    } else {
+                        Spacer()
+                        VStack(spacing: 8) {
+                            Image(systemName: "doc.questionmark")
+                                .font(.system(size: 28))
+                                .foregroundStyle(.tertiary)
+                            Text("Unable to preview this file")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                            Text("File may be binary or too large")
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                        }
+                        Spacer()
                     }
-                    Spacer()
                 }
 
                 // Go to Line overlay

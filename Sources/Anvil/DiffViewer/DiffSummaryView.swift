@@ -7,6 +7,8 @@ struct DiffSummaryView: View {
     @ObservedObject var changesModel: ChangesModel
     var onSelectFile: ((URL) -> Void)?
     var onDismiss: (() -> Void)?
+    /// Called with `(url, lineNumber)` when the user taps "Show in Preview" on a hunk.
+    var onShowFileAtLine: ((URL, Int) -> Void)?
     @State private var collapsedFiles: Set<URL> = []
     @State private var scrollTarget: URL?
     @AppStorage("diffViewMode") private var diffMode: String = DiffViewMode.unified.rawValue
@@ -411,6 +413,9 @@ struct DiffSummaryView: View {
                                     },
                                     onRequestFix: {
                                         requestFix(for: file, hunk: hunk)
+                                    },
+                                    onShowInPreview: onShowFileAtLine.map { handler in
+                                        { handler(file.url, hunk.newFileStartLine ?? 1) }
                                     },
                                     isFocused: isFocusedFile && changesModel.focusedHunkIndex == hunkIdx
                                 )

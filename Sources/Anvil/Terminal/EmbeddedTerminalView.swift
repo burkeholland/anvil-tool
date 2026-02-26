@@ -21,6 +21,9 @@ struct EmbeddedTerminalView: View {
     /// Called with `true` when the agent appears to be waiting for user input,
     /// and with `false` when it resumes normal output.
     var onAgentWaitingForInput: ((Bool) -> Void)?
+    /// When non-nil and the terminal is the active tab, shows the prompt timeline
+    /// gutter strip along the right margin.
+    var markerStore: PromptMarkerStore? = nil
     @AppStorage("autoLaunchCopilot") private var autoLaunchCopilot = true
     @AppStorage("terminalFontSize") private var fontSize: Double = 14
     @AppStorage("terminalThemeID") private var themeID: String = TerminalTheme.defaultDark.id
@@ -98,6 +101,15 @@ struct EmbeddedTerminalView: View {
                 TerminalSearchBarView(proxy: terminalProxy)
                     .transition(.move(edge: .top).combined(with: .opacity))
                     .animation(.easeInOut(duration: 0.2), value: terminalProxy.isShowingFindBar)
+            }
+
+            // Prompt timeline gutter strip — shown only on the active tab when
+            // there are markers to display.  Positioned left of the NSScroller.
+            if isActiveTab, let store = markerStore, !store.markers.isEmpty {
+                PromptTimelineView(markerStore: store)
+                    .padding(.trailing, NSScroller.scrollerWidth(for: .regular, scrollerStyle: .legacy))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
+                    .allowsHitTesting(true)
             }
         }
         .onDrop(of: [.fileURL], isTargeted: $isDragTargeted) { providers in
@@ -278,6 +290,8 @@ private struct TerminalNSView: NSViewRepresentable {
 
         // Wire input-waiting detector
         context.coordinator.agentInputWatcher.onStateChanged = onAgentWaitingForInput
+        // Wire proxy for scroll metrics (prompt timeline)
+        context.coordinator.terminalProxy = terminalProxy
 
         context.coordinator.lastFontSize = fontSize
         context.coordinator.lastThemeID = theme.id
@@ -302,6 +316,8 @@ private struct TerminalNSView: NSViewRepresentable {
         detector.onOpenURL = onOpenURL
         // Keep input-watcher callback in sync
         context.coordinator.agentInputWatcher.onStateChanged = onAgentWaitingForInput
+        // Keep proxy reference in sync for scroll metrics
+        context.coordinator.terminalProxy = terminalProxy
         // Reconnect proxy when this tab becomes active
         if let proxy = terminalProxy, proxy.terminalView !== nsView {
             proxy.terminalView = nsView
@@ -328,6 +344,9 @@ private struct TerminalNSView: NSViewRepresentable {
         let agentInputWatcher = AgentInputWatcher()
         var lastFontSize: Double = 14
         var lastThemeID: String = TerminalTheme.defaultDark.id
+        /// Weak reference to the active terminal proxy so `rangeChanged` can
+        /// update scroll metrics for the prompt timeline overlay.
+        weak var terminalProxy: TerminalInputProxy?
 
         init(onProcessExit: @escaping (Int32?) -> Void, onTitleChange: ((String) -> Void)?, onCopilotNotFound: (() -> Void)?) {
             self.onProcessExit = onProcessExit
@@ -375,6 +394,7 @@ private struct TerminalNSView: NSViewRepresentable {
             guard let tv = source as? LocalProcessTerminalView else { return }
             filePathDetector.processTerminalRange(in: tv, startY: startY, endY: endY)
             agentInputWatcher.processTerminalRange(in: tv, startY: startY, endY: endY)
+            terminalProxy?.updateScrollMetrics(terminalView: tv)
         }
     }
 }
