@@ -200,6 +200,14 @@ struct DiffHunkView: View {
         DiffRiskScanner.scan(hunk)
     }
 
+    /// Number of lines in this hunk that have an inline annotation.
+    private var annotatedLineCount: Int {
+        hunk.lines.filter { line in
+            guard let num = line.newLineNumber ?? line.oldLineNumber else { return false }
+            return lineAnnotations[num] != nil
+        }.count
+    }
+
     var body: some View {
         let sections = makeHunkSections(hunk.lines)
         VStack(alignment: .leading, spacing: 0) {
@@ -251,6 +259,7 @@ struct DiffHunkView: View {
             )
             .overlay(alignment: .trailing) {
                 HStack(spacing: 4) {
+                    annotationBadge
                     if !riskFlags.isEmpty {
                         riskBadge
                     }
@@ -261,7 +270,7 @@ struct DiffHunkView: View {
             .onHover { hovering in
                 isHovered = hovering
             }
-        } else if line.kind == .hunkHeader && !riskFlags.isEmpty {
+        } else if line.kind == .hunkHeader && (!riskFlags.isEmpty || annotatedLineCount > 0) {
             DiffLineView(
                 line: line,
                 syntaxHighlight: syntaxHighlights[line.id],
@@ -272,7 +281,12 @@ struct DiffHunkView: View {
                 existingAnnotation: annotation(for: line)
             )
             .overlay(alignment: .trailing) {
-                riskBadge
+                HStack(spacing: 4) {
+                    annotationBadge
+                    if !riskFlags.isEmpty {
+                        riskBadge
+                    }
+                }
             }
         } else {
             DiffLineView(
@@ -398,6 +412,28 @@ struct DiffHunkView: View {
                 .fill(.ultraThinMaterial)
         )
         .padding(.trailing, 8)
+    }
+
+    /// A small yellow badge showing the number of annotated lines in this hunk.
+    /// Appears permanently on the hunk header when there are annotations.
+    @ViewBuilder
+    private var annotationBadge: some View {
+        if annotatedLineCount > 0 {
+            HStack(spacing: 3) {
+                Image(systemName: "note.text")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.yellow)
+                Text("\(annotatedLineCount)")
+                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(.yellow)
+            }
+            .padding(.horizontal, 5)
+            .padding(.vertical, 2)
+            .background(RoundedRectangle(cornerRadius: 4).fill(Color.yellow.opacity(0.15)))
+            .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(Color.yellow.opacity(0.35), lineWidth: 0.5))
+            .help("\(annotatedLineCount) annotation\(annotatedLineCount == 1 ? "" : "s") on this hunk")
+            .padding(.trailing, 8)
+        }
     }
 
     /// A small warning badge showing the number of risk flags for this hunk.
