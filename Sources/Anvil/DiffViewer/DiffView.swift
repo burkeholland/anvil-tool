@@ -1,5 +1,50 @@
 import SwiftUI
 
+// MARK: - Context Collapse Helpers
+
+/// A contiguous segment of lines within a hunk for collapsed-context rendering.
+private struct HunkSection: Identifiable {
+    enum Kind { case normal, collapsible }
+    let id: Int    // first line's id — unique within a parsed diff
+    let kind: Kind
+    let lines: [DiffLine]
+}
+
+/// Splits a hunk's line array into display sections. Consecutive `.context` runs whose
+/// length equals or exceeds `collapseThreshold` become `.collapsible` sections; shorter
+/// runs are returned as `.normal` sections alongside non-context lines.
+private func makeHunkSections(_ lines: [DiffLine], collapseThreshold: Int = 7) -> [HunkSection] {
+    var sections: [HunkSection] = []
+    var pending: [DiffLine] = []
+
+    func flush() {
+        guard !pending.isEmpty else { return }
+        sections.append(HunkSection(id: pending[0].id, kind: .normal, lines: pending))
+        pending.removeAll()
+    }
+
+    var i = 0
+    while i < lines.count {
+        if lines[i].kind == .context {
+            var run: [DiffLine] = []
+            while i < lines.count && lines[i].kind == .context {
+                run.append(lines[i])
+                i += 1
+            }
+            flush()
+            let kind: HunkSection.Kind = run.count >= collapseThreshold ? .collapsible : .normal
+            sections.append(HunkSection(id: run[0].id, kind: kind, lines: run))
+        } else {
+            pending.append(lines[i])
+            i += 1
+        }
+    }
+    flush()
+    return sections
+}
+
+// MARK: -
+
 /// Diff display mode — unified (interleaved) or side-by-side (split).
 enum DiffViewMode: String, CaseIterable {
     case unified = "Unified"
@@ -80,6 +125,7 @@ struct UnifiedDiffView: View {
 struct DiffStatsBar: View {
     let diff: FileDiff
     @Binding var mode: String
+    @AppStorage("diffContextExpanded") private var contextExpanded = false
 
     var body: some View {
         HStack(spacing: 12) {
@@ -89,6 +135,16 @@ struct DiffStatsBar: View {
                 .foregroundStyle(.red)
 
             Spacer()
+
+            Button {
+                contextExpanded.toggle()
+            } label: {
+                Image(systemName: contextExpanded ? "eye.slash" : "eye")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.borderless)
+            .help(contextExpanded ? "Collapse context lines" : "Expand all context lines")
 
             Picker("", selection: $mode) {
                 ForEach(DiffViewMode.allCases, id: \.rawValue) { m in
@@ -128,36 +184,10 @@ struct DiffHunkView: View {
     }
 
     var body: some View {
+        let sections = makeHunkSections(hunk.lines)
         VStack(alignment: .leading, spacing: 0) {
-            ForEach(hunk.lines) { line in
-                if line.kind == .hunkHeader && hasActions {
-                    DiffLineView(
-                        line: line,
-                        syntaxHighlight: syntaxHighlights[line.id],
-                        hunkStagedTint: isStaged ? stagedHeaderTint : nil,
-                        filePath: filePath,
-                        onAddAnnotation: onAddAnnotation,
-                        onRemoveAnnotation: removeHandler(for: line),
-                        existingAnnotation: annotation(for: line)
-                    )
-                    .overlay(alignment: .trailing) {
-                        hunkActions
-                            .opacity(isHovered ? 1 : 0)
-                    }
-                    .onHover { hovering in
-                        isHovered = hovering
-                    }
-                } else {
-                    DiffLineView(
-                        line: line,
-                        syntaxHighlight: syntaxHighlights[line.id],
-                        hunkStagedTint: isStaged ? stagedLineTint(for: line.kind) : nil,
-                        filePath: filePath,
-                        onAddAnnotation: onAddAnnotation,
-                        onRemoveAnnotation: removeHandler(for: line),
-                        existingAnnotation: annotation(for: line)
-                    )
-                }
+            ForEach(sections) { section in
+                sectionView(for: section)
             }
         }
         .overlay(alignment: .leading) {
@@ -169,6 +199,56 @@ struct DiffHunkView: View {
         }
         .onHover { hovering in
             if hasActions { isHovered = hovering }
+        }
+    }
+
+    @ViewBuilder
+    private func sectionView(for section: HunkSection) -> some View {
+        if section.kind == .collapsible {
+            CollapsibleContextRunView(
+                lines: section.lines,
+                syntaxHighlights: syntaxHighlights,
+                filePath: filePath,
+                lineAnnotations: lineAnnotations,
+                onAddAnnotation: onAddAnnotation,
+                onRemoveAnnotation: onRemoveAnnotation
+            )
+        } else {
+            ForEach(section.lines) { line in
+                lineRow(for: line)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func lineRow(for line: DiffLine) -> some View {
+        if line.kind == .hunkHeader && hasActions {
+            DiffLineView(
+                line: line,
+                syntaxHighlight: syntaxHighlights[line.id],
+                hunkStagedTint: isStaged ? stagedHeaderTint : nil,
+                filePath: filePath,
+                onAddAnnotation: onAddAnnotation,
+                onRemoveAnnotation: removeHandler(for: line),
+                existingAnnotation: annotation(for: line)
+            )
+            .overlay(alignment: .trailing) {
+                hunkActions
+                    .opacity(isHovered ? 1 : 0)
+            }
+            .onHover { hovering in
+                isHovered = hovering
+            }
+        } else {
+            DiffLineView(
+                line: line,
+                syntaxHighlight: syntaxHighlights[line.id],
+                hunkStagedTint: isStaged ? stagedLineTint(for: line.kind) : nil,
+                filePath: filePath,
+                onAddAnnotation: onAddAnnotation,
+                onRemoveAnnotation: removeHandler(for: line),
+                existingAnnotation: annotation(for: line)
+            )
         }
     }
 
@@ -247,6 +327,107 @@ struct DiffHunkView: View {
                 .fill(.ultraThinMaterial)
         )
         .padding(.trailing, 8)
+    }
+}
+
+/// A full-width clickable row shown in place of a collapsed run of context lines.
+struct CollapsedContextSeparator: View {
+    let hiddenCount: Int
+    let onExpand: () -> Void
+
+    var body: some View {
+        Button(action: onExpand) {
+            HStack(spacing: 6) {
+                Rectangle()
+                    .fill(Color.secondary.opacity(0.15))
+                    .frame(height: 1)
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.tertiary)
+                Text("\(hiddenCount) unchanged line\(hiddenCount == 1 ? "" : "s") hidden")
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.tertiary)
+                Rectangle()
+                    .fill(Color.secondary.opacity(0.15))
+                    .frame(height: 1)
+            }
+            .padding(.horizontal, 8)
+            .frame(height: 22)
+            .background(Color(nsColor: .controlBackgroundColor).opacity(0.4))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.borderless)
+        .help("Click to expand \(hiddenCount) hidden line\(hiddenCount == 1 ? "" : "s")")
+    }
+}
+
+/// Renders a run of context lines with automatic collapsing. When the run's length
+/// exceeds `2 * contextLines`, the middle portion is hidden behind a clickable
+/// `CollapsedContextSeparator`. Both individual sections and the global
+/// "diffContextExpanded" AppStorage key can expand all hidden context at once.
+struct CollapsibleContextRunView: View {
+    let lines: [DiffLine]
+    /// Number of visible context lines kept at each end of a collapsed region.
+    var contextLines: Int = 3
+    var syntaxHighlights: [Int: AttributedString] = [:]
+    var filePath: String? = nil
+    var lineAnnotations: [Int: String] = [:]
+    var onAddAnnotation: ((Int, String) -> Void)? = nil
+    var onRemoveAnnotation: ((Int) -> Void)? = nil
+
+    @State private var isExpanded = false
+    @AppStorage("diffContextExpanded") private var globalContextExpanded = false
+
+    private var isActuallyExpanded: Bool { isExpanded || globalContextExpanded }
+
+    private var headLines: [DiffLine] { Array(lines.prefix(contextLines)) }
+    private var tailLines: [DiffLine] {
+        let start = min(lines.count, max(contextLines, lines.count - contextLines))
+        return Array(lines[start...])
+    }
+    private var hiddenCount: Int { max(0, lines.count - headLines.count - tailLines.count) }
+
+    var body: some View {
+        Group {
+            if isActuallyExpanded || hiddenCount <= 0 {
+                ForEach(lines) { line in contextLineView(for: line) }
+            } else {
+                ForEach(headLines) { line in contextLineView(for: line) }
+                CollapsedContextSeparator(hiddenCount: hiddenCount) {
+                    isExpanded = true
+                }
+                ForEach(tailLines) { line in contextLineView(for: line) }
+            }
+        }
+        .onChange(of: globalContextExpanded) { _, newVal in
+            if !newVal { isExpanded = false }
+        }
+    }
+
+    @ViewBuilder
+    private func contextLineView(for line: DiffLine) -> some View {
+        DiffLineView(
+            line: line,
+            syntaxHighlight: syntaxHighlights[line.id],
+            filePath: filePath,
+            onAddAnnotation: onAddAnnotation,
+            onRemoveAnnotation: removeHandler(for: line),
+            existingAnnotation: annotation(for: line)
+        )
+    }
+
+    private func annotation(for line: DiffLine) -> String? {
+        guard let num = line.newLineNumber ?? line.oldLineNumber else { return nil }
+        return lineAnnotations[num]
+    }
+
+    private func removeHandler(for line: DiffLine) -> (() -> Void)? {
+        guard let num = line.newLineNumber ?? line.oldLineNumber,
+              let handler = onRemoveAnnotation else { return nil }
+        return { handler(num) }
     }
 }
 
