@@ -583,7 +583,11 @@ struct ChangesListView: View {
                 Button("Cancel", role: .cancel) { fileToDiscard = nil }
             } message: {
                 if let file = fileToDiscard {
-                    Text("This will permanently discard all uncommitted changes to \"\(file.fileName)\". This cannot be undone.")
+                    let adds = file.diff.map { "+\($0.additionCount)" } ?? ""
+                    let dels = file.diff.map { "-\($0.deletionCount)" } ?? ""
+                    let stats = [adds, dels].filter { !$0.isEmpty }.joined(separator: " / ")
+                    let statsSuffix = stats.isEmpty ? "" : " (\(stats))"
+                    Text("Discard uncommitted changes to \"\(file.fileName)\"\(statsSuffix)? An Undo banner will appear for 8 seconds.")
                 }
             }
             .alert("Discard All Changes?", isPresented: $showDiscardAllConfirm) {
@@ -636,6 +640,10 @@ struct ChangesListView: View {
                         DiscardHunkRecoveryBanner(model: model)
                             .transition(.move(edge: .bottom).combined(with: .opacity))
                     }
+                    if model.activeDiscardBannerEntry != nil {
+                        DiscardFileRecoveryBanner(model: model)
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
                 }
             }
             .overlay(alignment: .center) {
@@ -652,6 +660,7 @@ struct ChangesListView: View {
             .animation(.easeInOut(duration: 0.2), value: model.lastUndoneCommitSHA != nil)
             .animation(.easeInOut(duration: 0.2), value: model.lastStashError != nil)
             .animation(.easeInOut(duration: 0.2), value: model.lastDiscardedHunkPatch != nil)
+            .animation(.easeInOut(duration: 0.2), value: model.activeDiscardBannerEntry != nil)
             .animation(.easeInOut(duration: 0.2), value: showCopiedConfirmation)
     }
 
@@ -2007,6 +2016,50 @@ struct DiscardHunkRecoveryBanner: View {
 
             Button {
                 model.lastDiscardedHunkPatch = nil
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .buttonStyle(.borderless)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(.ultraThinMaterial)
+        .overlay(alignment: .top) { Divider() }
+    }
+}
+
+/// Banner shown after a per-file discard with an Undo button to restore the file.
+struct DiscardFileRecoveryBanner: View {
+    @ObservedObject var model: ChangesModel
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "arrow.uturn.backward.circle")
+                .font(.system(size: 12))
+                .foregroundStyle(.orange)
+
+            if let entry = model.activeDiscardBannerEntry {
+                Text("\"\(entry.fileName)\" discarded.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+
+            Button {
+                model.undoDiscardFile()
+            } label: {
+                Text("Undo")
+                    .font(.system(size: 11, weight: .medium))
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+
+            Button {
+                model.dismissDiscardUndo()
             } label: {
                 Image(systemName: "xmark")
                     .font(.system(size: 9, weight: .semibold))
