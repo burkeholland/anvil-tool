@@ -4,6 +4,11 @@ import SwiftUI
 enum DiffViewMode: String, CaseIterable {
     case unified = "Unified"
     case sideBySide = "Side by Side"
+
+    /// Returns the opposite mode.
+    var toggled: DiffViewMode {
+        self == .unified ? .sideBySide : .unified
+    }
 }
 
 /// Renders a diff with a toggle between unified and side-by-side modes.

@@ -116,6 +116,9 @@ struct DiffSummaryView: View {
                 requestFix(for: file, hunk: changesModel.focusedHunk)
             }
         } : nil)
+        .focusedValue(\.toggleDiffViewMode, {
+            diffMode = (DiffViewMode(rawValue: diffMode) ?? .unified).toggled.rawValue
+        })
         .animation(.easeInOut(duration: 0.15), value: requestFixContext != nil)
     }
 

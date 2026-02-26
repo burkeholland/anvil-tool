@@ -55,6 +55,9 @@ struct BranchDiffView: View {
         .onChange(of: model.isLoading) { _, isLoading in
             if !isLoading { annotationStore.clearAll() }
         }
+        .focusedValue(\.toggleDiffViewMode, {
+            diffMode = (DiffViewMode(rawValue: diffMode) ?? .unified).toggled.rawValue
+        })
     }
 
     // MARK: - Header
