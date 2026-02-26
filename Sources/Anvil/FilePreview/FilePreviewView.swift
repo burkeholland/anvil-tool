@@ -1556,16 +1556,10 @@ final class LineNumberRulerView: NSRulerView {
                         let changeBarRect = NSRect(x: bounds.maxX - 4, y: barY, width: 3, height: lineRect.height)
                         NSBezierPath(roundedRect: changeBarRect, xRadius: 1, yRadius: 1).fill()
                     case .deleted:
-                        // Draw a small downward-pointing red triangle at the line boundary
+                        // Thin red bar at the top boundary of the line, indicating deleted content
                         NSColor.systemRed.setFill()
-                        let triSize: CGFloat = 6
-                        let triX = bounds.maxX - triSize - 1
-                        let deletionPath = NSBezierPath()
-                        deletionPath.move(to: NSPoint(x: triX, y: barY))
-                        deletionPath.line(to: NSPoint(x: triX + triSize, y: barY))
-                        deletionPath.line(to: NSPoint(x: triX + triSize / 2, y: barY + triSize))
-                        deletionPath.close()
-                        deletionPath.fill()
+                        let barRect = NSRect(x: bounds.maxX - 4, y: barY, width: 3, height: 2)
+                        NSBezierPath(roundedRect: barRect, xRadius: 1, yRadius: 1).fill()
                     }
                 }
 
