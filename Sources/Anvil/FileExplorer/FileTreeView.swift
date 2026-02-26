@@ -16,6 +16,11 @@ struct FileTreeView: View {
     @State private var operationTargetURL: URL?
     @State private var operationName = ""
 
+    // Quick Look diff popover state
+    @State private var quickLookURL: URL?
+    @State private var quickLookDiff: FileDiff?
+    @State private var treeScrollProxy: ScrollViewProxy?
+
     var body: some View {
         VStack(spacing: 0) {
             // Search field
@@ -155,9 +160,22 @@ struct FileTreeView: View {
                                 fileContextMenu(url: entry.url, isDirectory: entry.isDirectory)
                             }
                             .draggable(entry.url)
+                            .popover(
+                                isPresented: Binding(
+                                    get: { quickLookURL == entry.url },
+                                    set: { if !$0 { dismissQuickLook() } }
+                                ),
+                                arrowEdge: .trailing
+                            ) {
+                                quickLookPopoverContent(for: entry.url)
+                            }
                         }
                     }
                     .listStyle(.sidebar)
+                    .onKeyPress { keyPress in
+                        handleTreeKeyPress(keyPress)
+                    }
+                    .onAppear { treeScrollProxy = proxy }
                     .onChange(of: model.revealTarget) { _, target in
                         if let target {
                             withAnimation(.easeOut(duration: 0.25)) {
@@ -268,6 +286,103 @@ struct FileTreeView: View {
             return rel
         }
         return url.lastPathComponent
+    }
+
+    // MARK: - Quick Look
+
+    /// Flat list of modified (non-directory) file entries in current tree order.
+    private var changedFileEntries: [FileEntry] {
+        model.entries.filter {
+            !$0.isDirectory && model.gitStatuses[$0.url.standardizedFileURL.path] != nil
+        }
+    }
+
+    private func openQuickLook(for url: URL) {
+        quickLookURL = url
+        quickLookDiff = nil
+        let root = rootURL
+        DispatchQueue.global(qos: .userInteractive).async {
+            let diff = DiffProvider.diff(for: url, in: root)
+            DispatchQueue.main.async {
+                guard self.quickLookURL == url else { return }
+                self.quickLookDiff = diff
+            }
+        }
+    }
+
+    private func dismissQuickLook() {
+        quickLookURL = nil
+        quickLookDiff = nil
+    }
+
+    private func navigateQuickLook(forward: Bool) {
+        let entries = changedFileEntries
+        guard !entries.isEmpty else { return }
+        let newEntry: FileEntry
+        if let current = quickLookURL,
+           let idx = entries.firstIndex(where: { $0.url == current }) {
+            let newIdx = forward
+                ? min(idx + 1, entries.count - 1)
+                : max(idx - 1, 0)
+            newEntry = entries[newIdx]
+        } else {
+            newEntry = forward ? entries[0] : entries[entries.count - 1]
+        }
+        filePreview.select(newEntry.url)
+        openQuickLook(for: newEntry.url)
+        treeScrollProxy?.scrollTo(newEntry.url, anchor: .center)
+    }
+
+    private func handleTreeKeyPress(_ keyPress: KeyPress) -> KeyPress.Result {
+        switch keyPress.characters {
+        case " ":
+            if let url = filePreview.selectedURL {
+                if quickLookURL == url {
+                    dismissQuickLook()
+                } else if model.gitStatuses[url.standardizedFileURL.path] != nil {
+                    openQuickLook(for: url)
+                }
+            }
+            return .handled
+        default:
+            guard quickLookURL != nil else { return .ignored }
+            if keyPress.key == .downArrow || keyPress.key == .rightArrow {
+                navigateQuickLook(forward: true)
+                return .handled
+            }
+            if keyPress.key == .upArrow || keyPress.key == .leftArrow {
+                navigateQuickLook(forward: false)
+                return .handled
+            }
+            if keyPress.key == .escape {
+                dismissQuickLook()
+                return .handled
+            }
+            return .ignored
+        }
+    }
+
+    @ViewBuilder
+    private func quickLookPopoverContent(for url: URL) -> some View {
+        if let diff = quickLookDiff {
+            DiffPreviewPopover(
+                diff: diff,
+                onOpenFull: {
+                    filePreview.select(url)
+                    dismissQuickLook()
+                }
+            )
+        } else {
+            HStack(spacing: 8) {
+                ProgressView()
+                    .controlSize(.small)
+                Text("Loading diff…")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(16)
+            .frame(width: 200)
+        }
     }
 
     @ViewBuilder
@@ -502,7 +617,7 @@ struct FileRowView: View {
                 Circle()
                     .fill(status.color)
                     .frame(width: 6, height: 6)
-                    .help(status.label)
+                    .help(entry.isDirectory ? status.label : "\(status.label) · Press Space for Quick Look diff")
             }
         }
         .padding(.vertical, 1)
