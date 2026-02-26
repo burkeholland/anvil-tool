@@ -239,8 +239,11 @@ private struct CommitRowView: View {
 
                         HStack(spacing: 6) {
                             Text(commit.shortSHA)
-                                .font(.system(size: 10, design: .monospaced))
+                                .font(.system(size: 9, weight: .medium, design: .monospaced))
                                 .foregroundStyle(.secondary)
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 2)
+                                .background(Capsule().fill(Color.secondary.opacity(0.1)))
 
                             Text("·")
                                 .font(.system(size: 10))
