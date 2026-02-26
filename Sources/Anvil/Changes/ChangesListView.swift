@@ -12,6 +12,8 @@ struct ChangesListView: View {
     var onBranchDiff: (() -> Void)?
     var onCreatePR: (() -> Void)?
     var onResolveConflicts: ((URL) -> Void)?
+    /// The most recent task prompt, used to generate the copy summary.
+    var lastTaskPrompt: String? = nil
     @EnvironmentObject var terminalProxy: TerminalInputProxy
     @State private var fileToDiscard: ChangedFile?
     @State private var showDiscardAllConfirm = false
@@ -19,6 +21,8 @@ struct ChangesListView: View {
     @State private var stashToDrop: StashEntry?
     @State private var showOnlyUnreviewed = false
     @State private var collapsedGroups: Set<String> = []
+    @State private var showCopiedConfirmation = false
+    @State private var copiedDismissTask: DispatchWorkItem?
     @State private var stashSectionCollapsed = false
     @State private var pendingStashMessage = ""
 
@@ -146,6 +150,25 @@ struct ChangesListView: View {
                         onClearAll: { model.clearAllReviewed() }
                     )
                 }
+            }
+            Section {
+                Button {
+                    copySummaryToClipboard()
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "doc.on.clipboard")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                        Text("Copy Summary")
+                            .font(.system(size: 12, weight: .medium))
+                        Spacer()
+                        Text("for PR description")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.tertiary)
+                    }
+                    .padding(.vertical, 2)
+                }
+                .buttonStyle(.plain)
             }
         }
         if let onBranchDiff, workingDirectory.gitBranch != nil {
@@ -531,8 +554,16 @@ struct ChangesListView: View {
                     model.focusPreviousFile()
                     if let url = model.focusedFile?.url { filePreview.select(url) }
                     return .handled
-                case "j", "n": model.focusNextHunk(); return .handled
-                case "k", "p": model.focusPreviousHunk(); return .handled
+                case "n":
+                    model.focusNextUnreviewedFile()
+                    if let url = model.focusedFile?.url { filePreview.select(url) }
+                    return .handled
+                case "p":
+                    model.focusPreviousUnreviewedFile()
+                    if let url = model.focusedFile?.url { filePreview.select(url) }
+                    return .handled
+                case "j": model.focusNextHunk(); return .handled
+                case "k": model.focusPreviousHunk(); return .handled
                 case "s": model.stageFocusedHunk(); return .handled
                 case "u": model.unstageFocusedHunk(); return .handled
                 case "d": model.discardFocusedHunk(); return .handled
@@ -631,10 +662,33 @@ struct ChangesListView: View {
                     }
                 }
             }
+            .overlay(alignment: .center) {
+                if showCopiedConfirmation {
+                    Text("Summary copied to clipboard")
+                        .font(.system(size: 12, weight: .medium))
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 7)
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+                        .transition(.opacity.combined(with: .scale(scale: 0.95)))
+                }
+            }
             .animation(.easeInOut(duration: 0.2), value: model.lastDiscardStashRef != nil)
             .animation(.easeInOut(duration: 0.2), value: model.lastUndoneCommitSHA != nil)
             .animation(.easeInOut(duration: 0.2), value: model.lastStashError != nil)
             .animation(.easeInOut(duration: 0.2), value: model.lastDiscardedHunkPatch != nil)
+            .animation(.easeInOut(duration: 0.2), value: showCopiedConfirmation)
+    }
+
+    private func copySummaryToClipboard() {
+        let files = displayedFiles
+        let summary = ChangeSummaryGenerator.generate(files: files, taskPrompt: lastTaskPrompt)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(summary, forType: .string)
+        copiedDismissTask?.cancel()
+        showCopiedConfirmation = true
+        let task = DispatchWorkItem { showCopiedConfirmation = false }
+        copiedDismissTask = task
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2, execute: task)
     }
 
     // MARK: - Grouping Helpers
@@ -730,7 +784,16 @@ struct ChangesListView: View {
             showDirectoryLabel: showDirectoryLabel,
             onToggleReview: { model.toggleReviewed(file) },
             onOpenFile: { filePreview.select(file.url) },
-            onDiscard: { fileToDiscard = file }
+            onDiscard: { fileToDiscard = file },
+            onStageHunk: file.diff.map { diff in
+                { hunk in model.stageHunk(patch: DiffParser.reconstructPatch(fileDiff: diff, hunk: hunk)) }
+            },
+            onUnstageHunk: file.diff.map { diff in
+                { hunk in model.unstageHunk(patch: DiffParser.reconstructPatch(fileDiff: diff, hunk: hunk)) }
+            },
+            onDiscardHunk: file.diff.map { diff in
+                { hunk in model.discardHunk(patch: DiffParser.reconstructPatch(fileDiff: diff, hunk: hunk)) }
+            }
         )
         .contentShape(Rectangle())
         .onTapGesture {
@@ -1124,6 +1187,15 @@ struct CommitFormView: View {
                     Text("\(model.unreviewedStagedCount) staged file\(model.unreviewedStagedCount == 1 ? "" : "s") not yet reviewed")
                         .font(.system(size: 10))
                         .foregroundStyle(.orange.opacity(0.9))
+                }
+            } else if model.reviewedCount > 0 && model.reviewedCount == model.changedFiles.count {
+                HStack(spacing: 4) {
+                    Image(systemName: "checkmark.seal.fill")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.green)
+                    Text("All changes reviewed — ready to commit")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.green.opacity(0.9))
                 }
             }
 
@@ -1624,11 +1696,19 @@ struct ChangedFileRow: View {
     var onToggleReview: (() -> Void)? = nil
     var onOpenFile: (() -> Void)? = nil
     var onDiscard: (() -> Void)? = nil
+    var onStageHunk: ((DiffHunk) -> Void)? = nil
+    var onUnstageHunk: ((DiffHunk) -> Void)? = nil
+    var onDiscardHunk: ((DiffHunk) -> Void)? = nil
 
     @State private var isHovering = false
     @State private var dismissTask: DispatchWorkItem?
 
     private var priority: ReviewPriority { ReviewPriorityScorer.score(file) }
+
+    private var changeDescription: String? {
+        guard let diff = file.diff else { return nil }
+        return DiffChangeDescriber.describe(diff: diff, fileExtension: file.url.pathExtension)
+    }
 
     var body: some View {
         HStack(spacing: 6) {
@@ -1656,6 +1736,14 @@ struct ChangedFileRow: View {
                             .font(.system(size: 11))
                             .help("Sensitive file — requires careful review before committing")
                     }
+                }
+
+                if let description = changeDescription {
+                    Text(description)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
                 }
 
                 if showDirectoryLabel && !file.directoryPath.isEmpty {
@@ -1757,7 +1845,14 @@ struct ChangedFileRow: View {
             set: { if !$0 { isHovering = false } }
         ), arrowEdge: .trailing) {
             if let diff = file.diff {
-                DiffPreviewPopover(diff: diff, onOpenFull: onOpenFile)
+                DiffPreviewPopover(
+                    diff: diff,
+                    stagedDiff: file.stagedDiff,
+                    onStageHunk: onStageHunk,
+                    onUnstageHunk: onUnstageHunk,
+                    onDiscardHunk: onDiscardHunk,
+                    onOpenFull: onOpenFile
+                )
             }
         }
     }
