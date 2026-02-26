@@ -385,7 +385,7 @@ struct FilePreviewView: View {
             // Copilot prompt bar
             CopilotPromptBar(relativePath: model.relativePath)
         }
-        .background(Color(nsColor: .textBackgroundColor))
+        .background(Color(nsColor: NSColor(red: 0.12, green: 0.12, blue: 0.14, alpha: 1.0)))
         .onChange(of: model.showGoToLine) { _, show in
             guard show, model.selectedURL != nil, model.fileContent != nil, model.activeTab == .source else { return }
             withAnimation(.easeOut(duration: 0.15)) {
@@ -838,6 +838,11 @@ struct HighlightedTextView: NSViewRepresentable {
         textView.isRichText = true
         textView.drawsBackground = true
         textView.backgroundColor = NSColor(red: 0.12, green: 0.12, blue: 0.14, alpha: 1.0)
+        // Explicit text color ensures readability on the dark background regardless of system
+        // appearance. Without this, characters without explicit color attributes (e.g. plain
+        // text tokens that the syntax highlighter doesn't classify) fall back to the system
+        // default which is black in light mode — invisible on this dark background.
+        textView.textColor = NSColor(white: 0.85, alpha: 1.0)
         textView.textContainerInset = NSSize(width: 8, height: 12)
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticDashSubstitutionEnabled = false
