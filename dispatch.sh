@@ -502,26 +502,32 @@ Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>" --quiet
     log "   No changes to commit."
   fi
 
-  # ── Evergreen design refinement issue ────────────────────────────────
-  # Maintain a single standing issue for continuous design polish.
-  # Update it each cycle with fresh screenshots; create if it doesn't exist.
+  # ── UI refinement issue (new each cycle with latest screenshots) ─────
+  # Close previous UI refinement issue, then open a fresh one with
+  # the most current screenshots so the agent always sees the latest state.
   local base_url="https://raw.githubusercontent.com/$REPO/main/$SCREENSHOT_DIR"
-  local evergreen_title="Design refinement: continuous visual polish"
+  local issue_prefix="UI refinement:"
 
-  # Check if the evergreen issue already exists
-  local existing_issue
-  existing_issue="$(gh issue list --repo "$REPO" --label "$LABEL" --state open \
+  # Close any previous UI refinement issues
+  local prev_issues
+  prev_issues="$(gh issue list --repo "$REPO" --label "$LABEL" --state open \
     --json number,title \
-    --jq ".[] | select(.title == \"$evergreen_title\") | .number" \
-    2>/dev/null | head -1)" || existing_issue=""
+    --jq ".[] | select(.title | startswith(\"$issue_prefix\")) | .number" \
+    2>/dev/null)" || prev_issues=""
+  for issue_num in $prev_issues; do
+    gh issue close "$issue_num" --repo "$REPO" \
+      --comment "Closing — new UI refinement issue filed with updated screenshots." \
+      2>/dev/null || true
+    log "   🔒 Closed previous UI refinement issue #$issue_num."
+  done
 
   local issue_body
   read -r -d '' issue_body << ISSUEEOF || true
-🎨 **Continuous design refinement** — last updated $timestamp
+🎨 **UI refinement pass** — $timestamp
 
-This is an evergreen issue. On every cycle, review the latest screenshots and make one design improvement inspired by the clean, minimal aesthetic of [postrboard.com](https://postrboard.com).
+Review these screenshots of the current app state. Pick ONE visual issue to fix, implement it, and close this issue.
 
-### Current Screenshots
+### Current App Screenshots
 
 #### File Explorer
 ![File Explorer](${base_url}/screenshot.png)
@@ -535,46 +541,39 @@ This is an evergreen issue. On every cycle, review the latest screenshots and ma
 ---
 
 ### Design Reference
-The target look and feel is **postrboard.com** — study it carefully each cycle:
+Study **[postrboard.com](https://postrboard.com)** carefully — that is the target aesthetic:
 - Clean, minimal, polished native macOS feel
-- Dark theme with clear visual hierarchy
-- Generous spacing and breathing room
+- Dark theme with clear visual hierarchy and subtle depth
+- Generous spacing, breathing room, no clutter
 - Subtle borders and dividers (not harsh lines)
-- Refined typography — proper font weights, sizes, and letter spacing
-- Smooth transitions and micro-interactions
-- No visual clutter — every element earns its place
+- Refined typography — proper font weights, sizes, letter spacing
+- Every UI element earns its place
 
-### What to improve (pick one per cycle)
-- Spacing and padding consistency across all panels
-- Color palette refinement (background shades, accent colors, text contrast)
-- Typography hierarchy (headings, body text, labels, monospace code)
-- Border and divider styling (subtle, not harsh)
-- Icon consistency and sizing
-- Sidebar polish (item spacing, hover states, selection highlighting)
-- Terminal panel appearance (prompt styling, output formatting)
-- Tab bar and toolbar refinement
-- Empty state designs (no file selected, no results, etc.)
-- Scroll bar styling
-- Focus rings and selection states
-- Any other visual detail that doesn't match the postrboard.com aesthetic
+### Areas to evaluate
+Look at the screenshots above and identify the MOST impactful visual improvement from:
+- Spacing and padding (too cramped? inconsistent?)
+- Color palette (background shades, accent colors, text contrast)
+- Typography (font sizes, weights, hierarchy between headings/body/labels)
+- Borders and dividers (too harsh? missing? inconsistent?)
+- Sidebar styling (item spacing, hover/selection states, icons)
+- Terminal panel appearance (background, prompt, spacing)
+- Toolbar and tab bar refinement
+- Empty states and placeholder content
+- Overall polish — anything that looks rough or unfinished
 
-**Instructions**: Pick ONE specific improvement, implement it, and commit. Do NOT close this issue — it stays open for the next cycle. Add a comment describing what you changed.
+### Instructions
+1. Study the screenshots and postrboard.com
+2. Pick the ONE most impactful visual fix
+3. Implement it with minimal, surgical changes
+4. Close this issue when done — a new one will be filed next cycle with fresh screenshots
 ISSUEEOF
 
-  if [ -n "$existing_issue" ]; then
-    # Update the existing issue body with fresh screenshots
-    gh issue edit "$existing_issue" --repo "$REPO" \
-      --body "$issue_body" \
-      2>/dev/null || true
-    log "   📝 Updated evergreen design issue #$existing_issue."
-  else
-    gh issue create --repo "$REPO" \
-      --title "$evergreen_title" \
-      --label "$LABEL" \
-      --body "$issue_body" \
-      2>/dev/null || true
-    log "   📝 Created evergreen design refinement issue."
-  fi
+  gh issue create --repo "$REPO" \
+    --title "$issue_prefix visual polish ($timestamp)" \
+    --label "$LABEL" \
+    --body "$issue_body" \
+    2>/dev/null || true
+  log "   📝 Filed new UI refinement issue with latest screenshots."
 }
 
 # ─── Phase 2: TRIAGE ────────────────────────────────────────────────────────
