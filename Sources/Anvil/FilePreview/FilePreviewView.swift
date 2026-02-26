@@ -1108,7 +1108,8 @@ final class LineNumberRulerView: NSRulerView {
     private let blameAuthorColor = NSColor(white: 0.50, alpha: 1.0)
     private let blameDateColor = NSColor(white: 0.35, alpha: 1.0)
     /// Number of "M" characters used to size the blame column (≈ max displayable content).
-    private let blameColumnCharCount = 20
+    /// Wide enough to show author + relative date + abbreviated commit summary.
+    private let blameColumnCharCount = 38
     /// Horizontal padding between the blame column and the blame separator line.
     private let blameSeparatorPadding: CGFloat = 8
     /// Gap between the right edge of the blame column and the left edge of the line numbers.
@@ -1290,6 +1291,29 @@ final class LineNumberRulerView: NSRulerView {
         )
     }
 
+    /// Returns `text` truncated with a trailing "…" so it fits within `maxWidth` when
+    /// rendered with `attrs`. Returns an empty string if even a single character is too wide.
+    /// Uses binary search to keep the number of string measurements at O(log n).
+    private func truncateSummary(_ text: String,
+                                  maxWidth: CGFloat,
+                                  attrs: [NSAttributedString.Key: Any]) -> String {
+        if (text as NSString).size(withAttributes: attrs).width <= maxWidth { return text }
+        let chars = Array(text)
+        var lo = 0
+        var hi = chars.count
+        while lo < hi {
+            let mid = (lo + hi + 1) / 2
+            let candidate = String(chars.prefix(mid)) + "…"
+            if (candidate as NSString).size(withAttributes: attrs).width <= maxWidth {
+                lo = mid
+            } else {
+                hi = mid - 1
+            }
+        }
+        guard lo > 0 else { return "" }
+        return String(chars.prefix(lo)) + "…"
+    }
+
     override func drawHashMarksAndLabels(in rect: NSRect) {
         guard let textView = targetTextView,
               let layoutManager = textView.layoutManager,
@@ -1350,6 +1374,10 @@ final class LineNumberRulerView: NSRulerView {
         // Track the previous line's commit SHA to suppress repeated blame rows
         var previousBlameSHA: String?
 
+        // Pre-compute the "session change" cutoff once to avoid repeated Date() allocations
+        // inside the per-line draw loop.
+        let sessionCutoff = Date().addingTimeInterval(-3600)
+
         // Walk through each line in the visible range
         var lineNumber = content.substring(to: visibleCharRange.location)
             .components(separatedBy: "\n").count
@@ -1373,25 +1401,74 @@ final class LineNumberRulerView: NSRulerView {
                 // Blame annotation (left of line number)
                 if hasBlame, let blame = blameMap[lineNumber] {
                     let isNewCommit = blame.sha != previousBlameSHA
+                    // "Session change": uncommitted edits or commits made within the last hour
+                    let isSessionChange = blame.isUncommitted || blame.date > sessionCutoff
+
+                    // Subtle background tint that spans all lines of the same commit block
+                    if blame.isUncommitted {
+                        NSColor(red: 0.95, green: 0.55, blue: 0.10, alpha: 0.12).setFill()
+                        NSRect(x: 0, y: drawY, width: blameSeparatorX, height: lineRect.height).fill()
+                    } else if isSessionChange {
+                        NSColor(red: 0.30, green: 0.70, blue: 0.90, alpha: 0.08).setFill()
+                        NSRect(x: 0, y: drawY, width: blameSeparatorX, height: lineRect.height).fill()
+                    }
+
                     if isNewCommit {
-                        // Author name (truncated to ~10 chars)
+                        // Color scheme based on recency of the change
+                        let authorColor: NSColor
+                        let dateColor: NSColor
+                        let summaryColor: NSColor
+                        if blame.isUncommitted {
+                            authorColor  = NSColor(red: 0.95, green: 0.65, blue: 0.20, alpha: 1.00)
+                            dateColor    = NSColor(red: 0.95, green: 0.65, blue: 0.20, alpha: 0.65)
+                            summaryColor = NSColor(red: 0.95, green: 0.65, blue: 0.20, alpha: 0.50)
+                        } else if isSessionChange {
+                            authorColor  = NSColor(red: 0.40, green: 0.80, blue: 0.95, alpha: 1.00)
+                            dateColor    = NSColor(red: 0.40, green: 0.80, blue: 0.95, alpha: 0.70)
+                            summaryColor = NSColor(red: 0.40, green: 0.80, blue: 0.95, alpha: 0.50)
+                        } else {
+                            authorColor  = blameAuthorColor
+                            dateColor    = blameDateColor
+                            summaryColor = NSColor(white: 0.28, alpha: 1.0)
+                        }
+
+                        let curAuthorAttrs:  [NSAttributedString.Key: Any] = [.font: blameFont, .foregroundColor: authorColor]
+                        let curDateAttrs:    [NSAttributedString.Key: Any] = [.font: blameFont, .foregroundColor: dateColor]
+                        let curSummaryAttrs: [NSAttributedString.Key: Any] = [.font: blameFont, .foregroundColor: summaryColor]
+
+                        // Author name (truncated)
                         let authorName = blame.isUncommitted ? "Uncommitted" : String(blame.author.prefix(12))
-                        let authorStr = authorName as NSString
-                        let authorSize = authorStr.size(withAttributes: blameAuthorAttrs)
-                        let authorPoint = NSPoint(
-                            x: 6,
-                            y: drawY + (lineRect.height - authorSize.height) / 2
-                        )
-                        authorStr.draw(at: authorPoint, withAttributes: blameAuthorAttrs)
+                        let authorStr  = authorName as NSString
+                        let authorSize = authorStr.size(withAttributes: curAuthorAttrs)
+                        authorStr.draw(
+                            at: NSPoint(x: 6, y: drawY + (lineRect.height - authorSize.height) / 2),
+                            withAttributes: curAuthorAttrs)
 
                         // Relative date
-                        let dateStr = blame.relativeDate as NSString
-                        let dateSize = dateStr.size(withAttributes: blameDateAttrs)
-                        let datePoint = NSPoint(
-                            x: 6 + authorSize.width + 4,
-                            y: drawY + (lineRect.height - dateSize.height) / 2
-                        )
-                        dateStr.draw(at: datePoint, withAttributes: blameDateAttrs)
+                        let dateStr  = blame.relativeDate as NSString
+                        let dateSize = dateStr.size(withAttributes: curDateAttrs)
+                        let dateX    = 6 + authorSize.width + 4
+                        dateStr.draw(
+                            at: NSPoint(x: dateX, y: drawY + (lineRect.height - dateSize.height) / 2),
+                            withAttributes: curDateAttrs)
+
+                        // Abbreviated commit summary (committed lines only)
+                        if !blame.isUncommitted && !blame.summary.isEmpty {
+                            let summaryX        = dateX + dateSize.width + 6
+                            let maxSummaryWidth = blameSeparatorX - summaryX - 4
+                            if maxSummaryWidth > 20 {
+                                let truncated = truncateSummary(blame.summary,
+                                                                maxWidth: maxSummaryWidth,
+                                                                attrs: curSummaryAttrs)
+                                if !truncated.isEmpty {
+                                    let summaryStr  = truncated as NSString
+                                    let summarySize = summaryStr.size(withAttributes: curSummaryAttrs)
+                                    summaryStr.draw(
+                                        at: NSPoint(x: summaryX, y: drawY + (lineRect.height - summarySize.height) / 2),
+                                        withAttributes: curSummaryAttrs)
+                                }
+                            }
+                        }
                     }
                     previousBlameSHA = blame.sha
                 }
