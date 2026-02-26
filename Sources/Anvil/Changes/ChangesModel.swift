@@ -21,6 +21,21 @@ struct ChangedFile: Identifiable {
     }
 }
 
+/// Stores enough information to undo a single per-file discard.
+struct DiscardedFileEntry: Identifiable {
+    let id = UUID()
+    /// Display name of the discarded file.
+    let fileName: String
+    /// Relative path within the repository.
+    let relativePath: String
+    /// The original git status (used to determine how to restore).
+    let status: GitFileStatus
+    /// Unified diff patch captured before the discard; nil for untracked/added files.
+    let patch: String?
+    /// Raw file contents captured before the discard; set for untracked and unstaged added files.
+    let rawContent: Data?
+}
+
 /// Manages the list of git-changed files and their diffs.
 /// Owns its own FileWatcher to refresh independently of the file tree tab.
 final class ChangesModel: ObservableObject {
@@ -45,6 +60,11 @@ final class ChangesModel: ObservableObject {
     @Published var lastHunkError: String?
     /// The patch that was last discarded via "Discard Hunk", kept for a few seconds so the user can undo.
     @Published var lastDiscardedHunkPatch: String?
+    /// In-memory undo stack for per-file discards (last 5, most-recent last).
+    @Published private(set) var discardUndoStack: [DiscardedFileEntry] = []
+    /// The entry currently shown in the undo toast banner; nil when no banner is visible.
+    /// Separate from discardUndoStack so dismissing the banner doesn't expose older entries.
+    @Published var activeDiscardBannerEntry: DiscardedFileEntry?
 
     // MARK: - Task Scope Tracking
 
@@ -102,6 +122,7 @@ final class ChangesModel: ObservableObject {
     private var commitGeneration: UInt64 = 0
     private var stashGeneration: UInt64 = 0
     private var discardHunkGeneration: UInt64 = 0
+    private var discardFileGeneration: UInt64 = 0
     private var fileWatcher: FileWatcher?
 
     deinit {
@@ -674,24 +695,157 @@ final class ChangesModel: ObservableObject {
 
     /// Discard all uncommitted changes to a file.
     /// Handles different git statuses appropriately.
+    /// Saves a snapshot to the undo stack (max 5) so the discard can be reversed.
     func discardChanges(for file: ChangedFile) {
         guard let rootURL = rootDirectory else { return }
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            // Capture undo data before destroying the changes.
+            let patch: String?
+            let rawContent: Data?
+            switch file.status {
+            case .untracked:
+                patch = nil
+                rawContent = try? Data(contentsOf: file.url)
+            case .added:
+                // Prefer capturing from the index (staged); fall back to reading from disk.
+                if file.staging == .staged || file.staging == .partial,
+                   let stagedContent = Self.runGitOutput(args: ["show", ":\(file.relativePath)"], at: rootURL) {
+                    patch = stagedContent
+                    rawContent = nil
+                } else {
+                    patch = nil
+                    rawContent = try? Data(contentsOf: file.url)
+                }
+            default:
+                // Capture a combined diff of both staged and unstaged changes.
+                if file.staging == .staged || file.staging == .partial {
+                    // Include staged changes: diff tree HEAD vs index + index vs work-tree
+                    let staged = Self.runGitOutput(
+                        args: ["diff", "--cached", "--binary", "HEAD", "--", file.relativePath],
+                        at: rootURL) ?? ""
+                    let unstaged = Self.runGitOutput(
+                        args: ["diff", "--binary", "--", file.relativePath],
+                        at: rootURL) ?? ""
+                    patch = staged.isEmpty && unstaged.isEmpty ? nil : staged + unstaged
+                } else {
+                    patch = Self.runGitOutput(
+                        args: ["diff", "--binary", "HEAD", "--", file.relativePath],
+                        at: rootURL)
+                }
+                rawContent = nil
+            }
+
+            // For staged files, unstage first so the working-tree restore works cleanly.
+            if file.staging == .staged || file.staging == .partial {
+                switch file.status {
+                case .untracked, .added:
+                    Self.runGitSync(args: ["reset", "HEAD", "--", file.relativePath], at: rootURL)
+                default:
+                    Self.runGitSync(args: ["restore", "--staged", "--", file.relativePath], at: rootURL)
+                }
+            }
+
             switch file.status {
             case .untracked:
                 // Remove untracked file from disk
                 Self.runGitSync(args: ["clean", "-f", "--", file.relativePath], at: rootURL)
             case .added:
-                // Unstage and remove a newly added file
-                Self.runGitSync(args: ["rm", "-f", "--", file.relativePath], at: rootURL)
+                // Unstage if not already done above, then remove from disk.
+                if file.staging != .staged && file.staging != .partial {
+                    Self.runGitSync(args: ["reset", "HEAD", "--", file.relativePath], at: rootURL)
+                }
+                Self.runGitSync(args: ["clean", "-f", "--", file.relativePath], at: rootURL)
             default:
                 // For modified, deleted, renamed, conflicted: restore from HEAD
                 Self.runGitSync(args: ["checkout", "HEAD", "--", file.relativePath], at: rootURL)
             }
+
+            let entry = DiscardedFileEntry(
+                fileName: file.fileName,
+                relativePath: file.relativePath,
+                status: file.status,
+                patch: patch,
+                rawContent: rawContent
+            )
+
             DispatchQueue.main.async {
+                guard let self else { return }
+                // Push onto undo stack, capping at 5.
+                self.discardUndoStack.append(entry)
+                if self.discardUndoStack.count > 5 {
+                    self.discardUndoStack.removeFirst()
+                }
+                // Show in the banner and auto-dismiss after 8 seconds.
+                self.activeDiscardBannerEntry = entry
+                self.discardFileGeneration &+= 1
+                let generation = self.discardFileGeneration
+                DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self] in
+                    if self?.discardFileGeneration == generation {
+                        self?.activeDiscardBannerEntry = nil
+                    }
+                }
+                self.refresh()
+            }
+        }
+    }
+
+    /// Undo the most recent per-file discard by re-applying its captured patch or content.
+    func undoDiscardFile() {
+        guard let rootURL = rootDirectory, let entry = activeDiscardBannerEntry ?? discardUndoStack.last else { return }
+        discardFileGeneration &+= 1
+        activeDiscardBannerEntry = nil
+        // Remove this entry from the stack if present.
+        if let idx = discardUndoStack.firstIndex(where: { $0.id == entry.id }) {
+            discardUndoStack.remove(at: idx)
+        }
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            var succeeded = true
+            switch entry.status {
+            case .untracked:
+                // Restore the raw file content.
+                if let data = entry.rawContent {
+                    let fileURL = rootURL.appendingPathComponent(entry.relativePath)
+                    let dir = fileURL.deletingLastPathComponent()
+                    try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+                    succeeded = (try? data.write(to: fileURL)) != nil
+                }
+            case .added:
+                // Restore from staged blob or raw content, then re-stage.
+                let restoreData: Data?
+                if let blob = entry.patch {
+                    restoreData = blob.data(using: .utf8)
+                } else {
+                    restoreData = entry.rawContent
+                }
+                if let data = restoreData {
+                    let fileURL = rootURL.appendingPathComponent(entry.relativePath)
+                    let dir = fileURL.deletingLastPathComponent()
+                    try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+                    succeeded = (try? data.write(to: fileURL)) != nil
+                    if succeeded && entry.patch != nil {
+                        // Re-stage only if we originally captured from the index.
+                        Self.runGitSync(args: ["add", "--", entry.relativePath], at: rootURL)
+                    }
+                }
+            default:
+                if let patch = entry.patch, !patch.isEmpty {
+                    let (ok, _) = Self.runGitApply(patch: patch, args: ["apply"], at: rootURL)
+                    succeeded = ok
+                }
+            }
+            DispatchQueue.main.async {
+                if !succeeded {
+                    self?.lastHunkError = "Failed to undo file discard for \(entry.fileName)"
+                }
                 self?.refresh()
             }
         }
+    }
+
+    /// Dismiss the undo toast banner without reverting the file.
+    func dismissDiscardUndo() {
+        discardFileGeneration &+= 1
+        activeDiscardBannerEntry = nil
     }
 
     // MARK: - Staging
