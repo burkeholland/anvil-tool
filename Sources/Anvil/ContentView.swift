@@ -1748,8 +1748,7 @@ struct SidebarView: View {
 
                 Spacer()
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
+            .padding(.horizontal, 4)
             .background(.bar)
 
             Divider()
@@ -1844,29 +1843,31 @@ struct SidebarTabButton: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 4) {
-                Image(systemName: systemImage)
-                    .font(.system(size: 11))
-                Text(title)
-                    .font(.system(size: 12, weight: isActive ? .semibold : .regular))
+            VStack(spacing: 0) {
+                HStack(spacing: 4) {
+                    Image(systemName: systemImage)
+                        .font(.system(size: 11))
+                    Text(title)
+                        .font(.system(size: 12, weight: isActive ? .semibold : .regular))
 
-                if let badge = badge {
-                    Text("\(badge)")
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 1)
-                        .background(Capsule().fill(Color.accentColor))
+                    if let badge = badge {
+                        Text("\(badge)")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1)
+                            .background(Capsule().fill(Color.accentColor))
+                    }
                 }
+                .foregroundStyle(isActive ? .primary : .secondary)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+
+                Rectangle()
+                    .fill(isActive ? Color.accentColor : Color.clear)
+                    .frame(height: 2)
+                    .clipShape(RoundedRectangle(cornerRadius: 1))
             }
-            .foregroundStyle(isActive ? .primary : .secondary)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(
-                isActive
-                    ? RoundedRectangle(cornerRadius: 6).fill(Color(nsColor: .controlBackgroundColor))
-                    : nil
-            )
         }
         .buttonStyle(.plain)
     }
