@@ -260,7 +260,7 @@ struct ChangesListView: View {
         if !displayedStagedFiles.isEmpty {
             Section {
                 let files = showOnlyUnreviewed ? displayedStagedFiles.filter { !model.isReviewed($0) } : displayedStagedFiles
-                groupedFileRows(files: files, isStaged: true)
+                groupedFileRows(files: ReviewPriorityScorer.sorted(files), isStaged: true)
             } header: {
                 HStack(spacing: 8) {
                     Text("Staged Changes")
@@ -284,7 +284,7 @@ struct ChangesListView: View {
         if !displayedUnstagedFiles.isEmpty {
             Section {
                 let files = showOnlyUnreviewed ? displayedUnstagedFiles.filter { !model.isReviewed($0) } : displayedUnstagedFiles
-                groupedFileRows(files: files, isStaged: false)
+                groupedFileRows(files: ReviewPriorityScorer.sorted(files), isStaged: false)
             } header: {
                 unstagedSectionHeader
             }
@@ -1419,6 +1419,8 @@ struct ChangedFileRow: View {
     @State private var isHovering = false
     @State private var dismissTask: DispatchWorkItem?
 
+    private var priority: ReviewPriority { ReviewPriorityScorer.score(file) }
+
     var body: some View {
         HStack(spacing: 6) {
             // Status badge
@@ -1473,6 +1475,9 @@ struct ChangedFileRow: View {
                     }
                 }
             }
+
+            // Risk indicator dot
+            ReviewPriorityIndicator(priority: priority)
 
             // Review toggle button (checkbox)
             if let onToggleReview {
