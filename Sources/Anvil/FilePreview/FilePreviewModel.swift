@@ -50,6 +50,16 @@ final class FilePreviewModel: ObservableObject {
     /// The URL of the test/implementation counterpart for the current file, if one exists on disk.
     @Published private(set) var testFileCounterpart: URL?
 
+    /// Whether the file preview pane is in edit mode.
+    @Published var isEditing = false
+    /// In-memory edits not yet written to disk. Not @Published to avoid per-keystroke
+    /// view refreshes; use `hasUnsavedEdits` for UI state.
+    var editedContent: String?
+    /// Published flag that drives the unsaved-changes dot in the preview tab bar.
+    @Published private(set) var hasUnsavedEdits = false
+    /// The last error from a save attempt, shown as an alert in the UI.
+    @Published var lastSaveError: String?
+
     /// Recently viewed file URLs in most-recent-first order, capped at 20.
     @Published private(set) var recentlyViewedURLs: [URL] = []
 
@@ -109,6 +119,10 @@ final class FilePreviewModel: ObservableObject {
         commitDiffContext = nil
         stashDiffContext = nil
         showSymbolOutline = false
+        // Discard any in-memory edits when switching to a different file
+        if selectedURL != url {
+            exitEditMode()
+        }
         // Track in recent files
         trackRecent(url)
         // Add to tabs if not already open
@@ -234,7 +248,40 @@ final class FilePreviewModel: ObservableObject {
         isWatching = false
         watchPreviousContent = nil
         testFileCounterpart = nil
+        isEditing = false
+        editedContent = nil
+        hasUnsavedEdits = false
         if persist { saveOpenTabs() }
+    }
+
+    /// Writes in-memory edits to disk and clears the unsaved state.
+    func saveFile() {
+        guard let url = selectedURL, let content = editedContent else { return }
+        do {
+            try content.write(to: url, atomically: true, encoding: .utf8)
+            editedContent = nil
+            hasUnsavedEdits = false
+        } catch {
+            lastSaveError = error.localizedDescription
+        }
+    }
+
+    /// Discards in-memory edits without writing to disk.
+    func discardEdits() {
+        editedContent = nil
+        hasUnsavedEdits = false
+    }
+
+    /// Exits edit mode, discarding any unsaved changes.
+    func exitEditMode() {
+        discardEdits()
+        isEditing = false
+    }
+
+    /// Sets the `hasUnsavedEdits` flag. Called from the view layer to minimise
+    /// @Published-driven re-renders to the first edit only (not every keystroke).
+    func setHasUnsavedEdits(_ value: Bool) {
+        hasUnsavedEdits = value
     }
 
     /// Refresh both source content and diff for the current file.
