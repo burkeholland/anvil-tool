@@ -22,8 +22,7 @@ LOOP_INTERVAL=300         # Seconds between cycles (5 min)
 LABEL="anvil-auto"        # Label applied to all auto-created issues
 REPO=""                   # Detected from gh repo view
 ISSUE_AUTHOR=""             # Detected from gh auth status
-SCREENSHOT_DIR="docs"     # Where to save the latest screenshot
-SCREENSHOT_FILE="$SCREENSHOT_DIR/screenshot.png"
+SCREENSHOT_DIR="docs"     # Where to save screenshots
 APP_BUNDLE=".build/Anvil.app"
 DRY_RUN=false
 DEBUG=false
@@ -288,24 +287,97 @@ phase_merge() {
   git branch -D "dispatch/test-merge" 2>/dev/null || true
 
   log "   Merged $merged_count PR(s) this cycle."
-
-  # Export merge count so phase_screenshot can check it
-  export LAST_MERGE_COUNT=$merged_count
 }
 
 # ─── Phase 1b: SCREENSHOT ───────────────────────────────────────────────────
 
-phase_screenshot() {
-  # Only run if we merged something this cycle
-  if [ "${LAST_MERGE_COUNT:-0}" -eq 0 ]; then
-    log "📸 Phase 1b: SCREENSHOT — skipped (no merges this cycle)."
-    return 0
+# Launches Anvil with a given sidebar tab, captures the content window, kills app.
+# Usage: capture_app_screenshot <sidebar_tab> <output_file>
+#   sidebar_tab: files, changes, activity, search, history
+capture_app_screenshot() {
+  local tab="$1"
+  local output="$2"
+
+  # Set sidebar tab + project via UserDefaults before launch
+  defaults write dev.burkeholland.anvil "sidebarTab" "$tab"
+  defaults write dev.burkeholland.anvil "dev.anvil.lastOpenedDirectory" "$SCRIPT_DIR"
+
+  # Kill any existing Anvil instance
+  local existing_pid
+  existing_pid="$(pgrep -x Anvil)" && kill "$existing_pid" 2>/dev/null && sleep 1
+
+  # Launch in background (no focus steal)
+  open -g "$APP_BUNDLE"
+  sleep 4
+
+  # Briefly activate so macOS composites the window, then hide
+  osascript -e '
+    tell application "Anvil" to activate
+    delay 2
+  ' 2>/dev/null || true
+
+  # Find the content window (largest by area, skip menu bar items)
+  local window_id
+  window_id="$(swift -e '
+import CoreGraphics
+var bestId = 0
+var bestArea = 0
+if let windows = CGWindowListCopyWindowInfo([.optionAll], kCGNullWindowID) as? [[String: Any]] {
+    for w in windows {
+        let name = w[kCGWindowOwnerName as String] as? String ?? ""
+        if name.contains("Anvil") {
+            let bounds = w[kCGWindowBounds as String] as? [String: Any] ?? [:]
+            let h = bounds["Height"] as? Int ?? 0
+            let w2 = bounds["Width"] as? Int ?? 0
+            let area = h * w2
+            if h > 100 && area > bestArea {
+                bestArea = area
+                bestId = w[kCGWindowNumber as String] as? Int ?? 0
+            }
+        }
+    }
+}
+print(bestId)
+' 2>/dev/null)" || window_id=""
+
+  if [ -z "$window_id" ] || [ "$window_id" = "0" ]; then
+    log "   ⚠️  Could not find Anvil window for tab '$tab'."
+    local cleanup_pid
+    cleanup_pid="$(pgrep -x Anvil)" && kill "$cleanup_pid" 2>/dev/null
+    return 1
   fi
 
-  log "📸 Phase 1b: SCREENSHOT — capturing app state after merge..."
+  # Capture the window
+  if screencapture -l "$window_id" "$output" 2>/dev/null && [ -f "$output" ]; then
+    local fsize
+    fsize="$(stat -f%z "$output" 2>/dev/null || echo 0)"
+    if [ "$fsize" -lt 50000 ]; then
+      log "   ⚠️  Screenshot for '$tab' looks blank ($fsize bytes). Skipping."
+      rm -f "$output"
+      local cleanup_pid
+      cleanup_pid="$(pgrep -x Anvil)" && kill "$cleanup_pid" 2>/dev/null
+      return 1
+    fi
+    log "   ✅ Captured $tab → $output"
+  else
+    log "   ⚠️  screencapture failed for tab '$tab'."
+    local cleanup_pid
+    cleanup_pid="$(pgrep -x Anvil)" && kill "$cleanup_pid" 2>/dev/null
+    return 1
+  fi
+
+  # Kill the app so next launch picks up new UserDefaults
+  local cleanup_pid
+  cleanup_pid="$(pgrep -x Anvil)" && kill "$cleanup_pid" 2>/dev/null
+  sleep 1
+  return 0
+}
+
+phase_screenshot() {
+  log "📸 Phase 1b: SCREENSHOT — capturing app state..."
 
   if [ "$DRY_RUN" = true ]; then
-    log "   [DRY RUN] Would build, screenshot, and file visual review issue."
+    log "   [DRY RUN] Would build, screenshot, update README, and file visual review."
     return 0
   fi
 
@@ -342,98 +414,131 @@ phase_screenshot() {
 PLIST
   fi
 
-  # Pre-set the project directory so the app opens with the project loaded
-  defaults write dev.burkeholland.anvil "dev.anvil.lastOpenedDirectory" "$SCRIPT_DIR"
-
-  # Kill any existing Anvil instance
-  local existing_pid
-  existing_pid="$(pgrep -x Anvil)" && kill "$existing_pid" 2>/dev/null && sleep 1
-
-  # Launch via `open` (handles activation + window server registration properly)
-  log "   Launching Anvil..."
-  open -g -j "$APP_BUNDLE"
-  sleep 6
-
-  # Find the content window (height > 50 to skip menu bar items)
-  local window_id
-  window_id="$(swift -e '
-import CoreGraphics
-if let windows = CGWindowListCopyWindowInfo([.optionAll], kCGNullWindowID) as? [[String: Any]] {
-    for w in windows {
-        let name = w[kCGWindowOwnerName as String] as? String ?? ""
-        if name.contains("Anvil") {
-            let bounds = w[kCGWindowBounds as String] as? [String: Any] ?? [:]
-            let h = bounds["Height"] as? Int ?? 0
-            if h > 50 {
-                print(w[kCGWindowNumber as String] as? Int ?? 0)
-                break
-            }
-        }
-    }
-}
-' 2>/dev/null)" || window_id=""
-
-  if [ -z "$window_id" ] || [ "$window_id" = "0" ]; then
-    log "   ⚠️  Could not find Anvil window. Skipping screenshot."
-    local cleanup_pid
-    cleanup_pid="$(pgrep -x Anvil)" && kill "$cleanup_pid" 2>/dev/null
-    return 0
-  fi
-
-  # Capture the window
+  # Capture multiple views
   mkdir -p "$SCREENSHOT_DIR"
-  if screencapture -l "$window_id" "$SCREENSHOT_FILE" 2>/dev/null; then
-    log "   ✅ Screenshot captured: $SCREENSHOT_FILE"
-  else
-    log "   ⚠️  screencapture failed. Skipping."
-    local cleanup_pid
-    cleanup_pid="$(pgrep -x Anvil)" && kill "$cleanup_pid" 2>/dev/null
+  local captured=0
+
+  # Main view — Files sidebar (the hero screenshot)
+  if capture_app_screenshot "files" "$SCREENSHOT_DIR/screenshot.png"; then
+    captured=$((captured + 1))
+  fi
+
+  # Changes view
+  if capture_app_screenshot "changes" "$SCREENSHOT_DIR/screenshot-changes.png"; then
+    captured=$((captured + 1))
+  fi
+
+  # Commit History view
+  if capture_app_screenshot "history" "$SCREENSHOT_DIR/screenshot-history.png"; then
+    captured=$((captured + 1))
+  fi
+
+  if [ "$captured" -eq 0 ]; then
+    log "   ⚠️  No screenshots captured. Skipping."
     return 0
   fi
 
-  # Kill the app
-  local cleanup_pid
-  cleanup_pid="$(pgrep -x Anvil)" && kill "$cleanup_pid" 2>/dev/null
-  sleep 1
+  log "   📷 Captured $captured screenshot(s)."
 
-  # Commit the screenshot to the repo
-  git add "$SCREENSHOT_FILE"
-  if ! git diff --cached --quiet "$SCREENSHOT_FILE" 2>/dev/null; then
-    git commit -m "docs: update app screenshot after merge
+  # ── Update README.md ──────────────────────────────────────────────────────
+  local timestamp
+  timestamp="$(date -u '+%Y-%m-%d %H:%M UTC')"
+
+  cat > README.md << READMEEOF
+# Anvil
+
+A native macOS app that wraps the GitHub Copilot CLI in a beautiful, full-featured IDE experience.
+
+> **Last updated**: $timestamp
+
+## Screenshots
+
+### File Explorer
+![File Explorer](docs/screenshot.png)
+
+### Changes View
+![Changes](docs/screenshot-changes.png)
+
+### Commit History
+![Commit History](docs/screenshot-history.png)
+
+## Features
+
+- 🗂️ File explorer with git status indicators
+- ✏️ Syntax-highlighted file preview
+- 🔀 Inline diff viewer for changes
+- 🖥️ Integrated terminal with Copilot CLI
+- 📋 Git commit history browser
+- 🔍 Project-wide search
+- 🤖 Agent activity feed
+
+## Build
+
+\`\`\`bash
+swift build
+\`\`\`
+
+## Design
+
+Built with SwiftUI. Target aesthetic: clean, minimal, polished native macOS feel.
+Design reference: [postrboard.com](https://postrboard.com)
+READMEEOF
+
+  log "   📝 README.md updated with screenshots and timestamp."
+
+  # ── Commit everything ────────────────────────────────────────────────────
+  git add "$SCREENSHOT_DIR"/*.png README.md
+  if ! git diff --cached --quiet 2>/dev/null; then
+    git commit -m "docs: update app screenshots and README ($timestamp)
 
 Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>" --quiet
     git push --quiet origin main 2>/dev/null || true
-    log "   📤 Screenshot committed and pushed."
+    log "   📤 Screenshots + README committed and pushed."
   else
-    log "   Screenshot unchanged — no commit needed."
+    log "   No changes to commit."
   fi
 
-  # File a visual review issue with the screenshot
-  local screenshot_url="https://raw.githubusercontent.com/$REPO/main/$SCREENSHOT_FILE"
-  local issue_title="Visual review: app screenshot after latest merge"
+  # ── File / update visual review issue ──────────────────────────────────
+  local base_url="https://raw.githubusercontent.com/$REPO/main/$SCREENSHOT_DIR"
+  local issue_title="Visual review: app screenshots ($timestamp)"
 
-  # Check if a visual review issue is already open
-  local existing_visual_issue
-  existing_visual_issue="$(gh issue list --repo "$REPO" --state open \
-    --label "$LABEL" --author "$ISSUE_AUTHOR" \
-    --json number,title \
-    --jq '[.[] | select(.title | contains("Visual review"))] | first | .number' 2>/dev/null)" || existing_visual_issue=""
+  local issue_body
+  read -r -d '' issue_body << ISSUEEOF || true
+📸 **Automated visual review** — $timestamp
 
-  if [ -n "$existing_visual_issue" ] && [ "$existing_visual_issue" != "null" ]; then
-    # Update existing issue with new screenshot
-    gh issue comment "$existing_visual_issue" --repo "$REPO" \
-      --body "$(printf '📸 Updated screenshot after latest merge:\n\n![Anvil Screenshot](%s)\n\nPlease review for any visual issues: broken layouts, overlapping text, misaligned elements, truncated labels, or anything that looks like a UI bug.\n\n**Design reference**: The target aesthetic is clean and minimal — dark theme with clear hierarchy, no clutter, generous spacing, and a polished native macOS feel. Reference: https://postrboard.com' "$screenshot_url")" \
-      2>/dev/null || true
-    log "   📝 Updated visual review issue #$existing_visual_issue with new screenshot."
-  else
-    # Create new visual review issue
-    gh issue create --repo "$REPO" \
-      --title "$issue_title" \
-      --label "$LABEL" \
-      --body "$(printf '📸 Automated screenshot of the Anvil app after the latest merge:\n\n![Anvil Screenshot](%s)\n\nPlease review this screenshot for any visual issues:\n- Broken or misaligned layouts\n- Overlapping or truncated text\n- Empty areas that should have content\n- UI elements that look wrong or out of place\n- Anything that looks like a visual bug\n\n**Design reference**: The target aesthetic is clean and minimal — dark theme with clear hierarchy, no clutter, generous spacing, and a polished native macOS feel. Reference: https://postrboard.com\n\nIf everything looks correct, close this issue. If you find issues, describe them and suggest fixes.' "$screenshot_url")" \
-      2>/dev/null || true
-    log "   📝 Filed new visual review issue."
-  fi
+Review these screenshots of the Anvil app for any visual issues.
+
+### File Explorer
+![File Explorer](${base_url}/screenshot.png)
+
+### Changes View
+![Changes](${base_url}/screenshot-changes.png)
+
+### Commit History
+![Commit History](${base_url}/screenshot-history.png)
+
+---
+
+**What to look for:**
+- Broken or misaligned layouts
+- Overlapping or truncated text
+- Empty areas that should have content
+- UI elements that look wrong or out of place
+- Inconsistent spacing, colors, or typography
+- Anything that doesn't match a clean, minimal, polished macOS aesthetic
+
+**Design reference**: The target look and feel is clean and minimal — dark theme with clear hierarchy, no clutter, generous spacing. Reference: https://postrboard.com
+
+If you find visual issues, describe them specifically and open a new issue for each fix. If everything looks good, close this issue.
+ISSUEEOF
+
+  # Always create a new visual review issue (one per cycle)
+  gh issue create --repo "$REPO" \
+    --title "$issue_title" \
+    --label "$LABEL" \
+    --body "$issue_body" \
+    2>/dev/null || true
+  log "   📝 Filed visual review issue."
 }
 
 # ─── Phase 2: TRIAGE ────────────────────────────────────────────────────────
