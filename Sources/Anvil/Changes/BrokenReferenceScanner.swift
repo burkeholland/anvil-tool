@@ -141,7 +141,7 @@ enum BrokenReferenceScanner {
                                                   rootURL: rootURL,
                                                   extensions: ["ts", "tsx", "js", "jsx", "mjs", "cjs"]) {
                 if removedPaths.contains(resolved) {
-                    findings.append(Finding(reason: "Imports deleted file "\(resolved)""))
+                    findings.append(Finding(reason: "Imports deleted file \"\(resolved)\""))
                 }
             }
         }
@@ -163,7 +163,7 @@ enum BrokenReferenceScanner {
                                                   rootURL: rootURL,
                                                   extensions: ["py"]) {
                 if removedPaths.contains(resolved) {
-                    findings.append(Finding(reason: "Imports deleted module "\(resolved)""))
+                    findings.append(Finding(reason: "Imports deleted module \"\(resolved)\""))
                 }
             }
         }
@@ -211,7 +211,7 @@ enum BrokenReferenceScanner {
         for removed in removedPaths {
             // Look for the path appearing as a quoted string literal.
             if content.contains("\"\(removed)\"") || content.contains("'\(removed)'") {
-                findings.append(Finding(reason: "References deleted path "\(removed)""))
+                findings.append(Finding(reason: "References deleted path \"\(removed)\""))
             }
         }
         return findings
