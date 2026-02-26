@@ -61,11 +61,6 @@ struct StatusBarView: View {
                         .help(workingDirectory.openPRTitle.map { "Pull Request: \($0)" } ?? "Open Pull Request")
                     }
 
-                    // Sync button
-                    if workingDirectory.hasRemotes {
-                        syncButton
-                    }
-
                     // Open in GitHub button
                     if let dirURL = workingDirectory.directoryURL {
                         Button {
@@ -168,49 +163,6 @@ struct StatusBarView: View {
         .animation(.easeInOut(duration: 0.2), value: workingDirectory.lastSyncError != nil)
     }
 
-    @ViewBuilder
-    private var syncButton: some View {
-        if workingDirectory.isPushing || workingDirectory.isPulling {
-            ProgressView()
-                .controlSize(.mini)
-                .scaleEffect(0.7)
-        } else {
-            Menu {
-                if workingDirectory.aheadCount > 0 || !workingDirectory.hasUpstream {
-                    Button {
-                        workingDirectory.push()
-                    } label: {
-                        Label(
-                            workingDirectory.hasUpstream
-                                ? "Push \(workingDirectory.aheadCount) Commit\(workingDirectory.aheadCount == 1 ? "" : "s")"
-                                : "Push & Set Upstream",
-                            systemImage: "arrow.up"
-                        )
-                    }
-                }
-                if workingDirectory.behindCount > 0 {
-                    Button {
-                        workingDirectory.pull()
-                    } label: {
-                        Label("Pull \(workingDirectory.behindCount) Commit\(workingDirectory.behindCount == 1 ? "" : "s")", systemImage: "arrow.down")
-                    }
-                }
-                Divider()
-                Button {
-                    workingDirectory.fetch()
-                } label: {
-                    Label("Fetch", systemImage: "arrow.clockwise")
-                }
-            } label: {
-                Image(systemName: "arrow.triangle.2.circlepath")
-                    .font(.system(size: 9))
-                    .foregroundStyle(.secondary)
-            }
-            .menuStyle(.borderlessButton)
-            .frame(width: 16)
-            .help("Sync with remote")
-        }
-    }
 }
 
 /// Thin vertical separator for status bar items.

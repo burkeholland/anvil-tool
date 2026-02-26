@@ -1743,6 +1743,26 @@ struct ToolbarView: View {
                             .font(.system(.body, design: .monospaced))
                             .lineLimit(1)
                             .truncationMode(.middle)
+                        if workingDirectory.aheadCount > 0 {
+                            HStack(spacing: 1) {
+                                Image(systemName: "arrow.up")
+                                    .font(.system(size: 7, weight: .bold))
+                                Text("\(workingDirectory.aheadCount)")
+                                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                            }
+                            .foregroundStyle(.orange)
+                            .accessibilityLabel("\(workingDirectory.aheadCount) commit\(workingDirectory.aheadCount == 1 ? "" : "s") ahead of remote")
+                        }
+                        if workingDirectory.behindCount > 0 {
+                            HStack(spacing: 1) {
+                                Image(systemName: "arrow.down")
+                                    .font(.system(size: 7, weight: .bold))
+                                Text("\(workingDirectory.behindCount)")
+                                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                            }
+                            .foregroundStyle(.cyan)
+                            .accessibilityLabel("\(workingDirectory.behindCount) commit\(workingDirectory.behindCount == 1 ? "" : "s") behind remote")
+                        }
                         Image(systemName: "chevron.down")
                             .font(.system(size: 8, weight: .semibold))
                             .foregroundStyle(.tertiary)
@@ -1763,8 +1783,6 @@ struct ToolbarView: View {
                         )
                     }
                 }
-
-                GitSyncControls(workingDirectory: workingDirectory)
             }
 
             Spacer()
@@ -1880,119 +1898,6 @@ struct ToolbarView: View {
     }
 }
 
-/// Compact git sync indicators and push/pull buttons shown next to the branch name.
-struct GitSyncControls: View {
-    @ObservedObject var workingDirectory: WorkingDirectoryModel
-    @State private var showSyncError = false
-
-    var body: some View {
-        HStack(spacing: 6) {
-            // Ahead/behind badges
-            if workingDirectory.hasUpstream && (workingDirectory.aheadCount > 0 || workingDirectory.behindCount > 0) {
-                HStack(spacing: 3) {
-                    if workingDirectory.aheadCount > 0 {
-                        HStack(spacing: 1) {
-                            Image(systemName: "arrow.up")
-                                .font(.system(size: 8, weight: .bold))
-                            Text("\(workingDirectory.aheadCount)")
-                                .font(.system(size: 10, weight: .medium, design: .monospaced))
-                        }
-                        .foregroundStyle(.orange)
-                        .help("\(workingDirectory.aheadCount) commit\(workingDirectory.aheadCount == 1 ? "" : "s") ahead of remote")
-                    }
-                    if workingDirectory.behindCount > 0 {
-                        HStack(spacing: 1) {
-                            Image(systemName: "arrow.down")
-                                .font(.system(size: 8, weight: .bold))
-                            Text("\(workingDirectory.behindCount)")
-                                .font(.system(size: 10, weight: .medium, design: .monospaced))
-                        }
-                        .foregroundStyle(.cyan)
-                        .help("\(workingDirectory.behindCount) commit\(workingDirectory.behindCount == 1 ? "" : "s") behind remote")
-                    }
-                }
-            }
-
-            if workingDirectory.hasRemotes {
-                Divider()
-                    .frame(height: 14)
-
-                // Sync button group
-                HStack(spacing: 2) {
-                    if workingDirectory.isSyncing {
-                        ProgressView()
-                            .controlSize(.mini)
-                            .frame(width: 16, height: 16)
-                    } else {
-                        Button {
-                            workingDirectory.push()
-                        } label: {
-                            Image(systemName: "arrow.up")
-                                .font(.system(size: 10, weight: .semibold))
-                                .frame(width: 22, height: 20)
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.borderless)
-                        .disabled(workingDirectory.aheadCount == 0 && workingDirectory.hasUpstream)
-                        .help(workingDirectory.hasUpstream ? "Push \(workingDirectory.aheadCount) commit\(workingDirectory.aheadCount == 1 ? "" : "s")" : "Push and set upstream")
-
-                        Button {
-                            workingDirectory.pull()
-                        } label: {
-                            Image(systemName: "arrow.down")
-                                .font(.system(size: 10, weight: .semibold))
-                                .frame(width: 22, height: 20)
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.borderless)
-                        .disabled(!workingDirectory.hasUpstream)
-                        .help(workingDirectory.hasUpstream ? "Pull" : "No upstream branch")
-
-                        Button {
-                            workingDirectory.fetch()
-                        } label: {
-                            Image(systemName: "arrow.triangle.2.circlepath")
-                                .font(.system(size: 10, weight: .semibold))
-                                .frame(width: 22, height: 20)
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.borderless)
-                        .help("Fetch from remote")
-                    }
-                }
-
-                // Sync error indicator
-                if workingDirectory.lastSyncError != nil {
-                    Button {
-                        showSyncError.toggle()
-                    } label: {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .font(.system(size: 10))
-                            .foregroundStyle(.yellow)
-                    }
-                    .buttonStyle(.borderless)
-                    .popover(isPresented: $showSyncError, arrowEdge: .bottom) {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Sync Error")
-                                .font(.headline)
-                            Text(workingDirectory.lastSyncError ?? "")
-                                .font(.system(.caption, design: .monospaced))
-                                .foregroundStyle(.secondary)
-                                .textSelection(.enabled)
-                            Button("Dismiss") {
-                                workingDirectory.lastSyncError = nil
-                                showSyncError = false
-                            }
-                            .controlSize(.small)
-                        }
-                        .padding(12)
-                        .frame(maxWidth: 320)
-                    }
-                }
-            }
-        }
-    }
-}
 
 struct SidebarView: View {
     @ObservedObject var model: WorkingDirectoryModel
