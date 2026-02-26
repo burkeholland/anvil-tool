@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import Highlightr
+import UniformTypeIdentifiers
 
 struct FilePreviewView: View {
     @ObservedObject var model: FilePreviewModel
@@ -75,20 +76,6 @@ struct FilePreviewView: View {
     /// True when viewing a working-tree diff (not commit history or stash).
     private var isLiveDiffAvailable: Bool {
         model.commitDiffContext == nil && model.stashDiffContext == nil && model.fileDiff != nil
-    }
-
-    /// Dynamic width for the segmented tab picker based on visible tabs.
-    private var pickerWidth: CGFloat {
-        var tabs = 1 // Source is always present
-        if model.hasDiff { tabs += 1 }
-        if model.isMarkdownFile { tabs += 1 }
-        if !model.fileHistory.isEmpty { tabs += 1 }
-        switch tabs {
-        case 1:  return 100
-        case 2:  return 200
-        case 3:  return 280
-        default: return 360
-        }
     }
 
     /// URLs of files with uncommitted changes, derived from the changesModel.
@@ -200,7 +187,6 @@ struct FilePreviewView: View {
                         }
                     }
                     .pickerStyle(.segmented)
-                    .frame(width: pickerWidth)
                 }
 
                 // Symbol outline
@@ -870,6 +856,7 @@ struct ImagePreviewContent: View {
 struct PreviewTabBar: View {
     @ObservedObject var model: FilePreviewModel
     var changedURLs: Set<URL> = []
+    @State private var draggingURL: URL?
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
@@ -880,9 +867,21 @@ struct PreviewTabBar: View {
                         displayName: model.tabDisplayName(for: url),
                         isActive: model.selectedURL == url,
                         isModified: changedURLs.contains(url),
+                        isPinned: model.pinnedTabs.contains(url),
                         onSelect: { model.select(url) },
-                        onClose: { model.closeTab(url) }
+                        onClose: { model.closeTab(url) },
+                        onPin: { model.togglePinTab(url) }
                     )
+                    .opacity(draggingURL == url ? 0.5 : 1.0)
+                    .onDrag {
+                        draggingURL = url
+                        return NSItemProvider(object: url.path as NSString)
+                    }
+                    .onDrop(of: [.plainText], delegate: TabDropDelegate(
+                        targetURL: url,
+                        model: model,
+                        draggingURL: $draggingURL
+                    ))
                 }
             }
         }
@@ -893,13 +892,42 @@ struct PreviewTabBar: View {
     }
 }
 
+private struct TabDropDelegate: DropDelegate {
+    let targetURL: URL
+    let model: FilePreviewModel
+    @Binding var draggingURL: URL?
+
+    func performDrop(info: DropInfo) -> Bool {
+        defer { draggingURL = nil }
+        guard let from = draggingURL,
+              let fromIndex = model.openTabs.firstIndex(of: from),
+              let toIndex = model.openTabs.firstIndex(of: targetURL),
+              fromIndex != toIndex else {
+            return false
+        }
+        model.reorderTab(fromOffsets: IndexSet(integer: fromIndex),
+                         toOffset: toIndex > fromIndex ? toIndex + 1 : toIndex)
+        return true
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        DropProposal(operation: .move)
+    }
+
+    func validateDrop(info: DropInfo) -> Bool {
+        draggingURL != nil && draggingURL != targetURL
+    }
+}
+
 struct PreviewTabItem: View {
     let url: URL
     let displayName: String
     let isActive: Bool
     var isModified: Bool = false
+    var isPinned: Bool = false
     let onSelect: () -> Void
     let onClose: () -> Void
+    var onPin: (() -> Void)? = nil
     @State private var isHovering = false
 
     var body: some View {
@@ -913,7 +941,20 @@ struct PreviewTabItem: View {
                 .lineLimit(1)
                 .foregroundStyle(isActive ? .primary : .secondary)
 
-            if isModified && !isHovering {
+            // Trailing indicator: pin icon (when pinned), modified dot or close button (when not pinned)
+            if isPinned {
+                Button {
+                    onPin?()
+                } label: {
+                    Image(systemName: "pin.fill")
+                        .font(.system(size: 8))
+                        .foregroundStyle(Color.accentColor)
+                        .frame(width: 14, height: 14)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Unpin Tab")
+            } else if isModified && !isHovering {
                 Circle()
                     .fill(Color.orange)
                     .frame(width: 5, height: 5)
@@ -950,6 +991,16 @@ struct PreviewTabItem: View {
         .contentShape(Rectangle())
         .onTapGesture { onSelect() }
         .onHover { isHovering = $0 }
+        .contextMenu {
+            Button(isPinned ? "Unpin Tab" : "Pin Tab") {
+                onPin?()
+            }
+            Divider()
+            Button("Close Tab") {
+                onClose()
+            }
+            .disabled(isPinned)
+        }
     }
 
     private func iconForExtension(_ ext: String) -> String {

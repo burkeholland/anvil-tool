@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Bottom status bar showing git branch, selected file info, and changes summary.
+/// Bottom status bar showing selected file info and changes summary.
 struct StatusBarView: View {
     @ObservedObject var workingDirectory: WorkingDirectoryModel
     @ObservedObject var filePreview: FilePreviewModel
@@ -8,81 +8,9 @@ struct StatusBarView: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            // Left: Git branch
-            if let branch = workingDirectory.gitBranch {
-                HStack(spacing: 5) {
-                    Image(systemName: "arrow.triangle.branch")
-                        .font(.system(size: 10))
-                    Text(branch)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-
-                    // Ahead/behind indicators
-                    if workingDirectory.hasUpstream || workingDirectory.hasRemotes {
-                        if workingDirectory.aheadCount > 0 {
-                            HStack(spacing: 1) {
-                                Image(systemName: "arrow.up")
-                                    .font(.system(size: 8, weight: .bold))
-                                Text("\(workingDirectory.aheadCount)")
-                            }
-                            .foregroundStyle(.orange)
-                            .help("\(workingDirectory.aheadCount) commit\(workingDirectory.aheadCount == 1 ? "" : "s") ahead of remote")
-                        }
-                        if workingDirectory.behindCount > 0 {
-                            HStack(spacing: 1) {
-                                Image(systemName: "arrow.down")
-                                    .font(.system(size: 8, weight: .bold))
-                                Text("\(workingDirectory.behindCount)")
-                            }
-                            .foregroundStyle(.blue)
-                            .help("\(workingDirectory.behindCount) commit\(workingDirectory.behindCount == 1 ? "" : "s") behind remote")
-                        }
-                        if workingDirectory.aheadCount == 0 && workingDirectory.behindCount == 0 && workingDirectory.hasUpstream {
-                            Image(systemName: "checkmark.circle.fill")
-                                .font(.system(size: 9))
-                                .foregroundStyle(.green.opacity(0.6))
-                                .help("In sync with remote")
-                        }
-                    }
-
-                    // PR indicator
-                    if let prURL = workingDirectory.openPRURL, let url = URL(string: prURL) {
-                        Button {
-                            NSWorkspace.shared.open(url)
-                        } label: {
-                            HStack(spacing: 2) {
-                                Image(systemName: "arrow.triangle.pull")
-                                    .font(.system(size: 8, weight: .bold))
-                                Text("PR")
-                            }
-                            .foregroundStyle(.purple)
-                        }
-                        .buttonStyle(.plain)
-                        .help(workingDirectory.openPRTitle.map { "Pull Request: \($0)" } ?? "Open Pull Request")
-                    }
-
-                    // Open in GitHub button
-                    if let dirURL = workingDirectory.directoryURL {
-                        Button {
-                            GitHubURLBuilder.openRepo(rootURL: dirURL)
-                        } label: {
-                            Image(systemName: "arrow.up.right.square")
-                                .font(.system(size: 10))
-                                .foregroundStyle(.secondary)
-                        }
-                        .buttonStyle(.plain)
-                        .help("Open Repository in GitHub")
-                    }
-                }
-                .padding(.horizontal, 10)
-                .help("Current branch: \(branch)")
-
-                StatusBarDivider()
-            }
-
-            // Center: Selected file info
+            // Left: Selected file info
             if filePreview.selectedURL != nil {
-                HStack(spacing: 5) {
+                HStack(spacing: Spacing.sm) {
                     Image(systemName: "doc")
                         .font(.system(size: 9))
                     Text(filePreview.relativePath)
@@ -126,9 +54,9 @@ struct StatusBarView: View {
                 .padding(.horizontal, 10)
             }
         }
-        .font(.system(size: 11, design: .monospaced))
+        .font(.system(size: 12, design: .monospaced))
         .foregroundStyle(.secondary)
-        .frame(height: 22)
+        .frame(height: 26)
         .frame(maxWidth: .infinity)
         .background(Color(nsColor: .windowBackgroundColor))
         .overlay(alignment: .top) { Divider() }

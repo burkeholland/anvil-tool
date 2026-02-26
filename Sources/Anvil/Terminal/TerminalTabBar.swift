@@ -31,44 +31,6 @@ struct TerminalTabBar: View {
 
             Spacer()
 
-            // Split pane buttons
-            if model.isSplit {
-                Button {
-                    onCloseSplit()
-                } label: {
-                    Image(systemName: "rectangle")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 28, height: 28)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .help("Close Split")
-            } else {
-                Menu {
-                    Button {
-                        onSplitHorizontally()
-                    } label: {
-                        Label("Split Right", systemImage: "rectangle.split.2x1")
-                    }
-
-                    Button {
-                        onSplitVertically()
-                    } label: {
-                        Label("Split Down", systemImage: "rectangle.split.1x2")
-                    }
-                } label: {
-                    Image(systemName: "rectangle.split.2x1")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 28, height: 28)
-                        .contentShape(Rectangle())
-                }
-                .menuStyle(.borderlessButton)
-                .frame(width: 28)
-                .help("Split Terminal")
-            }
-
             Menu {
                 Button {
                     onNewCopilotTab()
@@ -80,6 +42,28 @@ struct TerminalTabBar: View {
                     onNewShellTab()
                 } label: {
                     Label("New Shell Tab", systemImage: "terminal")
+                }
+
+                Divider()
+
+                Button {
+                    onSplitHorizontally()
+                } label: {
+                    Label("Split Right", systemImage: "rectangle.split.2x1")
+                }
+
+                Button {
+                    onSplitVertically()
+                } label: {
+                    Label("Split Down", systemImage: "rectangle.split.1x2")
+                }
+
+                if model.isSplit {
+                    Button {
+                        onCloseSplit()
+                    } label: {
+                        Label("Close Split", systemImage: "rectangle")
+                    }
                 }
             } label: {
                 Image(systemName: "plus")
@@ -93,7 +77,7 @@ struct TerminalTabBar: View {
             .help("New Terminal Tab")
             .padding(.trailing, 6)
         }
-        .frame(height: 30)
+        .frame(height: 36)
         .background(Color(nsColor: NSColor(red: 0.08, green: 0.08, blue: 0.10, alpha: 1.0)))
         .overlay(alignment: .bottom) {
             Divider().opacity(0.3)
@@ -114,13 +98,13 @@ private struct TerminalTabItem: View {
     @State private var isWaitingPulsing = false
 
     var body: some View {
-        HStack(spacing: 5) {
+        HStack(spacing: Spacing.sm) {
             Image(systemName: tab.launchCopilot ? "sparkle" : "terminal")
                 .font(.system(size: 10))
                 .foregroundStyle(tab.launchCopilot && isActive ? .purple : .secondary)
 
             Text(tab.title)
-                .font(.system(size: 11))
+                .font(.system(size: 12))
                 .lineLimit(1)
                 .foregroundStyle(isActive ? .primary : .secondary)
 
@@ -142,9 +126,9 @@ private struct TerminalTabItem: View {
                     onClose()
                 } label: {
                     Image(systemName: "xmark")
-                        .font(.system(size: 8, weight: .semibold))
+                        .font(.system(size: 9, weight: .semibold))
                         .foregroundStyle(.tertiary)
-                        .frame(width: 14, height: 14)
+                        .frame(width: 16, height: 16)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -152,10 +136,10 @@ private struct TerminalTabItem: View {
             }
         }
         .padding(.horizontal, 10)
-        .padding(.vertical, 6)
+        .padding(.vertical, 8)
         .background(
             isActive
-                ? Color(nsColor: NSColor(red: 0.1, green: 0.1, blue: 0.12, alpha: 1.0))
+                ? Color.primary.opacity(0.08)
                 : Color.clear
         )
         .overlay(alignment: .bottom) {
