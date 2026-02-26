@@ -41,7 +41,7 @@ struct TestResultsPanelView: View {
                     } label: {
                         Image(systemName: "play.circle")
                             .font(.system(size: 13))
-                            .foregroundStyle(.accentColor)
+                            .foregroundStyle(Color.accentColor)
                     }
                     .buttonStyle(.plain)
                     .disabled(rootURL == nil)
@@ -281,7 +281,7 @@ private struct TestCaseRow: View {
                         Button(action: rerun) {
                             Image(systemName: "arrow.clockwise")
                                 .font(.system(size: 10))
-                                .foregroundStyle(.accentColor)
+                                .foregroundStyle(Color.accentColor)
                         }
                         .buttonStyle(.plain)
                         .help("Re-run this test")
