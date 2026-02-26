@@ -41,6 +41,8 @@ final class FilePreviewModel: ObservableObject {
     @Published var showBlame = false
     /// Monotonic counter to discard stale async blame results.
     private var blameGeneration: UInt64 = 0
+    /// The commit SHA selected via a blame annotation click; drives History tab scrolling.
+    @Published var selectedHistoryCommitSHA: String?
     /// When true, the source view auto-scrolls to changed lines on every file-system update.
     @Published var isWatching = false
     /// The file content as of the last watch refresh, used to find the first changed line.
@@ -225,6 +227,7 @@ final class FilePreviewModel: ObservableObject {
         stashDiffContext = nil
         showSymbolOutline = false
         showBlame = false
+        selectedHistoryCommitSHA = nil
         isWatching = false
         watchPreviousContent = nil
         if persist { saveOpenTabs() }
@@ -467,6 +470,14 @@ final class FilePreviewModel: ObservableObject {
     func clearBlame() {
         blameGeneration &+= 1
         blameLines = []
+    }
+
+    /// Switches to the History tab and highlights the commit matching the given full SHA.
+    /// Uncommitted lines (SHA starts with "0000000") are ignored.
+    func navigateToBlameCommit(sha: String) {
+        guard !sha.hasPrefix("0000000") else { return }
+        selectedHistoryCommitSHA = sha
+        activeTab = .history
     }
 
     /// Returns the first 1-based line number where old and new content differ.
