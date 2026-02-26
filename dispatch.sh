@@ -1,5 +1,5 @@
 #!/bin/bash
-# ralph-team.sh — Parallel agent build loop for Anvil
+# dispatch.sh — Parallel agent build loop for Anvil
 #
 # A single orchestration script that acts as PM + merge manager.
 # It files GitHub issues describing work to do, assigns them to
@@ -7,8 +7,8 @@
 # resulting PRs, builds them locally, and merges.
 #
 # Usage:
-#   ./ralph-team.sh              # Run the full loop
-#   ./ralph-team.sh --dry-run    # Log actions without executing them
+#   ./dispatch.sh              # Run the full loop
+#   ./dispatch.sh --dry-run    # Log actions without executing them
 #
 # Requirements: gh, copilot, jq, swift (for builds)
 
@@ -22,6 +22,9 @@ LOOP_INTERVAL=300         # Seconds between cycles (5 min)
 LABEL="anvil-auto"        # Label applied to all auto-created issues
 REPO=""                   # Detected from gh repo view
 ISSUE_AUTHOR=""             # Detected from gh auth status
+SCREENSHOT_DIR="docs"     # Where to save the latest screenshot
+SCREENSHOT_FILE="$SCREENSHOT_DIR/screenshot.png"
+APP_BUNDLE=".build/Anvil.app"
 DRY_RUN=false
 DEBUG=false
 DEBUG_PHASE=""            # Run only this phase in debug mode
@@ -61,7 +64,7 @@ OWNER="$(echo "$REPO" | cut -d/ -f1)"
 REPO_NAME="$(echo "$REPO" | cut -d/ -f2)"
 ISSUE_AUTHOR="$(gh api user -q .login 2>/dev/null)" || ISSUE_AUTHOR="burkeholland"
 
-log "🏗️  ralph-team.sh starting for $REPO"
+log "🏗️  dispatch.sh starting for $REPO"
 log "   MAX_ACTIVE_AGENTS=$MAX_ACTIVE_AGENTS  MAX_BACKLOG=$MAX_BACKLOG"
 log "   LOOP_INTERVAL=${LOOP_INTERVAL}s  DRY_RUN=$DRY_RUN  DEBUG=$DEBUG"
 
@@ -70,7 +73,7 @@ if ! gh label list --repo "$REPO" --json name -q '.[].name' | grep -qx "$LABEL";
   if [ "$DRY_RUN" = true ]; then
     log "🏷️  [DRY RUN] Would create label: $LABEL"
   else
-    gh label create "$LABEL" --repo "$REPO" --description "Auto-created by ralph-team.sh" --color "5319E7" 2>/dev/null || true
+    gh label create "$LABEL" --repo "$REPO" --description "Auto-created by dispatch.sh" --color "5319E7" 2>/dev/null || true
     log "🏷️  Created label: $LABEL"
   fi
 fi
@@ -156,12 +159,12 @@ phase_merge() {
       # Smart conflict resolution: ask @copilot to rebase, track progress
       local our_rebase_comment
       our_rebase_comment="$(gh pr view "$pr_num" --repo "$REPO" --json comments \
-        --jq '[.comments[] | select(.author.login != "app/copilot-swe-agent" and .author.login != "copilot-swe-agent") | select(.body | contains("ralph-team:") and contains("@copilot") and contains("rebase"))] | last')" || our_rebase_comment=""
+        --jq '[.comments[] | select(.author.login != "app/copilot-swe-agent" and .author.login != "copilot-swe-agent") | select(.body | contains("dispatch:") and contains("@copilot") and contains("rebase"))] | last')" || our_rebase_comment=""
 
       if [ "$our_rebase_comment" = "null" ] || [ -z "$our_rebase_comment" ]; then
         log "   ⚠️  PR #$pr_num has merge conflicts. Asking @copilot to rebase."
         gh pr comment "$pr_num" --repo "$REPO" \
-          --body "⚠️ ralph-team: This PR has merge conflicts with main. @copilot please rebase this branch onto main and resolve any conflicts, keeping the intent of your changes intact." \
+          --body "⚠️ dispatch: This PR has merge conflicts with main. @copilot please rebase this branch onto main and resolve any conflicts, keeping the intent of your changes intact." \
           2>/dev/null || true
       else
         local our_comment_date
@@ -176,7 +179,7 @@ phase_merge() {
           linked_issue="$(gh pr view "$pr_num" --repo "$REPO" --json closingIssuesReferences \
             --jq '.closingIssuesReferences[0].number')" || linked_issue=""
           gh pr close "$pr_num" --repo "$REPO" \
-            --comment "Closed by ralph-team: agent attempted rebase but merge conflicts persist. Will reopen the linked issue for a fresh attempt." \
+            --comment "Closed by dispatch: agent attempted rebase but merge conflicts persist. Will reopen the linked issue for a fresh attempt." \
             2>/dev/null || true
           if [ -n "$linked_issue" ] && [ "$linked_issue" != "null" ]; then
             gh issue reopen "$linked_issue" --repo "$REPO" 2>/dev/null || true
@@ -201,7 +204,7 @@ phase_merge() {
       continue
     }
 
-    git checkout -B "ralph-team/test-merge" main --quiet 2>/dev/null || {
+    git checkout -B "dispatch/test-merge" main --quiet 2>/dev/null || {
       log "   ❌ Could not create test branch for PR #$pr_num. Skipping."
       git checkout main --force --quiet 2>/dev/null || true
       continue
@@ -226,7 +229,7 @@ phase_merge() {
       # Mark as ready (PRs from Copilot arrive as drafts)
       gh pr ready "$pr_num" --repo "$REPO" 2>/dev/null || true
       gh pr merge "$pr_num" --repo "$REPO" --squash --delete-branch \
-        --body "Merged by ralph-team.sh after local build verification." || {
+        --body "Merged by dispatch.sh after local build verification." || {
         log "   ❌ Merge failed for PR #$pr_num."
         continue
       }
@@ -241,14 +244,14 @@ phase_merge() {
       # Smart build-failure handling: check if we already asked @copilot to fix
       local our_build_comment
       our_build_comment="$(gh pr view "$pr_num" --repo "$REPO" --json comments \
-        --jq '[.comments[] | select(.author.login != "app/copilot-swe-agent" and .author.login != "copilot-swe-agent") | select(.body | contains("ralph-team:") and contains("@copilot") and contains("Build failed"))] | last')" || our_build_comment=""
+        --jq '[.comments[] | select(.author.login != "app/copilot-swe-agent" and .author.login != "copilot-swe-agent") | select(.body | contains("dispatch:") and contains("@copilot") and contains("Build failed"))] | last')" || our_build_comment=""
 
       if [ "$our_build_comment" = "null" ] || [ -z "$our_build_comment" ]; then
         # First time — include compilation errors and mention @copilot
         local error_lines
         error_lines="$(echo "$build_output" | grep -E '(error:|fatal error:)' | head -20)"
         gh pr comment "$pr_num" --repo "$REPO" \
-          --body "$(printf '❌ ralph-team: Build failed locally (\`swift build\`). @copilot please fix these compilation errors:\n\n```\n%s\n```' "$error_lines")" \
+          --body "$(printf '❌ dispatch: Build failed locally (\`swift build\`). @copilot please fix these compilation errors:\n\n```\n%s\n```' "$error_lines")" \
           2>/dev/null || true
       else
         # Already asked — check if agent pushed new commits since our comment
@@ -263,7 +266,7 @@ phase_merge() {
           local error_lines
           error_lines="$(echo "$build_output" | grep -E '(error:|fatal error:)' | head -20)"
           gh pr comment "$pr_num" --repo "$REPO" \
-            --body "$(printf '❌ ralph-team: Build still failing after your latest push. @copilot please fix these remaining errors:\n\n```\n%s\n```' "$error_lines")" \
+            --body "$(printf '❌ dispatch: Build still failing after your latest push. @copilot please fix these remaining errors:\n\n```\n%s\n```' "$error_lines")" \
             2>/dev/null || true
         else
           log "   ⏳ PR #$pr_num: waiting for @copilot to fix build (no new commits yet)."
@@ -274,9 +277,155 @@ phase_merge() {
 
   # Clean up test branch
   git checkout main --force --quiet 2>/dev/null || true
-  git branch -D "ralph-team/test-merge" 2>/dev/null || true
+  git branch -D "dispatch/test-merge" 2>/dev/null || true
 
   log "   Merged $merged_count PR(s) this cycle."
+
+  # Export merge count so phase_screenshot can check it
+  export LAST_MERGE_COUNT=$merged_count
+}
+
+# ─── Phase 1b: SCREENSHOT ───────────────────────────────────────────────────
+
+phase_screenshot() {
+  # Only run if we merged something this cycle
+  if [ "${LAST_MERGE_COUNT:-0}" -eq 0 ]; then
+    log "📸 Phase 1b: SCREENSHOT — skipped (no merges this cycle)."
+    return 0
+  fi
+
+  log "📸 Phase 1b: SCREENSHOT — capturing app state after merge..."
+
+  if [ "$DRY_RUN" = true ]; then
+    log "   [DRY RUN] Would build, screenshot, and file visual review issue."
+    return 0
+  fi
+
+  # Build the app
+  log "   Building app for screenshot..."
+  if ! swift build 2>/dev/null; then
+    log "   ⚠️  Build failed — skipping screenshot."
+    return 0
+  fi
+
+  # Prepare .app bundle
+  local bundle_macos="$APP_BUNDLE/Contents/MacOS"
+  mkdir -p "$bundle_macos"
+  cp .build/debug/Anvil "$bundle_macos/Anvil"
+
+  if [ ! -f "$APP_BUNDLE/Contents/Info.plist" ]; then
+    cat > "$APP_BUNDLE/Contents/Info.plist" << 'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleExecutable</key>
+    <string>Anvil</string>
+    <key>CFBundleIdentifier</key>
+    <string>dev.burkeholland.anvil</string>
+    <key>CFBundleName</key>
+    <string>Anvil</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>LSUIElement</key>
+    <false/>
+</dict>
+</plist>
+PLIST
+  fi
+
+  # Pre-set the project directory so the app opens with the project loaded
+  defaults write dev.burkeholland.anvil "dev.anvil.lastOpenedDirectory" "$SCRIPT_DIR"
+
+  # Kill any existing Anvil instance
+  local existing_pid
+  existing_pid="$(pgrep -x Anvil)" && kill "$existing_pid" 2>/dev/null && sleep 1
+
+  # Launch via `open` (handles activation + window server registration properly)
+  log "   Launching Anvil..."
+  open "$APP_BUNDLE"
+  sleep 6
+
+  # Find the content window (height > 50 to skip menu bar items)
+  local window_id
+  window_id="$(swift -e '
+import CoreGraphics
+if let windows = CGWindowListCopyWindowInfo(.optionOnScreenOnly, kCGNullWindowID) as? [[String: Any]] {
+    for w in windows {
+        let name = w[kCGWindowOwnerName as String] as? String ?? ""
+        if name.contains("Anvil") {
+            let bounds = w[kCGWindowBounds as String] as? [String: Any] ?? [:]
+            let h = bounds["Height"] as? Int ?? 0
+            if h > 50 {
+                print(w[kCGWindowNumber as String] as? Int ?? 0)
+                break
+            }
+        }
+    }
+}
+' 2>/dev/null)" || window_id=""
+
+  if [ -z "$window_id" ] || [ "$window_id" = "0" ]; then
+    log "   ⚠️  Could not find Anvil window. Skipping screenshot."
+    local cleanup_pid
+    cleanup_pid="$(pgrep -x Anvil)" && kill "$cleanup_pid" 2>/dev/null
+    return 0
+  fi
+
+  # Capture the window
+  mkdir -p "$SCREENSHOT_DIR"
+  if screencapture -l "$window_id" "$SCREENSHOT_FILE" 2>/dev/null; then
+    log "   ✅ Screenshot captured: $SCREENSHOT_FILE"
+  else
+    log "   ⚠️  screencapture failed. Skipping."
+    local cleanup_pid
+    cleanup_pid="$(pgrep -x Anvil)" && kill "$cleanup_pid" 2>/dev/null
+    return 0
+  fi
+
+  # Kill the app
+  local cleanup_pid
+  cleanup_pid="$(pgrep -x Anvil)" && kill "$cleanup_pid" 2>/dev/null
+  sleep 1
+
+  # Commit the screenshot to the repo
+  git add "$SCREENSHOT_FILE"
+  if ! git diff --cached --quiet "$SCREENSHOT_FILE" 2>/dev/null; then
+    git commit -m "docs: update app screenshot after merge
+
+Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>" --quiet
+    git push --quiet origin main 2>/dev/null || true
+    log "   📤 Screenshot committed and pushed."
+  else
+    log "   Screenshot unchanged — no commit needed."
+  fi
+
+  # File a visual review issue with the screenshot
+  local screenshot_url="https://raw.githubusercontent.com/$REPO/main/$SCREENSHOT_FILE"
+  local issue_title="Visual review: app screenshot after latest merge"
+
+  # Check if a visual review issue is already open
+  local existing_visual_issue
+  existing_visual_issue="$(gh issue list --repo "$REPO" --state open \
+    --label "$LABEL" --author "$ISSUE_AUTHOR" \
+    --json number,title \
+    --jq '[.[] | select(.title | contains("Visual review"))] | first | .number' 2>/dev/null)" || existing_visual_issue=""
+
+  if [ -n "$existing_visual_issue" ] && [ "$existing_visual_issue" != "null" ]; then
+    # Update existing issue with new screenshot
+    gh issue comment "$existing_visual_issue" --repo "$REPO" \
+      --body "$(printf '📸 Updated screenshot after latest merge:\n\n![Anvil Screenshot](%s)\n\nPlease review for any visual issues: broken layouts, overlapping text, misaligned elements, truncated labels, or anything that looks like a UI bug.\n\n**Design reference**: The target aesthetic is clean and minimal — dark theme with clear hierarchy, no clutter, generous spacing, and a polished native macOS feel. Reference: https://postrboard.com' "$screenshot_url")" \
+      2>/dev/null || true
+    log "   📝 Updated visual review issue #$existing_visual_issue with new screenshot."
+  else
+    # Create new visual review issue
+    gh issue create --repo "$REPO" \
+      --title "$issue_title" \
+      --label "$LABEL" \
+      --body "$(printf '📸 Automated screenshot of the Anvil app after the latest merge:\n\n![Anvil Screenshot](%s)\n\nPlease review this screenshot for any visual issues:\n- Broken or misaligned layouts\n- Overlapping or truncated text\n- Empty areas that should have content\n- UI elements that look wrong or out of place\n- Anything that looks like a visual bug\n\n**Design reference**: The target aesthetic is clean and minimal — dark theme with clear hierarchy, no clutter, generous spacing, and a polished native macOS feel. Reference: https://postrboard.com\n\nIf everything looks correct, close this issue. If you find issues, describe them and suggest fixes.' "$screenshot_url")" \
+      2>/dev/null || true
+    log "   📝 Filed new visual review issue."
+  fi
 }
 
 # ─── Phase 2: TRIAGE ────────────────────────────────────────────────────────
@@ -326,7 +475,7 @@ phase_triage() {
         else
           log "   🗑️  Closing resolved issue #$issue_num: $issue_title"
           gh issue close "$issue_num" --repo "$REPO" \
-            --comment "Closed by ralph-team: a merged PR resolved this issue." \
+            --comment "Closed by dispatch: a merged PR resolved this issue." \
             2>/dev/null || true
         fi
       fi
@@ -469,7 +618,7 @@ $solution"
     full_body="$full_body
 
 ---
-🤖 *Filed by ralph-team.sh*"
+🤖 *Filed by dispatch.sh*"
 
     log "   📋 Creating issue: $title"
     gh issue create --repo "$REPO" \
@@ -545,12 +694,17 @@ run_cycle() {
 
   echo ""
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  log "🏗️  ralph-team.sh — Cycle $iteration"
+  log "🏗️  dispatch.sh — Cycle $iteration"
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   echo ""
 
   if [ -z "$DEBUG_PHASE" ] || [ "$DEBUG_PHASE" = "merge" ]; then
     phase_merge || log "⚠️  phase_merge failed, continuing..."
+    echo ""
+  fi
+
+  if [ -z "$DEBUG_PHASE" ] || [ "$DEBUG_PHASE" = "screenshot" ]; then
+    phase_screenshot || log "⚠️  phase_screenshot failed, continuing..."
     echo ""
   fi
 
