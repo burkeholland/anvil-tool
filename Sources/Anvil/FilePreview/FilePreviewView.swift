@@ -1335,6 +1335,7 @@ final class LineNumberRulerView: NSRulerView {
             blameMap = Dictionary(uniqueKeysWithValues: blameLines.map { ($0.lineNumber, $0) })
             updateThickness()
             needsDisplay = true
+            rebuildAllTooltips()
         }
     }
     /// Fast lookup for blame by line number.
@@ -1353,7 +1354,7 @@ final class LineNumberRulerView: NSRulerView {
     var diagnosticAnnotations: [Int: BuildDiagnostic] = [:] {
         didSet {
             needsDisplay = true
-            rebuildDiagnosticTooltips()
+            rebuildAllTooltips()
         }
     }
 
@@ -1387,7 +1388,7 @@ final class LineNumberRulerView: NSRulerView {
     @objc private func textDidChange(_ notification: Notification) {
         updateThickness()
         needsDisplay = true
-        rebuildDiagnosticTooltips()
+        rebuildAllTooltips()
     }
 
     /// Called by the coordinator after setting new content programmatically.
@@ -1396,14 +1397,40 @@ final class LineNumberRulerView: NSRulerView {
         needsDisplay = true
     }
 
-    /// Rebuilds per-line tooltip rects for all diagnostic annotations.
-    /// Called whenever the diagnostic set changes or the view scrolls.
-    private func rebuildDiagnosticTooltips() {
+    /// Rebuilds per-line tooltip rects for all gutter annotations (blame and diagnostics).
+    /// Called whenever the annotation sets change or the view scrolls/resizes.
+    private func rebuildAllTooltips() {
         removeAllToolTips()
-        guard !diagnosticAnnotations.isEmpty else { return }
+
+        // Blame tooltips — shown in the blame column (x: 0 … blameSeparatorX)
+        if !blameMap.isEmpty {
+            let dateFormatter = DateFormatter()
+            dateFormatter.dateStyle = .medium
+            dateFormatter.timeStyle = .short
+            for (lineNum, blame) in blameMap {
+                guard let rect = lineRect(forLine: lineNum) else { continue }
+                let tipRect = NSRect(
+                    x: 0, y: rect.minY,
+                    width: blameSeparatorX,
+                    height: max(rect.height, 1)
+                )
+                let tooltipText: String
+                if blame.isUncommitted {
+                    tooltipText = "Not Committed Yet"
+                } else {
+                    let dateStr = dateFormatter.string(from: blame.date)
+                    tooltipText = "\(blame.author) • \(dateStr)\n\(blame.shortSHA)\n\(blame.summary)"
+                }
+                addToolTip(tipRect, owner: tooltipText as NSString, userData: nil)
+            }
+        }
+
+        // Diagnostic tooltips — shown in the line-number region
         for (lineNum, diagnostic) in diagnosticAnnotations {
             guard let rect = lineRect(forLine: lineNum) else { continue }
-            let tipRect = NSRect(x: 0, y: rect.minY, width: ruleThickness, height: max(rect.height, 1))
+            let tipX = blameMap.isEmpty ? 0 : blameSeparatorX
+            let tipWidth = ruleThickness - tipX
+            let tipRect = NSRect(x: tipX, y: rect.minY, width: tipWidth, height: max(rect.height, 1))
             addToolTip(tipRect, owner: diagnostic.message as NSString, userData: nil)
         }
     }
