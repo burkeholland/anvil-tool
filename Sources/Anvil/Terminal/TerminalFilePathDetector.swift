@@ -5,15 +5,18 @@ import SwiftTerm
 /// File paths open in the preview panel (with optional line navigation).
 /// URLs open in the default browser.
 /// Uses an NSEvent local monitor so no subclassing of SwiftTerm views is required.
+/// Also monitors terminal output for file paths to support auto-follow mode.
 final class TerminalFilePathDetector {
 
     private var monitor: Any?
     private weak var terminalView: LocalProcessTerminalView?
-    private var projectRootURL: URL?
+    private(set) var projectRootURL: URL?
     /// Called when ⌘-clicking a file path. The Int? is the 1-based line number if present.
     var onOpenFile: ((URL, Int?) -> Void)?
     /// Called when ⌘-clicking a URL. Opens in the default browser.
     var onOpenURL: ((URL) -> Void)?
+    /// Called (on main queue) when a resolvable file path is detected in terminal output.
+    var onOutputFilePath: ((URL) -> Void)?
 
     func attach(to view: LocalProcessTerminalView, rootURL: URL?) {
         detach()
@@ -200,6 +203,54 @@ final class TerminalFilePathDetector {
         }
 
         return nil
+    }
+
+    // MARK: - Terminal Output Scanning
+
+    /// Scans a single line of terminal output for a resolvable file path.
+    /// Returns the URL of the first existing file found, or nil.
+    /// Internal access for testability.
+    func scanOutputLine(_ line: String, rootURL: URL?) -> URL? {
+        guard let rootURL = rootURL, !line.isEmpty else { return nil }
+        let chars = Array(line)
+        var i = 0
+        while i < chars.count {
+            guard isPathOrLocChar(chars[i]) else { i += 1; continue }
+            // Find the extent of this token
+            var right = i
+            while right < chars.count - 1 && isPathOrLocChar(chars[right + 1]) {
+                right += 1
+            }
+            var token = String(chars[i...right])
+            while token.hasSuffix(":") { token = String(token.dropLast()) }
+            if token.count >= 3 && (token.contains("/") || token.contains(".")) {
+                let (pathPart, _) = parseLineNumber(from: token)
+                if let url = resolveFilePath(pathPart, rootURL: rootURL) {
+                    return url
+                }
+            }
+            i = right + 1
+        }
+        return nil
+    }
+
+    /// Scans the given row range of a terminal view for file paths in the output.
+    /// Fires `onOutputFilePath` on the main queue for the first match found.
+    func processTerminalRange(in view: LocalProcessTerminalView, startY: Int, endY: Int) {
+        guard let rootURL = projectRootURL else { return }
+        let terminal = view.getTerminal()
+        let clampedEnd = min(endY, terminal.rows - 1)
+        guard startY <= clampedEnd else { return }
+        for row in startY...clampedEnd {
+            guard let bufferLine = terminal.getLine(row: row) else { continue }
+            let lineText = bufferLine.translateToString(trimRight: true)
+            if let url = scanOutputLine(lineText, rootURL: rootURL) {
+                DispatchQueue.main.async { [weak self] in
+                    self?.onOutputFilePath?(url)
+                }
+                return // Only report the first match per range update
+            }
+        }
     }
 
     // MARK: - File Path Resolution

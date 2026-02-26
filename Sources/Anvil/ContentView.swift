@@ -55,6 +55,9 @@ struct ContentView: View {
     @StateObject private var sessionHealthMonitor = SessionHealthMonitor()
     @State private var showPromptHistory = false
     @State private var reviewDwellTask: Task<Void, Never>? = nil
+    /// Debounces auto-follow navigation to avoid thrashing the preview pane
+    /// during burst file writes.
+    @StateObject private var followAgent = FollowAgentController()
 
     var body: some View {
         ZStack {
@@ -206,9 +209,13 @@ struct ContentView: View {
             }
         }
         .onChange(of: activityModel.latestFileChange) { _, change in
-            guard autoFollow, activityModel.isAgentActive, let change = change else { return }
-            filePreview.autoFollowChange(to: change.url)
-            revealInFileTree(change.url)
+            guard autoFollow, let change = change else { return }
+            followAgent.reportChange(change.url)
+        }
+        .onChange(of: followAgent.followEvent) { _, event in
+            guard let event = event else { return }
+            filePreview.autoFollowChange(to: event.url)
+            revealInFileTree(event.url)
         }
         .onChange(of: activityModel.latestFileChange) { _, change in
             guard change != nil else { return }
@@ -496,6 +503,10 @@ struct ContentView: View {
                                         },
                                         onOpenFile: { url, line in
                                             filePreview.select(url, line: line)
+                                        },
+                                        onOutputFilePath: { url in
+                                            guard autoFollow else { return }
+                                            followAgent.reportChange(url)
                                         }
                                     )
                                     .opacity(tab.id == terminalTabs.activeTabID ? 1 : 0)
@@ -541,6 +552,10 @@ struct ContentView: View {
                                     },
                                     onOpenFile: { url, line in
                                         filePreview.select(url, line: line)
+                                    },
+                                    onOutputFilePath: { url in
+                                        guard autoFollow else { return }
+                                        followAgent.reportChange(url)
                                     }
                                 )
                                 .id(splitTab.id)
@@ -569,6 +584,10 @@ struct ContentView: View {
                                         },
                                         onOpenFile: { url, line in
                                             filePreview.select(url, line: line)
+                                        },
+                                        onOutputFilePath: { url in
+                                            guard autoFollow else { return }
+                                            followAgent.reportChange(url)
                                         }
                                     )
                                     .opacity(tab.id == terminalTabs.activeTabID ? 1 : 0)
@@ -869,7 +888,7 @@ struct ContentView: View {
                 showSidebar = true
                 sidebarTab = .history
             },
-            PaletteCommand(id: "toggle-auto-follow", title: autoFollow ? "Disable Auto-Follow" : "Enable Auto-Follow", icon: autoFollow ? "eye.slash" : "eye", shortcut: nil, category: "View") {
+            PaletteCommand(id: "toggle-auto-follow", title: autoFollow ? "Disable Follow Agent" : "Enable Follow Agent", icon: autoFollow ? "eye.slash" : "eye", shortcut: "⌘⇧A", category: "View") {
                 true
             } action: {
                 autoFollow.toggle()
@@ -1504,7 +1523,7 @@ struct ToolbarView: View {
                     .foregroundStyle(autoFollow ? .primary : .secondary)
             }
             .buttonStyle(.borderless)
-            .help(autoFollow ? "Auto-Follow Changes: On" : "Auto-Follow Changes: Off")
+            .help(autoFollow ? "Follow Agent: On (⌘⇧A)" : "Follow Agent: Off (⌘⇧A)")
 
             Button {
                 showInstructions.toggle()

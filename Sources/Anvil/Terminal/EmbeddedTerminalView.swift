@@ -16,6 +16,8 @@ struct EmbeddedTerminalView: View {
     var onTitleChange: ((String) -> Void)?
     /// Called when the user ⌘-clicks a file path in the terminal output. The Int? is a 1-based line number.
     var onOpenFile: ((URL, Int?) -> Void)?
+    /// Called when a resolvable file path is detected in the terminal's scrolled-in output.
+    var onOutputFilePath: ((URL) -> Void)?
     @AppStorage("autoLaunchCopilot") private var autoLaunchCopilot = true
     @AppStorage("terminalFontSize") private var fontSize: Double = 14
     @AppStorage("terminalThemeID") private var themeID: String = TerminalTheme.defaultDark.id
@@ -63,6 +65,7 @@ struct EmbeddedTerminalView: View {
                 },
                 onTitleChange: onTitleChange,
                 onOpenFile: onOpenFile,
+                onOutputFilePath: onOutputFilePath,
                 onCopilotNotFound: {
                     copilotNotFound = true
                 },
@@ -233,6 +236,7 @@ private struct TerminalNSView: NSViewRepresentable {
     var onProcessExit: (Int32?) -> Void
     var onTitleChange: ((String) -> Void)?
     var onOpenFile: ((URL, Int?) -> Void)?
+    var onOutputFilePath: ((URL) -> Void)?
     var onCopilotNotFound: (() -> Void)?
     var onOpenURL: ((URL) -> Void)?
 
@@ -263,6 +267,7 @@ private struct TerminalNSView: NSViewRepresentable {
         // Attach ⌘-click file path and URL detector
         let detector = context.coordinator.filePathDetector
         detector.onOpenFile = onOpenFile
+        detector.onOutputFilePath = onOutputFilePath
         detector.onOpenURL = onOpenURL
         detector.attach(to: terminalView, rootURL: workingDirectory.directoryURL)
 
@@ -285,6 +290,7 @@ private struct TerminalNSView: NSViewRepresentable {
         let detector = context.coordinator.filePathDetector
         detector.updateRoot(workingDirectory.directoryURL)
         detector.onOpenFile = onOpenFile
+        detector.onOutputFilePath = onOutputFilePath
         detector.onOpenURL = onOpenURL
         // Reconnect proxy when this tab becomes active
         if let proxy = terminalProxy, proxy.terminalView !== nsView {
@@ -352,6 +358,11 @@ private struct TerminalNSView: NSViewRepresentable {
             DispatchQueue.main.async { [weak self] in
                 self?.onProcessExit(exitCode)
             }
+        }
+
+        func rangeChanged(source: TerminalView, startY: Int, endY: Int) {
+            guard let tv = source as? LocalProcessTerminalView else { return }
+            filePathDetector.processTerminalRange(in: tv, startY: startY, endY: endY)
         }
     }
 }
