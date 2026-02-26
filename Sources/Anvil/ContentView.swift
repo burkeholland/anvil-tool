@@ -468,6 +468,33 @@ struct ContentView: View {
         )
     }
 
+    /// Returns an EmbeddedTerminalView configured for the given tab, with the
+    /// active/inactive styling applied.  Extracted as a helper to keep `projectView`
+    /// under the Swift type-checker complexity limit.
+    private func makeTabTerminalView(for tab: TerminalTab) -> some View {
+        EmbeddedTerminalView(
+            workingDirectory: workingDirectory,
+            launchCopilotOverride: tab.launchCopilot,
+            isActiveTab: tab.id == terminalTabs.activeTabID,
+            onTitleChange: { title in
+                terminalTabs.updateTitle(for: tab.id, to: title)
+            },
+            onOpenFile: { url, line in
+                filePreview.select(url, line: line)
+            },
+            onOutputFilePath: { url in
+                guard autoFollow else { return }
+                followAgent.reportChange(url)
+            },
+            onAgentWaitingForInput: { waiting in
+                terminalTabs.setWaitingForInput(waiting, tabID: tab.id)
+            },
+            markerStore: promptMarkerStore
+        )
+        .opacity(tab.id == terminalTabs.activeTabID ? 1 : 0)
+        .allowsHitTesting(tab.id == terminalTabs.activeTabID)
+    }
+
     private var projectView: some View {
         ZStack {
             HStack(spacing: 0) {
@@ -558,27 +585,7 @@ struct ContentView: View {
                         if terminalTabs.isSplit, let splitTab = terminalTabs.splitTab {
                             let primaryPane = ZStack {
                                 ForEach(terminalTabs.tabs) { tab in
-                                    EmbeddedTerminalView(
-                                        workingDirectory: workingDirectory,
-                                        launchCopilotOverride: tab.launchCopilot,
-                                        isActiveTab: tab.id == terminalTabs.activeTabID,
-                                        onTitleChange: { title in
-                                            terminalTabs.updateTitle(for: tab.id, to: title)
-                                        },
-                                        onOpenFile: { url, line in
-                                            filePreview.select(url, line: line)
-                                        },
-                                        onOutputFilePath: { url in
-                                            guard autoFollow else { return }
-                                            followAgent.reportChange(url)
-                                        },
-                                        onAgentWaitingForInput: { waiting in
-                                            terminalTabs.setWaitingForInput(waiting, tabID: tab.id)
-                                        },
-                                        markerStore: promptMarkerStore
-                                    )
-                                    .opacity(tab.id == terminalTabs.activeTabID ? 1 : 0)
-                                    .allowsHitTesting(tab.id == terminalTabs.activeTabID)
+                                    makeTabTerminalView(for: tab)
                                 }
                             }
 
@@ -649,27 +656,7 @@ struct ContentView: View {
                         } else {
                             ZStack {
                                 ForEach(terminalTabs.tabs) { tab in
-                                    EmbeddedTerminalView(
-                                        workingDirectory: workingDirectory,
-                                        launchCopilotOverride: tab.launchCopilot,
-                                        isActiveTab: tab.id == terminalTabs.activeTabID,
-                                        onTitleChange: { title in
-                                            terminalTabs.updateTitle(for: tab.id, to: title)
-                                        },
-                                        onOpenFile: { url, line in
-                                            filePreview.select(url, line: line)
-                                        },
-                                        onOutputFilePath: { url in
-                                            guard autoFollow else { return }
-                                            followAgent.reportChange(url)
-                                        },
-                                        onAgentWaitingForInput: { waiting in
-                                            terminalTabs.setWaitingForInput(waiting, tabID: tab.id)
-                                        },
-                                        markerStore: promptMarkerStore
-                                    )
-                                    .opacity(tab.id == terminalTabs.activeTabID ? 1 : 0)
-                                    .allowsHitTesting(tab.id == terminalTabs.activeTabID)
+                                    makeTabTerminalView(for: tab)
                                 }
 
                                 // Drop overlay for file → terminal @ mentions
