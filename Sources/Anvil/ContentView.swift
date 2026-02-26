@@ -881,6 +881,9 @@ struct ContentView: View {
                                                 let url = root.appendingPathComponent(path)
                                                 filePreview?.select(url, line: line)
                                             }
+                                        },
+                                        onRevertHunk: { [weak changesModel] fileDiff, hunk in
+                                            changesModel?.discardHunk(patch: DiffParser.reconstructPatch(fileDiff: fileDiff, hunk: hunk))
                                         }
                                     )
                                 } else if showDiffSummary {

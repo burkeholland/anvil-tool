@@ -217,6 +217,37 @@ struct DiffHunkView: View {
         .onHover { hovering in
             if hasActions { isHovered = hovering }
         }
+        .contextMenu {
+            if let onDiscard {
+                Button(role: .destructive) {
+                    onDiscard()
+                } label: {
+                    Label("Revert this hunk", systemImage: "arrow.uturn.backward")
+                }
+            }
+            if let onStage {
+                Button {
+                    onStage()
+                } label: {
+                    Label("Stage this hunk", systemImage: "plus.circle")
+                }
+            }
+            if let onUnstage {
+                Button {
+                    onUnstage()
+                } label: {
+                    Label("Unstage this hunk", systemImage: "minus.circle")
+                }
+            }
+            if onRequestFix != nil {
+                Divider()
+                Button {
+                    showFixPopover = true
+                } label: {
+                    Label("Fix this hunk…", systemImage: "wrench.and.screwdriver")
+                }
+            }
+        }
     }
 
     @ViewBuilder
