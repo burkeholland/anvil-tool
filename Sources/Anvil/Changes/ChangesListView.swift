@@ -18,13 +18,48 @@ struct ChangesListView: View {
     @State private var showUndoCommitConfirm = false
     @State private var stashToDrop: StashEntry?
     @State private var showOnlyUnreviewed = false
-    @State private var collapsedDirectories: Set<String> = []
+    @State private var collapsedGroups: Set<String> = []
 
     private enum ChangeScope: String, CaseIterable {
         case all = "All Changes"
         case lastTask = "Last Task"
     }
     @State private var changeScope: ChangeScope = .all
+
+    // MARK: - File Grouping Mode
+
+    enum GroupingMode: String, CaseIterable {
+        case directory = "directory"
+        case changeType = "changeType"
+        case fileKind = "fileKind"
+
+        var label: String {
+            switch self {
+            case .directory:  return "Directory"
+            case .changeType: return "Type"
+            case .fileKind:   return "Kind"
+            }
+        }
+    }
+
+    @State private var groupingMode: GroupingMode = .directory
+
+    private func groupingModeKey() -> String? {
+        guard let path = workingDirectory.directoryURL?.standardizedFileURL.path else { return nil }
+        return "dev.anvil.changesGroupingMode.\(path)"
+    }
+
+    private func saveGroupingMode() {
+        guard let key = groupingModeKey() else { return }
+        UserDefaults.standard.set(groupingMode.rawValue, forKey: key)
+    }
+
+    private func loadGroupingMode() {
+        guard let key = groupingModeKey(),
+              let raw = UserDefaults.standard.string(forKey: key),
+              let mode = GroupingMode(rawValue: raw) else { return }
+        groupingMode = mode
+    }
 
     // MARK: - Scope-filtered file lists
 
@@ -221,6 +256,24 @@ struct ChangesListView: View {
                 .pickerStyle(.segmented)
                 .labelsHidden()
                 .padding(.vertical, 2)
+            }
+        }
+    }
+
+    /// A segmented toggle for choosing how the changed-file list is grouped.
+    @ViewBuilder
+    private var groupingModeSection: some View {
+        if !model.changedFiles.isEmpty {
+            Section {
+                Picker("Group by", selection: $groupingMode) {
+                    ForEach(GroupingMode.allCases, id: \.self) { mode in
+                        Text(mode.label).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .padding(.vertical, 2)
+                .onChange(of: groupingMode) { saveGroupingMode() }
             }
         }
     }
@@ -435,6 +488,7 @@ struct ChangesListView: View {
             List {
                 changesTopSections
                 changeScopeSection
+                groupingModeSection
                 conflictsSection
                 sensitiveFilesSection
                 stagedSection
@@ -442,6 +496,7 @@ struct ChangesListView: View {
                 historyAndStashSections
             }
             .listStyle(.sidebar)
+            .onAppear { loadGroupingMode() }
             .onKeyPress { keyPress in
                 switch keyPress.characters {
                 case "]":
@@ -558,7 +613,7 @@ struct ChangesListView: View {
             .animation(.easeInOut(duration: 0.2), value: model.lastDiscardedHunkPatch != nil)
     }
 
-    // MARK: - Directory Grouping Helpers
+    // MARK: - Grouping Helpers
 
     /// Groups files by directory, preserving the relative order directories appear in the list.
     private func directoryGroups(from files: [ChangedFile]) -> [(dir: String, files: [ChangedFile])] {
@@ -570,6 +625,71 @@ struct ChangesListView: View {
             }
         }
         return orderedDirs.map { dir in (dir, files.filter { $0.directoryPath == dir }) }
+    }
+
+    /// Groups files by their git change type (Added, Modified, Deleted, Renamed).
+    private func changeTypeGroups(from files: [ChangedFile]) -> [(label: String, icon: String, color: Color, files: [ChangedFile])] {
+        let order: [(label: String, icon: String, color: Color, statuses: [GitFileStatus])] = [
+            ("Added",    "plus.circle.fill",   .green,  [.added, .untracked]),
+            ("Modified", "pencil.circle.fill",  .orange, [.modified]),
+            ("Deleted",  "minus.circle.fill",   .red,    [.deleted]),
+            ("Renamed",  "arrow.right.circle.fill", .blue, [.renamed]),
+        ]
+        return order.compactMap { entry in
+            let matching = files.filter { entry.statuses.contains($0.status) }
+            guard !matching.isEmpty else { return nil }
+            return (entry.label, entry.icon, entry.color, matching)
+        }
+    }
+
+    /// Infers a file kind (Source, Tests, Config, Docs) from its path and extension.
+    private static func fileKind(for file: ChangedFile) -> (label: String, icon: String, color: Color) {
+        let path = file.relativePath.lowercased()
+        let name = file.fileName.lowercased()
+        let ext = (file.fileName as NSString).pathExtension.lowercased()
+
+        // Docs
+        let docExtensions: Set<String> = ["md", "rst", "txt", "adoc"]
+        let docPrefixes = ["readme", "changelog", "license", "contributing", "authors", "notice"]
+        if docExtensions.contains(ext) || docPrefixes.contains(where: { name.hasPrefix($0) }) {
+            return ("Docs", "doc.text.fill", .purple)
+        }
+
+        // Config
+        let configExtensions: Set<String> = ["json", "yaml", "yml", "toml", "lock", "env", "ini", "cfg", "conf"]
+        let configNames: Set<String> = [
+            ".gitignore", ".gitattributes", ".editorconfig", ".eslintrc", ".prettierrc",
+            ".babelrc", ".swiftlint.yml", "makefile", "dockerfile", "package.json",
+            "tsconfig.json", "jest.config.js", "vite.config.ts", "webpack.config.js",
+        ]
+        if configExtensions.contains(ext) || configNames.contains(name) {
+            return ("Config", "gearshape.fill", .gray)
+        }
+
+        // Tests
+        let testPathSegments = ["/tests/", "/test/", "/__tests__/", "/spec/", "/specs/"]
+        let testFileParts = ["test", "spec", ".test.", ".spec.", "tests.swift"]
+        if testPathSegments.contains(where: { path.contains($0) })
+            || testFileParts.contains(where: { name.contains($0) }) {
+            return ("Tests", "testtube.2", .teal)
+        }
+
+        // Source (catch-all)
+        return ("Source", "chevron.left.forwardslash.chevron.right", .blue)
+    }
+
+    /// Groups files by inferred file kind (Source, Tests, Config, Docs).
+    private func fileKindGroups(from files: [ChangedFile]) -> [(label: String, icon: String, color: Color, files: [ChangedFile])] {
+        let order = ["Source", "Tests", "Config", "Docs"]
+        var buckets: [String: (icon: String, color: Color, files: [ChangedFile])] = [:]
+        for file in files {
+            let kind = Self.fileKind(for: file)
+            buckets[kind.label, default: (kind.icon, kind.color, [])].files.append(file)
+        }
+        return order.compactMap { label in
+            guard let bucket = buckets[label], !bucket.files.isEmpty else { return nil }
+            return (label, bucket.icon, bucket.color, bucket.files)
+        }
     }
 
     /// Renders a single changed-file row with tap, context menu, and drag support.
@@ -601,31 +721,90 @@ struct ChangesListView: View {
         .id(file.id)
     }
 
-    /// Renders files either grouped by directory (when ≥2 directories) or as a flat list.
+    /// Renders files grouped according to the current `groupingMode`.
     @ViewBuilder
     private func groupedFileRows(files: [ChangedFile], isStaged: Bool) -> some View {
-        let groups = directoryGroups(from: files)
-        if groups.count > 1 {
-            ForEach(groups, id: \.dir) { group in
-                DirectoryGroupHeader(
-                    directory: group.dir,
-                    files: group.files,
-                    isCollapsed: collapsedDirectories.contains(group.dir)
-                ) {
-                    withAnimation(.easeInOut(duration: 0.15)) {
-                        collapsedDirectories = collapsedDirectories.symmetricDifference([group.dir])
+        switch groupingMode {
+        case .directory:
+            let groups = directoryGroups(from: files)
+            if groups.count > 1 {
+                ForEach(groups, id: \.dir) { group in
+                    DirectoryGroupHeader(
+                        directory: group.dir,
+                        files: group.files,
+                        isCollapsed: collapsedGroups.contains(group.dir)
+                    ) {
+                        withAnimation(.easeInOut(duration: 0.15)) {
+                            collapsedGroups = collapsedGroups.symmetricDifference([group.dir])
+                        }
+                    }
+                    if !collapsedGroups.contains(group.dir) {
+                        ForEach(group.files) { file in
+                            fileRow(file: file, isStaged: isStaged, showDirectoryLabel: false)
+                                .padding(.leading, 12)
+                        }
                     }
                 }
-                if !collapsedDirectories.contains(group.dir) {
-                    ForEach(group.files) { file in
-                        fileRow(file: file, isStaged: isStaged, showDirectoryLabel: false)
-                            .padding(.leading, 12)
-                    }
+            } else {
+                ForEach(files) { file in
+                    fileRow(file: file, isStaged: isStaged)
                 }
             }
-        } else {
-            ForEach(files) { file in
-                fileRow(file: file, isStaged: isStaged)
+
+        case .changeType:
+            let groups = changeTypeGroups(from: files)
+            if groups.count > 1 {
+                ForEach(groups, id: \.label) { group in
+                    GenericGroupHeader(
+                        label: group.label,
+                        systemImage: group.icon,
+                        color: group.color,
+                        count: group.files.count,
+                        isCollapsed: collapsedGroups.contains(group.label)
+                    ) {
+                        withAnimation(.easeInOut(duration: 0.15)) {
+                            collapsedGroups = collapsedGroups.symmetricDifference([group.label])
+                        }
+                    }
+                    if !collapsedGroups.contains(group.label) {
+                        ForEach(group.files) { file in
+                            fileRow(file: file, isStaged: isStaged)
+                                .padding(.leading, 12)
+                        }
+                    }
+                }
+            } else {
+                ForEach(files) { file in
+                    fileRow(file: file, isStaged: isStaged)
+                }
+            }
+
+        case .fileKind:
+            let groups = fileKindGroups(from: files)
+            if groups.count > 1 {
+                ForEach(groups, id: \.label) { group in
+                    GenericGroupHeader(
+                        label: group.label,
+                        systemImage: group.icon,
+                        color: group.color,
+                        count: group.files.count,
+                        isCollapsed: collapsedGroups.contains(group.label)
+                    ) {
+                        withAnimation(.easeInOut(duration: 0.15)) {
+                            collapsedGroups = collapsedGroups.symmetricDifference([group.label])
+                        }
+                    }
+                    if !collapsedGroups.contains(group.label) {
+                        ForEach(group.files) { file in
+                            fileRow(file: file, isStaged: isStaged)
+                                .padding(.leading, 12)
+                        }
+                    }
+                }
+            } else {
+                ForEach(files) { file in
+                    fileRow(file: file, isStaged: isStaged)
+                }
             }
         }
     }
@@ -1618,6 +1797,46 @@ struct DirectoryGroupHeader: View {
                             .foregroundStyle(.red)
                     }
                 }
+            }
+            .padding(.vertical, 2)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+/// A collapsible group header for change-type and file-kind grouping modes.
+struct GenericGroupHeader: View {
+    let label: String
+    let systemImage: String
+    let color: Color
+    let count: Int
+    let isCollapsed: Bool
+    let onToggle: () -> Void
+
+    var body: some View {
+        Button(action: onToggle) {
+            HStack(spacing: 5) {
+                Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(.tertiary)
+                    .frame(width: 10)
+
+                Image(systemName: systemImage)
+                    .font(.system(size: 10))
+                    .foregroundStyle(color)
+
+                Text(label)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+
+                Spacer()
+
+                Text("\(count)")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 1)
+                    .background(Capsule().fill(color.opacity(0.5)))
             }
             .padding(.vertical, 2)
         }
