@@ -328,6 +328,9 @@ struct FilePreviewView: View {
                         } : nil,
                         blameLines: model.showBlame ? model.blameLines : [],
                         scrollToLine: $model.scrollToLine,
+                        onBlameClick: { [model] sha in
+                            model.navigateToBlameCommit(sha: sha)
+                        },
                         onSendToTerminal: { [model, terminalProxy] code, startLine, endLine in
                             terminalProxy.sendCodeSnippet(
                                 relativePath: model.relativePath,
@@ -816,6 +819,8 @@ struct HighlightedTextView: NSViewRepresentable {
     var blameLines: [BlameLine] = []
     /// Binding to scroll to a specific line (1-based). Set to nil after scrolling.
     @Binding var scrollToLine: Int?
+    /// Called when the user clicks a blame annotation. Receives the full commit SHA.
+    var onBlameClick: ((String) -> Void)?
     /// Called when the user triggers "Send to Terminal". Receives the selected code (or empty
     /// string when nothing is selected), plus the 1-based start and end line numbers.
     var onSendToTerminal: ((String, Int, Int) -> Void)?
@@ -866,6 +871,7 @@ struct HighlightedTextView: NSViewRepresentable {
         context.coordinator.applyHighlighting(content: content, language: language)
         rulerView.gutterChanges = gutterChanges
         rulerView.blameLines = blameLines
+        rulerView.onBlameClick = onBlameClick
 
         let coordinator = context.coordinator
         textView.onSendToTerminal = { [weak coordinator] in
@@ -879,6 +885,7 @@ struct HighlightedTextView: NSViewRepresentable {
         context.coordinator.applyHighlighting(content: content, language: language)
         context.coordinator.rulerView?.gutterChanges = gutterChanges
         context.coordinator.rulerView?.blameLines = blameLines
+        context.coordinator.rulerView?.onBlameClick = onBlameClick
         context.coordinator.fileDiff = fileDiff
         context.coordinator.onRevertHunk = onRevertHunk
         context.coordinator.onSendToTerminalAction = onSendToTerminal
@@ -1095,6 +1102,23 @@ final class LineNumberRulerView: NSRulerView {
     private let blameFont = NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .regular)
     private let blameAuthorColor = NSColor(white: 0.50, alpha: 1.0)
     private let blameDateColor = NSColor(white: 0.35, alpha: 1.0)
+    /// Number of "M" characters used to size the blame column (≈ max displayable content).
+    private let blameColumnCharCount = 20
+    /// Horizontal padding between the blame column and the blame separator line.
+    private let blameSeparatorPadding: CGFloat = 8
+    /// Gap between the right edge of the blame column and the left edge of the line numbers.
+    private let blameToLineNumbersGap: CGFloat = 12
+
+    /// Width of the blame column (author + date), derived from the worst-case string width.
+    private var blameColumnWidth: CGFloat {
+        let label = String(repeating: "M", count: blameColumnCharCount) as NSString
+        return label.size(withAttributes: [.font: blameFont]).width
+    }
+
+    /// The x-coordinate of the separator between the blame column and line numbers.
+    private var blameSeparatorX: CGFloat {
+        blameColumnWidth + blameSeparatorPadding
+    }
 
     /// Line-number → change kind mapping. Set externally; triggers redraw.
     var gutterChanges: [Int: GutterChangeKind] = [:] {
@@ -1115,6 +1139,9 @@ final class LineNumberRulerView: NSRulerView {
     /// Called when the user clicks on a gutter change indicator.
     /// Parameters: (lineNumber, rectInRulerCoordinates).
     var onGutterClick: ((Int, NSRect) -> Void)?
+
+    /// Called when the user clicks on a blame annotation. Receives the full commit SHA.
+    var onBlameClick: ((String) -> Void)?
 
     init(textView: NSTextView) {
         self.targetTextView = textView
@@ -1165,19 +1192,36 @@ final class LineNumberRulerView: NSRulerView {
         let newThickness: CGFloat
         if !blameMap.isEmpty {
             // Add space for blame: "author  2d ago" (approx 20 chars)
-            let blameLabel = String(repeating: "M", count: 20) as NSString
-            let blameWidth = blameLabel.size(withAttributes: [.font: blameFont]).width
-            newThickness = baseThickness + blameWidth + 12 // 12pt gap between blame and line numbers
+            newThickness = baseThickness + blameColumnWidth + blameToLineNumbersGap
         } else {
             newThickness = baseThickness
         }
         if abs(ruleThickness - newThickness) > 1 {
             ruleThickness = newThickness
         }
+        window?.invalidateCursorRects(for: self)
+    }
+
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        guard !blameMap.isEmpty else { return }
+        addCursorRect(NSRect(x: 0, y: 0, width: blameSeparatorX, height: bounds.height), cursor: .pointingHand)
     }
 
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
+
+        // If blame is visible, check whether the click landed in the blame column
+        if !blameMap.isEmpty {
+            if point.x < blameSeparatorX,
+               let lineNum = lineNumber(at: point),
+               let blame = blameMap[lineNum],
+               !blame.isUncommitted {
+                onBlameClick?(blame.sha)
+                return
+            }
+        }
+
         guard let lineNum = lineNumber(at: point),
               gutterChanges[lineNum] != nil else {
             super.mouseDown(with: event)
@@ -1263,9 +1307,7 @@ final class LineNumberRulerView: NSRulerView {
 
         // When blame is active, draw a second separator between blame and line numbers
         if hasBlame {
-            let blameLabel = String(repeating: "M", count: 20) as NSString
-            let blameWidth = blameLabel.size(withAttributes: [.font: blameFont]).width
-            let blameSepX = blameWidth + 8 + 0.5
+            let blameSepX = blameSeparatorX + 0.5
             NSColor(white: 0.20, alpha: 1.0).setStroke()
             let blameSepPath = NSBezierPath()
             blameSepPath.move(to: NSPoint(x: blameSepX, y: rect.minY))

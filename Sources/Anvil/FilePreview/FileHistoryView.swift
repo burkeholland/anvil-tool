@@ -23,21 +23,30 @@ struct FileHistoryView: View {
             }
             .frame(maxWidth: .infinity)
         } else {
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(Array(model.fileHistory.enumerated()), id: \.element.id) { index, commit in
-                        FileHistoryRow(
-                            commit: commit,
-                            isFirst: index == 0,
-                            onSelect: {
-                                if let relativePath = model.selectedURL.map({ FilePreviewModel.relativePath(of: $0, from: rootURL) }) {
-                                    model.selectCommitFile(path: relativePath, commitSHA: commit.sha, rootURL: rootURL)
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(Array(model.fileHistory.enumerated()), id: \.element.id) { index, commit in
+                            FileHistoryRow(
+                                commit: commit,
+                                isFirst: index == 0,
+                                isSelected: commit.sha == model.selectedHistoryCommitSHA,
+                                onSelect: {
+                                    if let relativePath = model.selectedURL.map({ FilePreviewModel.relativePath(of: $0, from: rootURL) }) {
+                                        model.selectCommitFile(path: relativePath, commitSHA: commit.sha, rootURL: rootURL)
+                                    }
                                 }
-                            }
-                        )
+                            )
+                            .id(commit.sha)
+                        }
                     }
+                    .padding(.vertical, 4)
                 }
-                .padding(.vertical, 4)
+                .onChange(of: model.selectedHistoryCommitSHA) { _, sha in
+                    guard let sha,
+                          let match = model.fileHistory.first(where: { $0.sha == sha }) else { return }
+                    withAnimation { proxy.scrollTo(match.sha, anchor: .center) }
+                }
             }
         }
     }
@@ -46,6 +55,7 @@ struct FileHistoryView: View {
 private struct FileHistoryRow: View {
     let commit: GitCommit
     var isFirst: Bool = false
+    var isSelected: Bool = false
     let onSelect: () -> Void
     @State private var isHovering = false
 
@@ -93,7 +103,15 @@ private struct FileHistoryRow: View {
             .padding(.horizontal, 12)
             .background(
                 RoundedRectangle(cornerRadius: 4)
-                    .fill(isHovering ? Color.accentColor.opacity(0.06) : Color.clear)
+                    .fill(
+                        isSelected
+                            ? Color.accentColor.opacity(0.15)
+                            : isHovering ? Color.accentColor.opacity(0.06) : Color.clear
+                    )
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 4)
+                    .strokeBorder(isSelected ? Color.accentColor.opacity(0.4) : Color.clear, lineWidth: 1)
             )
             .contentShape(Rectangle())
         }
