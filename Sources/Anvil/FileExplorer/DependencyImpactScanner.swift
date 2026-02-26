@@ -73,6 +73,57 @@ enum DependencyImpactScanner {
         return result
     }
 
+    /// Scans all source files under `rootURL` and returns a reverse map of
+    /// modified file absolute path → [absolute paths of files that depend on it].
+    ///
+    /// - Parameters:
+    ///   - modifiedPaths: Absolute paths of modified (non-deleted) source files.
+    ///   - rootURL: Project root directory — scanning is limited to this subtree.
+    /// - Returns: `[modifiedFilePath: [dependentFilePaths]]`.
+    static func scanDependentsMap(modifiedPaths: [String], rootURL: URL) -> [String: [String]] {
+        guard !modifiedPaths.isEmpty else { return [:] }
+
+        let modifiedEntries: [(path: String, stem: String)] = modifiedPaths.compactMap { path in
+            let url = URL(fileURLWithPath: path)
+            let ext = url.pathExtension.lowercased()
+            guard sourceExtensions.contains(ext) else { return nil }
+            let stem = url.deletingPathExtension().lastPathComponent
+            guard !stem.isEmpty else { return nil }
+            return (path, stem)
+        }
+        guard !modifiedEntries.isEmpty else { return [:] }
+
+        let modifiedSet = Set(modifiedPaths)
+        var result: [String: [String]] = [:]
+
+        guard let enumerator = FileManager.default.enumerator(
+            at: rootURL,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ) else { return [:] }
+
+        for case let fileURL as URL in enumerator {
+            let name = fileURL.lastPathComponent
+            if skippedDirs.contains(name) {
+                enumerator.skipDescendants()
+                continue
+            }
+            let ext = fileURL.pathExtension.lowercased()
+            guard sourceExtensions.contains(ext) else { continue }
+
+            let absPath = fileURL.standardizedFileURL.path
+            guard !modifiedSet.contains(absPath) else { continue }
+
+            guard let content = try? String(contentsOf: fileURL, encoding: .utf8) else { continue }
+
+            for entry in modifiedEntries where containsImport(content: content, stem: entry.stem) {
+                result[entry.path, default: []].append(absPath)
+            }
+        }
+
+        return result
+    }
+
     // MARK: - Private
 
     /// Returns true if `content` has an import/require line that references `stem`

@@ -65,6 +65,9 @@ final class ChangesModel: ObservableObject {
     /// The entry currently shown in the undo toast banner; nil when no banner is visible.
     /// Separate from discardUndoStack so dismissing the banner doesn't expose older entries.
     @Published var activeDiscardBannerEntry: DiscardedFileEntry?
+    /// Maps each modified source file's absolute path to the list of absolute paths of project
+    /// files that import or depend on it. Refreshed alongside `changedFiles`.
+    @Published private(set) var dependentsMap: [String: [String]] = [:]
 
     // MARK: - Task Scope Tracking
 
@@ -783,6 +786,7 @@ final class ChangesModel: ObservableObject {
         hasTaskStart = false
         snapshots = []
         activeSnapshotID = nil
+        dependentsMap = [:]
     }
 
     func refresh() {
@@ -850,10 +854,14 @@ final class ChangesModel: ObservableObject {
 
             files.sort { $0.relativePath.localizedStandardCompare($1.relativePath) == .orderedAscending }
 
+            let nonDeletedPaths = files.filter { $0.status != .deleted }.map { $0.url.standardizedFileURL.path }
+            let depsMap = DependencyImpactScanner.scanDependentsMap(modifiedPaths: nonDeletedPaths, rootURL: gitRoot)
+
             DispatchQueue.main.async {
                 guard let self = self, self.refreshGeneration == generation else { return }
                 self.pruneReviewedPaths(newFiles: files)
                 self.changedFiles = files
+                self.dependentsMap = depsMap
                 self.isLoading = false
                 // Clamp focused index to valid range after refresh
                 if let idx = self.focusedFileIndex {
