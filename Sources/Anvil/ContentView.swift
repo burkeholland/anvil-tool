@@ -53,6 +53,7 @@ struct ContentView: View {
     @State private var showMergeConflict = false
     @StateObject private var mergeConflictModel = MergeConflictModel()
     @StateObject private var promptHistoryStore = PromptHistoryStore()
+    @StateObject private var promptMarkerStore = PromptMarkerStore()
     @StateObject private var sessionHealthMonitor = SessionHealthMonitor()
     @State private var showPromptHistory = false
     @State private var reviewDwellTask: Task<Void, Never>? = nil
@@ -216,6 +217,7 @@ struct ContentView: View {
             filePreview.rootDirectory = newURL
             terminalTabs.reset()
             sessionHealthMonitor.reset()
+            promptMarkerStore.clear()
             promptHistoryStore.configure(projectPath: newURL?.standardizedFileURL.path)
             if let url = newURL {
                 recentProjects.recordOpen(url)
@@ -342,6 +344,7 @@ struct ContentView: View {
             notificationManager.connect(to: activityModel)
             terminalProxy.historyStore = promptHistoryStore
             terminalProxy.sessionMonitor = sessionHealthMonitor
+            terminalProxy.markerStore = promptMarkerStore
             promptHistoryStore.configure(projectPath: workingDirectory.directoryURL?.standardizedFileURL.path)
             if let url = workingDirectory.directoryURL {
                 recentProjects.recordOpen(url)
@@ -571,7 +574,8 @@ struct ContentView: View {
                                         },
                                         onAgentWaitingForInput: { waiting in
                                             terminalTabs.setWaitingForInput(waiting, tabID: tab.id)
-                                        }
+                                        },
+                                        markerStore: promptMarkerStore
                                     )
                                     .opacity(tab.id == terminalTabs.activeTabID ? 1 : 0)
                                     .allowsHitTesting(tab.id == terminalTabs.activeTabID)
@@ -661,7 +665,8 @@ struct ContentView: View {
                                         },
                                         onAgentWaitingForInput: { waiting in
                                             terminalTabs.setWaitingForInput(waiting, tabID: tab.id)
-                                        }
+                                        },
+                                        markerStore: promptMarkerStore
                                     )
                                     .opacity(tab.id == terminalTabs.activeTabID ? 1 : 0)
                                     .allowsHitTesting(tab.id == terminalTabs.activeTabID)
