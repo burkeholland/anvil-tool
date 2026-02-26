@@ -1712,7 +1712,9 @@ private struct FocusedSceneModifier: ViewModifier {
                 onMentionInTerminal: onMentionInTerminal,
                 onCloneRepository: onCloneRepository,
                 onSplitTerminalH: onSplitTerminalH,
-                onSplitTerminalV: onSplitTerminalV,
+                onSplitTerminalV: onSplitTerminalV
+            ))
+            .modifier(FocusedSceneModifierD(
                 onNextPreviewTab: onNextPreviewTab,
                 onPreviousPreviewTab: onPreviousPreviewTab
             ))
@@ -1795,8 +1797,6 @@ private struct FocusedSceneModifierC: ViewModifier {
     var onCloneRepository: (() -> Void)?
     var onSplitTerminalH: (() -> Void)?
     var onSplitTerminalV: (() -> Void)?
-    var onNextPreviewTab: (() -> Void)?
-    var onPreviousPreviewTab: (() -> Void)?
 
     func body(content: Content) -> some View {
         content
@@ -1808,6 +1808,15 @@ private struct FocusedSceneModifierC: ViewModifier {
             .focusedSceneValue(\.cloneRepository, onCloneRepository)
             .focusedSceneValue(\.splitTerminalH, onSplitTerminalH)
             .focusedSceneValue(\.splitTerminalV, onSplitTerminalV)
+    }
+}
+
+private struct FocusedSceneModifierD: ViewModifier {
+    var onNextPreviewTab: (() -> Void)?
+    var onPreviousPreviewTab: (() -> Void)?
+
+    func body(content: Content) -> some View {
+        content
             .focusedSceneValue(\.nextPreviewTab, onNextPreviewTab)
             .focusedSceneValue(\.previousPreviewTab, onPreviousPreviewTab)
     }
