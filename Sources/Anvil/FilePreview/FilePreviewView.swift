@@ -164,6 +164,7 @@ struct FilePreviewView: View {
                     .popover(isPresented: $model.showSymbolOutline, arrowEdge: .bottom) {
                         SymbolOutlineView(
                             symbols: documentSymbols,
+                            changedLines: Set(currentGutterChanges.keys),
                             onSelect: { line in
                                 model.scrollToLine = line
                                 model.lastNavigatedLine = line

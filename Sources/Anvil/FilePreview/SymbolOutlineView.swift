@@ -2,8 +2,11 @@ import SwiftUI
 
 /// A popover that shows document symbols (functions, classes, etc.) parsed from the current file.
 /// Supports filtering and click-to-jump navigation.
+/// Symbols that fall within git-changed lines are highlighted in orange.
 struct SymbolOutlineView: View {
     let symbols: [DocumentSymbol]
+    /// Set of 1-based line numbers that have git changes (additions or modifications).
+    let changedLines: Set<Int>
     let onSelect: (Int) -> Void
     let onDismiss: () -> Void
     @State private var filterText = ""
@@ -60,7 +63,7 @@ struct SymbolOutlineView: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
                         ForEach(filtered) { symbol in
-                            SymbolRow(symbol: symbol)
+                            SymbolRow(symbol: symbol, isChanged: changedLines.contains(symbol.line))
                                 .contentShape(Rectangle())
                                 .onTapGesture {
                                     onSelect(symbol.line)
@@ -79,6 +82,18 @@ struct SymbolOutlineView: View {
                 Text("\(filtered.count) symbol\(filtered.count == 1 ? "" : "s")")
                     .font(.system(size: 10))
                     .foregroundStyle(.tertiary)
+                let changedCount = filtered.filter { changedLines.contains($0.line) }.count
+                if changedCount > 0 {
+                    Text("·")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.tertiary)
+                    Image(systemName: "circle.fill")
+                        .font(.system(size: 6))
+                        .foregroundStyle(.orange)
+                    Text("\(changedCount) changed")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.orange)
+                }
                 Spacer()
             }
             .padding(.horizontal, 10)
@@ -95,6 +110,7 @@ struct SymbolOutlineView: View {
 /// A single row in the symbol outline.
 private struct SymbolRow: View {
     let symbol: DocumentSymbol
+    let isChanged: Bool
 
     var body: some View {
         HStack(spacing: 6) {
@@ -116,13 +132,19 @@ private struct SymbolRow: View {
 
             Spacer()
 
+            if isChanged {
+                Image(systemName: "circle.fill")
+                    .font(.system(size: 6))
+                    .foregroundStyle(.orange)
+            }
+
             Text("L\(symbol.line)")
                 .font(.system(size: 10, design: .monospaced))
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(isChanged ? .orange : .tertiary)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 3)
-        .background(Color.clear)
+        .background(isChanged ? Color.orange.opacity(0.06) : Color.clear)
         .onHover { hovering in
             if hovering {
                 NSCursor.pointingHand.push()

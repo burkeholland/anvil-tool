@@ -167,6 +167,10 @@ struct PreviousPreviewTabKey: FocusedValueKey {
     typealias Value = () -> Void
 }
 
+struct GoToSymbolKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
 extension FocusedValues {
     var sidebarVisible: Binding<Bool>? {
         get { self[SidebarVisibleKey.self] }
@@ -372,6 +376,11 @@ extension FocusedValues {
         get { self[PreviousPreviewTabKey.self] }
         set { self[PreviousPreviewTabKey.self] = newValue }
     }
+
+    var goToSymbol: (() -> Void)? {
+        get { self[GoToSymbolKey.self] }
+        set { self[GoToSymbolKey.self] = newValue }
+    }
 }
 
 // MARK: - View Menu Commands
@@ -414,6 +423,7 @@ struct ViewCommands: Commands {
     @FocusedValue(\.requestFix) var requestFix
     @FocusedValue(\.nextPreviewTab) var nextPreviewTab
     @FocusedValue(\.previousPreviewTab) var previousPreviewTab
+    @FocusedValue(\.goToSymbol) var goToSymbol
     @AppStorage("autoLaunchCopilot") private var autoLaunchCopilot = true
     @AppStorage("notificationsEnabled") private var notificationsEnabled = true
 
@@ -462,6 +472,12 @@ struct ViewCommands: Commands {
             }
             .keyboardShortcut("l", modifiers: .command)
             .disabled(goToLine == nil)
+
+            Button("Go to Symbol…") {
+                goToSymbol?()
+            }
+            .keyboardShortcut("l", modifiers: [.command, .shift])
+            .disabled(goToSymbol == nil)
 
             Button("Reveal in File Tree") {
                 revealInTree?()

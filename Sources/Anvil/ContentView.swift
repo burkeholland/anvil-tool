@@ -176,6 +176,9 @@ struct ContentView: View {
             } : nil,
             onPreviousPreviewTab: filePreview.openTabs.count > 1 ? { [weak filePreview] in
                 filePreview?.selectPreviousTab()
+            } : nil,
+            onGoToSymbol: (filePreview.selectedURL != nil && filePreview.fileContent != nil && filePreview.activeTab == .source) ? { [weak filePreview] in
+                filePreview?.showSymbolOutline = true
             } : nil
         ))
         .onChange(of: workingDirectory.directoryURL) { _, newURL in
@@ -1029,7 +1032,7 @@ struct ContentView: View {
                 showKeyboardShortcuts = true
             },
 
-            PaletteCommand(id: "go-to-symbol", title: "Go to Symbol…", icon: "list.bullet.indent", shortcut: nil, category: "Navigation") {
+            PaletteCommand(id: "go-to-symbol", title: "Go to Symbol…", icon: "list.bullet.indent", shortcut: "⌘⇧L", category: "Navigation") {
                 filePreview.selectedURL != nil && filePreview.fileContent != nil && filePreview.activeTab == .source
             } action: { [weak filePreview] in
                 filePreview?.showSymbolOutline = true
@@ -1777,6 +1780,7 @@ private struct FocusedSceneModifier: ViewModifier {
     var onSplitTerminalV: (() -> Void)?
     var onNextPreviewTab: (() -> Void)?
     var onPreviousPreviewTab: (() -> Void)?
+    var onGoToSymbol: (() -> Void)?
 
     func body(content: Content) -> some View {
         content
@@ -1820,7 +1824,8 @@ private struct FocusedSceneModifier: ViewModifier {
             ))
             .modifier(FocusedSceneModifierD(
                 onNextPreviewTab: onNextPreviewTab,
-                onPreviousPreviewTab: onPreviousPreviewTab
+                onPreviousPreviewTab: onPreviousPreviewTab,
+                onGoToSymbol: onGoToSymbol
             ))
     }
 }
@@ -1918,11 +1923,13 @@ private struct FocusedSceneModifierC: ViewModifier {
 private struct FocusedSceneModifierD: ViewModifier {
     var onNextPreviewTab: (() -> Void)?
     var onPreviousPreviewTab: (() -> Void)?
+    var onGoToSymbol: (() -> Void)?
 
     func body(content: Content) -> some View {
         content
             .focusedSceneValue(\.nextPreviewTab, onNextPreviewTab)
             .focusedSceneValue(\.previousPreviewTab, onPreviousPreviewTab)
+            .focusedSceneValue(\.goToSymbol, onGoToSymbol)
     }
 }
 

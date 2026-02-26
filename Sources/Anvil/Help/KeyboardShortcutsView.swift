@@ -57,6 +57,7 @@ struct KeyboardShortcutsView: View {
                             ("⌃⌘↓", "Next Changed File"),
                             ("⌃⌘↑", "Previous Changed File"),
                             ("⌘L", "Go to Line"),
+                            ("⌘⇧L", "Go to Symbol"),
                         ])
 
                         shortcutSection("Terminal", shortcuts: [
