@@ -450,6 +450,7 @@ struct ContentView: View {
                             totalAdditions: changesModel.totalAdditions,
                             totalDeletions: changesModel.totalDeletions,
                             buildStatus: buildVerifier.status,
+                            sensitiveFileCount: changesModel.changedFiles.filter { SensitiveFileClassifier.isSensitive($0.relativePath) }.count,
                             buildDiagnostics: buildVerifier.diagnostics,
                             onOpenDiagnostic: { diagnostic in
                                 let rootURL = workingDirectory.directoryURL

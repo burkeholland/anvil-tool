@@ -173,6 +173,41 @@ struct ChangesListView: View {
         }
     }
 
+    /// Files from the current change set that match sensitive patterns.
+    private var sensitiveChangedFiles: [ChangedFile] {
+        model.changedFiles.filter { SensitiveFileClassifier.isSensitive($0.relativePath) }
+    }
+
+    @ViewBuilder
+    private var sensitiveFilesSection: some View {
+        let files = sensitiveChangedFiles
+        if !files.isEmpty {
+            Section {
+                ForEach(files) { file in
+                    let isStaged = file.staging == .staged || file.staging == .partial
+                    fileRow(file: file, isStaged: isStaged, isSensitive: true)
+                }
+            } header: {
+                HStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.orange)
+                    Text("Requires Careful Review")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.orange)
+                        .textCase(nil)
+                    Spacer()
+                    Text("\(files.count)")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1)
+                        .background(Capsule().fill(Color.orange.opacity(0.7)))
+                }
+            }
+        }
+    }
+
     @ViewBuilder
     private var stagedSection: some View {
         if !model.stagedFiles.isEmpty {
@@ -337,6 +372,7 @@ struct ChangesListView: View {
         List {
             changesTopSections
             conflictsSection
+            sensitiveFilesSection
             stagedSection
             unstagedSection
             historyAndStashSections
@@ -461,7 +497,7 @@ struct ChangesListView: View {
 
     /// Renders a single changed-file row with tap, context menu, and drag support.
     @ViewBuilder
-    private func fileRow(file: ChangedFile, isStaged: Bool, showDirectoryLabel: Bool = true) -> some View {
+    private func fileRow(file: ChangedFile, isStaged: Bool, showDirectoryLabel: Bool = true, isSensitive: Bool = false) -> some View {
         let fileIdx = model.changedFiles.firstIndex(where: { $0.id == file.id })
         ChangedFileRow(
             file: file,
@@ -469,6 +505,7 @@ struct ChangesListView: View {
             isStaged: isStaged,
             isReviewed: model.isReviewed(file),
             isFocused: fileIdx == model.focusedFileIndex,
+            isSensitive: isSensitive,
             showDirectoryLabel: showDirectoryLabel,
             onToggleReview: { model.toggleReviewed(file) },
             onOpenFile: { filePreview.select(file.url) },
@@ -1265,6 +1302,7 @@ struct ChangedFileRow: View {
     var isStaged: Bool = false
     var isReviewed: Bool = false
     var isFocused: Bool = false
+    var isSensitive: Bool = false
     var showDirectoryLabel: Bool = true
     var onToggleReview: (() -> Void)? = nil
     var onOpenFile: (() -> Void)? = nil
@@ -1287,11 +1325,19 @@ struct ChangedFileRow: View {
 
             // File name and path
             VStack(alignment: .leading, spacing: 1) {
-                Text(file.fileName)
-                    .font(.system(.body, design: .default))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .foregroundStyle(isReviewed ? .secondary : .primary)
+                HStack(spacing: 4) {
+                    Text(file.fileName)
+                        .font(.system(.body, design: .default))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .foregroundStyle(isReviewed ? .secondary : .primary)
+
+                    if isSensitive {
+                        Text("⚠️")
+                            .font(.system(size: 11))
+                            .help("Sensitive file — requires careful review before committing")
+                    }
+                }
 
                 if showDirectoryLabel && !file.directoryPath.isEmpty {
                     Text(file.directoryPath)
