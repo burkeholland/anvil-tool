@@ -517,14 +517,23 @@ struct ContentView: View {
                         showCopilotActions: $showCopilotActions,
                         showPromptHistory: $showPromptHistory,
                         showProjectSwitcher: $showProjectSwitcher,
+                        isAgentWaitingForInput: terminalTabs.isAnyTabWaitingForInput,
                         onOpenDirectory: { browseForDirectory() },
                         onSwitchProject: { url in openDirectory(url) },
                         onCloneRepository: { showCloneSheet = true },
                         onCompact: {
                             terminalProxy.send("/compact\n")
                             sessionHealthMonitor.reset()
+                        },
+                        onFocusTerminal: {
+                            if let tv = terminalProxy.terminalView {
+                                tv.window?.makeFirstResponder(tv)
+                            }
                         }
                     )
+                    .onChange(of: terminalTabs.isAnyTabWaitingForInput) { _, isWaiting in
+                        if isWaiting { NSSound.beep() }
+                    }
 
                     TerminalTabBar(
                         model: terminalTabs,
@@ -552,6 +561,9 @@ struct ContentView: View {
                                         onOutputFilePath: { url in
                                             guard autoFollow else { return }
                                             followAgent.reportChange(url)
+                                        },
+                                        onAgentWaitingForInput: { waiting in
+                                            terminalTabs.setWaitingForInput(waiting, tabID: tab.id)
                                         }
                                     )
                                     .opacity(tab.id == terminalTabs.activeTabID ? 1 : 0)
@@ -569,6 +581,9 @@ struct ContentView: View {
                                         .font(.system(size: 11))
                                         .lineLimit(1)
                                         .foregroundStyle(.secondary)
+                                    if terminalTabs.waitingForInputTabIDs.contains(splitTab.id) {
+                                        SplitPaneInputBadge()
+                                    }
                                     Spacer()
                                     Button {
                                         terminalTabs.closeSplit()
@@ -601,6 +616,9 @@ struct ContentView: View {
                                     onOutputFilePath: { url in
                                         guard autoFollow else { return }
                                         followAgent.reportChange(url)
+                                    },
+                                    onAgentWaitingForInput: { waiting in
+                                        terminalTabs.setWaitingForInput(waiting, tabID: splitTab.id)
                                     }
                                 )
                                 .id(splitTab.id)
@@ -633,6 +651,9 @@ struct ContentView: View {
                                         onOutputFilePath: { url in
                                             guard autoFollow else { return }
                                             followAgent.reportChange(url)
+                                        },
+                                        onAgentWaitingForInput: { waiting in
+                                            terminalTabs.setWaitingForInput(waiting, tabID: tab.id)
                                         }
                                     )
                                     .opacity(tab.id == terminalTabs.activeTabID ? 1 : 0)
@@ -1469,10 +1490,15 @@ struct ToolbarView: View {
     @Binding var showCopilotActions: Bool
     @Binding var showPromptHistory: Bool
     @Binding var showProjectSwitcher: Bool
+    /// True when at least one terminal tab is waiting for user input.
+    var isAgentWaitingForInput: Bool = false
     var onOpenDirectory: () -> Void
     var onSwitchProject: (URL) -> Void
     var onCloneRepository: () -> Void
     var onCompact: () -> Void
+    /// Called when the "Agent needs input" indicator is tapped so the terminal
+    /// can be focused.
+    var onFocusTerminal: (() -> Void)?
 
     var body: some View {
         HStack(spacing: 12) {
@@ -1534,6 +1560,11 @@ struct ToolbarView: View {
             }
 
             Spacer()
+
+            if isAgentWaitingForInput {
+                AgentInputIndicator(onFocusTerminal: onFocusTerminal ?? {})
+                    .transition(.opacity.combined(with: .scale(scale: 0.9)))
+            }
 
             AgentActivityIndicator(activityModel: activityModel)
 
@@ -1621,6 +1652,7 @@ struct ToolbarView: View {
         .padding(.vertical, 8)
         .background(.bar)
         .overlay(alignment: .bottom) { Divider() }
+        .animation(.easeInOut(duration: 0.2), value: isAgentWaitingForInput)
     }
 
     /// Quick check for whether any instruction files exist in the project.
@@ -2435,5 +2467,61 @@ struct AgentStatusPopover: View {
             .foregroundStyle(.secondary)
         }
         .frame(width: 260)
+    }
+}
+
+// MARK: - Agent Input Indicator
+
+/// Pulsing toolbar pill shown when any terminal tab is blocked waiting for
+/// user input (plan approval, y/n confirmation, clarifying question, etc.).
+/// Clicking the indicator focuses the terminal so the developer can respond.
+private struct AgentInputIndicator: View {
+    var onFocusTerminal: () -> Void
+    @State private var isPulsing = false
+
+    var body: some View {
+        Button(action: onFocusTerminal) {
+            HStack(spacing: 5) {
+                Circle()
+                    .fill(Color.orange)
+                    .frame(width: 7, height: 7)
+                    .scaleEffect(isPulsing ? 1.4 : 1.0)
+                    .animation(
+                        .easeInOut(duration: 0.6).repeatForever(autoreverses: true),
+                        value: isPulsing
+                    )
+                Text("Agent needs input")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(.orange)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(Color.orange.opacity(0.12))
+            )
+        }
+        .buttonStyle(.plain)
+        .help("Agent is waiting for your input — click to focus terminal")
+        .onAppear { isPulsing = true }
+    }
+}
+
+/// Small pulsing badge shown in the split-pane mini-header when that pane's
+/// agent is waiting for input.
+private struct SplitPaneInputBadge: View {
+    @State private var isPulsing = false
+
+    var body: some View {
+        Circle()
+            .fill(Color.orange)
+            .frame(width: 6, height: 6)
+            .scaleEffect(isPulsing ? 1.4 : 1.0)
+            .animation(
+                .easeInOut(duration: 0.6).repeatForever(autoreverses: true),
+                value: isPulsing
+            )
+            .help("Agent is waiting for your input")
+            .onAppear { isPulsing = true }
     }
 }

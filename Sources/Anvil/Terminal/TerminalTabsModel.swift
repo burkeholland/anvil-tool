@@ -27,8 +27,23 @@ final class TerminalTabsModel: ObservableObject {
     @Published var splitTab: TerminalTab? = nil
     /// The direction of the split when `splitTab` is non-nil.
     @Published var splitDirection: SplitDirection = .horizontal
+    /// IDs of tabs (including the split tab) whose agent is currently blocked
+    /// waiting for user input.
+    @Published private(set) var waitingForInputTabIDs: Set<UUID> = []
 
     var isSplit: Bool { splitTab != nil }
+
+    /// True when at least one tab (including the split pane) is waiting for input.
+    var isAnyTabWaitingForInput: Bool { !waitingForInputTabIDs.isEmpty }
+
+    /// Sets or clears the "waiting for input" flag for the given tab ID.
+    func setWaitingForInput(_ waiting: Bool, tabID: UUID) {
+        if waiting {
+            waitingForInputTabIDs.insert(tabID)
+        } else {
+            waitingForInputTabIDs.remove(tabID)
+        }
+    }
 
     init(autoLaunchCopilot: Bool = true) {
         let title = autoLaunchCopilot ? "Copilot" : "Shell"
@@ -65,12 +80,15 @@ final class TerminalTabsModel: ObservableObject {
     func closeOtherTabs(_ id: UUID) {
         guard tabs.contains(where: { $0.id == id }) else { return }
         tabs.removeAll { $0.id != id }
+        waitingForInputTabIDs = waitingForInputTabIDs.intersection([id])
         activeTabID = id
     }
 
     func closeTabsToRight(_ id: UUID) {
         guard let index = tabs.firstIndex(where: { $0.id == id }) else { return }
+        let removed = Set(tabs[(index + 1)...].map(\.id))
         tabs.removeSubrange((index + 1)...)
+        waitingForInputTabIDs.subtract(removed)
         if let active = activeTabID, !tabs.contains(where: { $0.id == active }) {
             activeTabID = id
         }
@@ -80,6 +98,7 @@ final class TerminalTabsModel: ObservableObject {
         guard tabs.count > 1 else { return }
         let wasActive = activeTabID == id
         tabs.removeAll { $0.id == id }
+        waitingForInputTabIDs.remove(id)
         if wasActive {
             activeTabID = tabs.last?.id
         }
@@ -107,6 +126,7 @@ final class TerminalTabsModel: ObservableObject {
 
     /// Close the split pane, restoring the single-pane layout.
     func closeSplit() {
+        if let id = splitTab?.id { waitingForInputTabIDs.remove(id) }
         splitTab = nil
     }
 
@@ -154,5 +174,6 @@ final class TerminalTabsModel: ObservableObject {
         tabs = [first]
         activeTabID = first.id
         splitTab = nil
+        waitingForInputTabIDs = []
     }
 }
