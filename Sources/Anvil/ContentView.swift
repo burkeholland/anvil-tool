@@ -1906,8 +1906,8 @@ private struct UnifiedAgentStatusPill: View {
                             : .default,
                         value: isPulsing
                     )
-                    .onChange(of: isAgentWaitingForInput) { _, _ in isPulsing = needsPulse }
-                    .onChange(of: activityModel.isAgentActive) { _, _ in isPulsing = needsPulse }
+                    .onChange(of: isAgentWaitingForInput) { _, new in isPulsing = new || activityModel.isAgentActive }
+                    .onChange(of: activityModel.isAgentActive) { _, new in isPulsing = new || isAgentWaitingForInput }
                     .onAppear { isPulsing = needsPulse }
 
                 if let mode = agentMode {
@@ -2237,16 +2237,20 @@ private struct ToolbarOverflowMenu: View {
             }
         }
         // Sync incoming bindings (e.g. from keyboard shortcuts) → local panel state
-        .onChange(of: showCopilotActions) { _, v in if v { activePanel = .copilotActions } }
-        .onChange(of: showPromptHistory) { _, v in if v { activePanel = .promptHistory } }
-        .onChange(of: showInstructions) { _, v in if v { activePanel = .instructions } }
-        .onChange(of: showProjectSwitcher) { _, v in if v { activePanel = .projectSwitcher } }
+        .onChange(of: showCopilotActions) { _, v in if v && activePanel != .copilotActions { activePanel = .copilotActions } }
+        .onChange(of: showPromptHistory) { _, v in if v && activePanel != .promptHistory { activePanel = .promptHistory } }
+        .onChange(of: showInstructions) { _, v in if v && activePanel != .instructions { activePanel = .instructions } }
+        .onChange(of: showProjectSwitcher) { _, v in if v && activePanel != .projectSwitcher { activePanel = .projectSwitcher } }
         // Sync local panel state → bindings
         .onChange(of: activePanel) { _, v in
-            showCopilotActions = v == .copilotActions
-            showPromptHistory = v == .promptHistory
-            showInstructions = v == .instructions
-            showProjectSwitcher = v == .projectSwitcher
+            let isCopilot = v == .copilotActions
+            let isHistory = v == .promptHistory
+            let isInstructions = v == .instructions
+            let isSwitcher = v == .projectSwitcher
+            if showCopilotActions != isCopilot { showCopilotActions = isCopilot }
+            if showPromptHistory != isHistory { showPromptHistory = isHistory }
+            if showInstructions != isInstructions { showInstructions = isInstructions }
+            if showProjectSwitcher != isSwitcher { showProjectSwitcher = isSwitcher }
         }
     }
 }
