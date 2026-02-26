@@ -30,6 +30,10 @@ final class TerminalTabsModel: ObservableObject {
     /// IDs of tabs (including the split tab) whose agent is currently blocked
     /// waiting for user input.
     @Published private(set) var waitingForInputTabIDs: Set<UUID> = []
+    /// The current Copilot CLI agent mode detected from the active terminal.
+    @Published var agentMode: AgentMode? = nil
+    /// The current Copilot CLI model name detected from the active terminal.
+    @Published var agentModel: String? = nil
 
     var isSplit: Bool { splitTab != nil }
 
@@ -175,5 +179,7 @@ final class TerminalTabsModel: ObservableObject {
         activeTabID = first.id
         splitTab = nil
         waitingForInputTabIDs = []
+        agentMode = nil
+        agentModel = nil
     }
 }

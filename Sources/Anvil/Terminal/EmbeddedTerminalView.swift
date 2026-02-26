@@ -21,6 +21,10 @@ struct EmbeddedTerminalView: View {
     /// Called with `true` when the agent appears to be waiting for user input,
     /// and with `false` when it resumes normal output.
     var onAgentWaitingForInput: ((Bool) -> Void)?
+    /// Called when the detected Copilot CLI agent mode changes.
+    var onAgentModeChanged: ((AgentMode?) -> Void)?
+    /// Called when the detected Copilot CLI model name changes.
+    var onAgentModelChanged: ((String?) -> Void)?
     /// When non-nil and the terminal is the active tab, shows the prompt timeline
     /// gutter strip along the right margin.
     var markerStore: PromptMarkerStore? = nil
@@ -73,6 +77,8 @@ struct EmbeddedTerminalView: View {
                 onOpenFile: onOpenFile,
                 onOutputFilePath: onOutputFilePath,
                 onAgentWaitingForInput: onAgentWaitingForInput,
+                onAgentModeChanged: onAgentModeChanged,
+                onAgentModelChanged: onAgentModelChanged,
                 onCopilotNotFound: {
                     copilotNotFound = true
                 },
@@ -254,6 +260,8 @@ private struct TerminalNSView: NSViewRepresentable {
     var onOpenFile: ((URL, Int?) -> Void)?
     var onOutputFilePath: ((URL) -> Void)?
     var onAgentWaitingForInput: ((Bool) -> Void)?
+    var onAgentModeChanged: ((AgentMode?) -> Void)?
+    var onAgentModelChanged: ((String?) -> Void)?
     var onCopilotNotFound: (() -> Void)?
     var onOpenURL: ((URL) -> Void)?
 
@@ -290,6 +298,9 @@ private struct TerminalNSView: NSViewRepresentable {
 
         // Wire input-waiting detector
         context.coordinator.agentInputWatcher.onStateChanged = onAgentWaitingForInput
+        // Wire mode/model detector
+        context.coordinator.agentModeWatcher.onModeChanged = onAgentModeChanged
+        context.coordinator.agentModeWatcher.onModelChanged = onAgentModelChanged
         // Wire proxy for scroll metrics (prompt timeline)
         context.coordinator.terminalProxy = terminalProxy
 
@@ -316,6 +327,9 @@ private struct TerminalNSView: NSViewRepresentable {
         detector.onOpenURL = onOpenURL
         // Keep input-watcher callback in sync
         context.coordinator.agentInputWatcher.onStateChanged = onAgentWaitingForInput
+        // Keep mode/model watcher callbacks in sync
+        context.coordinator.agentModeWatcher.onModeChanged = onAgentModeChanged
+        context.coordinator.agentModeWatcher.onModelChanged = onAgentModelChanged
         // Keep proxy reference in sync for scroll metrics
         context.coordinator.terminalProxy = terminalProxy
         // Reconnect proxy when this tab becomes active
@@ -342,6 +356,7 @@ private struct TerminalNSView: NSViewRepresentable {
         let onCopilotNotFound: (() -> Void)?
         let filePathDetector = TerminalFilePathDetector()
         let agentInputWatcher = AgentInputWatcher()
+        let agentModeWatcher = AgentModeWatcher()
         var lastFontSize: Double = 14
         var lastThemeID: String = TerminalTheme.defaultDark.id
         /// Weak reference to the active terminal proxy so `rangeChanged` can
@@ -394,6 +409,7 @@ private struct TerminalNSView: NSViewRepresentable {
             guard let tv = source as? LocalProcessTerminalView else { return }
             filePathDetector.processTerminalRange(in: tv, startY: startY, endY: endY)
             agentInputWatcher.processTerminalRange(in: tv, startY: startY, endY: endY)
+            agentModeWatcher.processTerminalRange(in: tv, startY: startY, endY: endY)
             terminalProxy?.updateScrollMetrics(terminalView: tv)
         }
     }
