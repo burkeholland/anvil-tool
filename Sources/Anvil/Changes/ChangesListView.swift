@@ -102,6 +102,10 @@ struct ChangesListView: View {
         TestCoverageChecker.coverage(for: displayedFiles)
     }
 
+    private var brokenReferenceMap: [URL: [BrokenReferenceScanner.Finding]] {
+        BrokenReferenceScanner.scan(files: displayedFiles, rootURL: workingDirectory.directoryURL)
+    }
+
     var body: some View {
         if model.isLoading && model.changedFiles.isEmpty && model.recentCommits.isEmpty {
             loadingView
@@ -395,11 +399,13 @@ struct ChangesListView: View {
         let files = displayedSensitiveFiles
         if !files.isEmpty {
             let covMap = testCoverageMap
+            let refMap = brokenReferenceMap
             Section {
                 ForEach(files) { file in
                     let isStaged = file.staging == .staged || file.staging == .partial
                     fileRow(file: file, isStaged: isStaged, isSensitive: true,
-                            testCoverage: covMap[file.url] ?? .notApplicable)
+                            testCoverage: covMap[file.url] ?? .notApplicable,
+                            brokenReferences: refMap[file.url] ?? [])
                 }
             } header: {
                 HStack(spacing: 6) {
@@ -426,9 +432,10 @@ struct ChangesListView: View {
     private var stagedSection: some View {
         if !displayedStagedFiles.isEmpty {
             let covMap = testCoverageMap
+            let refMap = brokenReferenceMap
             Section {
                 let files = showOnlyUnreviewed ? displayedStagedFiles.filter { !model.isReviewed($0) } : displayedStagedFiles
-                groupedFileRows(files: ReviewPriorityScorer.sorted(files), isStaged: true, coverageMap: covMap)
+                groupedFileRows(files: ReviewPriorityScorer.sorted(files), isStaged: true, coverageMap: covMap, brokenReferenceMap: refMap)
             } header: {
                 HStack(spacing: 8) {
                     Text("Staged Changes")
@@ -451,9 +458,10 @@ struct ChangesListView: View {
     private var unstagedSection: some View {
         if !displayedUnstagedFiles.isEmpty {
             let covMap = testCoverageMap
+            let refMap = brokenReferenceMap
             Section {
                 let files = showOnlyUnreviewed ? displayedUnstagedFiles.filter { !model.isReviewed($0) } : displayedUnstagedFiles
-                groupedFileRows(files: ReviewPriorityScorer.sorted(files), isStaged: false, coverageMap: covMap)
+                groupedFileRows(files: ReviewPriorityScorer.sorted(files), isStaged: false, coverageMap: covMap, brokenReferenceMap: refMap)
             } header: {
                 unstagedSectionHeader
             }
@@ -879,7 +887,8 @@ struct ChangesListView: View {
     /// Renders a single changed-file row with tap, context menu, and drag support.
     @ViewBuilder
     private func fileRow(file: ChangedFile, isStaged: Bool, showDirectoryLabel: Bool = true, isSensitive: Bool = false,
-                         testCoverage: TestCoverageChecker.TestCoverage = .notApplicable) -> some View {
+                         testCoverage: TestCoverageChecker.TestCoverage = .notApplicable,
+                         brokenReferences: [BrokenReferenceScanner.Finding] = []) -> some View {
         let fileIdx = model.changedFiles.firstIndex(where: { $0.id == file.id })
         ChangedFileRow(
             file: file,
@@ -890,6 +899,7 @@ struct ChangesListView: View {
             isSensitive: isSensitive,
             showDirectoryLabel: showDirectoryLabel,
             testCoverage: testCoverage,
+            brokenReferences: brokenReferences,
             onToggleReview: { model.toggleReviewed(file) },
             onOpenFile: { filePreview.select(file.url) },
             onDiscard: { fileToDiscard = file },
@@ -923,7 +933,8 @@ struct ChangesListView: View {
     /// Renders files grouped according to the current `groupingMode`.
     @ViewBuilder
     private func groupedFileRows(files: [ChangedFile], isStaged: Bool,
-                                 coverageMap: [URL: TestCoverageChecker.TestCoverage] = [:]) -> some View {
+                                 coverageMap: [URL: TestCoverageChecker.TestCoverage] = [:],
+                                 brokenReferenceMap: [URL: [BrokenReferenceScanner.Finding]] = [:]) -> some View {
         switch groupingMode {
         case .directory:
             let groups = directoryGroups(from: files)
@@ -941,7 +952,8 @@ struct ChangesListView: View {
                     if !collapsedGroups.contains(group.dir) {
                         ForEach(group.files) { file in
                             fileRow(file: file, isStaged: isStaged, showDirectoryLabel: false,
-                                    testCoverage: coverageMap[file.url] ?? .notApplicable)
+                                    testCoverage: coverageMap[file.url] ?? .notApplicable,
+                                    brokenReferences: brokenReferenceMap[file.url] ?? [])
                                 .padding(.leading, 12)
                         }
                     }
@@ -949,7 +961,8 @@ struct ChangesListView: View {
             } else {
                 ForEach(files) { file in
                     fileRow(file: file, isStaged: isStaged,
-                            testCoverage: coverageMap[file.url] ?? .notApplicable)
+                            testCoverage: coverageMap[file.url] ?? .notApplicable,
+                            brokenReferences: brokenReferenceMap[file.url] ?? [])
                 }
             }
 
@@ -971,7 +984,8 @@ struct ChangesListView: View {
                     if !collapsedGroups.contains(group.label) {
                         ForEach(group.files) { file in
                             fileRow(file: file, isStaged: isStaged,
-                                    testCoverage: coverageMap[file.url] ?? .notApplicable)
+                                    testCoverage: coverageMap[file.url] ?? .notApplicable,
+                                    brokenReferences: brokenReferenceMap[file.url] ?? [])
                                 .padding(.leading, 12)
                         }
                     }
@@ -979,7 +993,8 @@ struct ChangesListView: View {
             } else {
                 ForEach(files) { file in
                     fileRow(file: file, isStaged: isStaged,
-                            testCoverage: coverageMap[file.url] ?? .notApplicable)
+                            testCoverage: coverageMap[file.url] ?? .notApplicable,
+                            brokenReferences: brokenReferenceMap[file.url] ?? [])
                 }
             }
 
@@ -1001,7 +1016,8 @@ struct ChangesListView: View {
                     if !collapsedGroups.contains(group.label) {
                         ForEach(group.files) { file in
                             fileRow(file: file, isStaged: isStaged,
-                                    testCoverage: coverageMap[file.url] ?? .notApplicable)
+                                    testCoverage: coverageMap[file.url] ?? .notApplicable,
+                                    brokenReferences: brokenReferenceMap[file.url] ?? [])
                                 .padding(.leading, 12)
                         }
                     }
@@ -1009,7 +1025,8 @@ struct ChangesListView: View {
             } else {
                 ForEach(files) { file in
                     fileRow(file: file, isStaged: isStaged,
-                            testCoverage: coverageMap[file.url] ?? .notApplicable)
+                            testCoverage: coverageMap[file.url] ?? .notApplicable,
+                            brokenReferences: brokenReferenceMap[file.url] ?? [])
                 }
             }
         }
@@ -1971,6 +1988,7 @@ struct ChangedFileRow: View {
     var isSensitive: Bool = false
     var showDirectoryLabel: Bool = true
     var testCoverage: TestCoverageChecker.TestCoverage = .notApplicable
+    var brokenReferences: [BrokenReferenceScanner.Finding] = []
     var onToggleReview: (() -> Void)? = nil
     var onOpenFile: (() -> Void)? = nil
     var onDiscard: (() -> Void)? = nil
@@ -2029,6 +2047,14 @@ struct ChangedFileRow: View {
                             .font(.system(size: 10))
                             .foregroundStyle(.teal.opacity(0.6))
                             .help("Test file also modified in this changeset")
+                    }
+
+                    if !brokenReferences.isEmpty {
+                        let tooltip = brokenReferences.map(\.reason).joined(separator: "\n")
+                        Image(systemName: "link.badge.plus")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.red.opacity(0.85))
+                            .help("Broken reference — \(tooltip)")
                     }
                 }
 
