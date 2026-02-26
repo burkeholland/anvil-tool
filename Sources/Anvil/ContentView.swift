@@ -216,7 +216,9 @@ struct ContentView: View {
             } : nil,
             onToggleSplitPreview: workingDirectory.directoryURL != nil ? {
                 splitPreview.toggle()
-            } : nil
+            } : nil,
+            recentProjects: recentProjects,
+            onOpenRecentProject: { url in openDirectory(url) }
         ))
     }
 
@@ -2103,6 +2105,8 @@ private struct FocusedSceneModifier: ViewModifier {
     var onShowPromptHistory: (() -> Void)?
     var onGoToTestFile: (() -> Void)?
     var onToggleSplitPreview: (() -> Void)?
+    var recentProjects: RecentProjectsModel
+    var onOpenRecentProject: ((URL) -> Void)?
 
     func body(content: Content) -> some View {
         content
@@ -2149,7 +2153,9 @@ private struct FocusedSceneModifier: ViewModifier {
                 onPreviousPreviewTab: onPreviousPreviewTab,
                 onShowPromptHistory: onShowPromptHistory,
                 onGoToTestFile: onGoToTestFile,
-                onToggleSplitPreview: onToggleSplitPreview
+                onToggleSplitPreview: onToggleSplitPreview,
+                recentProjects: recentProjects,
+                onOpenRecentProject: onOpenRecentProject
             ))
     }
 }
@@ -2250,6 +2256,8 @@ private struct FocusedSceneModifierD: ViewModifier {
     var onShowPromptHistory: (() -> Void)?
     var onGoToTestFile: (() -> Void)?
     var onToggleSplitPreview: (() -> Void)?
+    var recentProjects: RecentProjectsModel
+    var onOpenRecentProject: ((URL) -> Void)?
 
     func body(content: Content) -> some View {
         content
@@ -2258,6 +2266,8 @@ private struct FocusedSceneModifierD: ViewModifier {
             .focusedSceneValue(\.showPromptHistory, onShowPromptHistory)
             .focusedSceneValue(\.goToTestFile, onGoToTestFile)
             .focusedSceneValue(\.toggleSplitPreview, onToggleSplitPreview)
+            .focusedSceneObject(recentProjects)
+            .focusedSceneValue(\.openRecentProject, onOpenRecentProject)
     }
 }
 

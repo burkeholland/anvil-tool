@@ -183,6 +183,10 @@ struct ToggleSplitPreviewKey: FocusedValueKey {
     typealias Value = () -> Void
 }
 
+struct OpenRecentProjectKey: FocusedValueKey {
+    typealias Value = (URL) -> Void
+}
+
 extension FocusedValues {
     var sidebarVisible: Binding<Bool>? {
         get { self[SidebarVisibleKey.self] }
@@ -407,6 +411,11 @@ extension FocusedValues {
     var toggleSplitPreview: (() -> Void)? {
         get { self[ToggleSplitPreviewKey.self] }
         set { self[ToggleSplitPreviewKey.self] = newValue }
+    }
+
+    var openRecentProject: ((URL) -> Void)? {
+        get { self[OpenRecentProjectKey.self] }
+        set { self[OpenRecentProjectKey.self] = newValue }
     }
 }
 
@@ -757,6 +766,8 @@ struct FileCommands: Commands {
     @FocusedValue(\.openDirectory) var openDirectory
     @FocusedValue(\.closeProject) var closeProject
     @FocusedValue(\.cloneRepository) var cloneRepository
+    @FocusedValue(\.openRecentProject) var openRecentProject
+    @FocusedObject var recentProjects: RecentProjectsModel?
 
     var body: some Commands {
         CommandGroup(after: .newItem) {
@@ -770,6 +781,24 @@ struct FileCommands: Commands {
                 cloneRepository?()
             }
             .disabled(cloneRepository == nil)
+
+            Menu("Open Recent") {
+                if let projects = recentProjects?.recentProjects, !projects.isEmpty {
+                    ForEach(projects) { project in
+                        Button(project.name) {
+                            openRecentProject?(project.url)
+                        }
+                        .help(project.path)
+                        .disabled(!project.exists)
+                    }
+                    Divider()
+                    Button("Clear Recent Projects") {
+                        recentProjects?.clearAll()
+                    }
+                } else {
+                    Text("No Recent Projects")
+                }
+            }
 
             Divider()
 
