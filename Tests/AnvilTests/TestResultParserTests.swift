@@ -166,4 +166,71 @@ final class TestResultParserTests: XCTestCase {
         let result = TestResultParser.parse(output)
         XCTAssertEqual(result.totalPassed, 5)
     }
+
+    // MARK: - testCases structured results
+
+    func testXCTestPopulatesTestCases() {
+        let output = """
+        Test Case '-[MyTests testFoo]' started.
+        Test Case '-[MyTests testFoo]' passed (0.123 seconds).
+        Test Case '-[MyTests testBar]' started.
+        Test Case '-[MyTests testBar]' failed (0.456 seconds).
+        Executed 2 tests, with 1 failure (0 unexpected) in 0.579 (0.580) seconds
+        """
+        let result = TestResultParser.parse(output)
+        XCTAssertEqual(result.testCases.count, 2)
+        let passed = result.testCases.first { $0.name.contains("testFoo") }
+        XCTAssertNotNil(passed)
+        XCTAssertTrue(passed?.passed ?? false)
+        XCTAssertEqual(passed?.duration ?? 0, 0.123, accuracy: 0.001)
+        let failed = result.testCases.first { $0.name.contains("testBar") }
+        XCTAssertNotNil(failed)
+        XCTAssertFalse(failed?.passed ?? true)
+        XCTAssertEqual(failed?.duration ?? 0, 0.456, accuracy: 0.001)
+    }
+
+    func testGoTestPopulatesTestCasesWithDuration() {
+        let output = """
+        --- PASS: TestAdd (0.01s)
+        --- FAIL: TestSub (0.02s)
+        FAIL
+        """
+        let result = TestResultParser.parse(output)
+        XCTAssertEqual(result.testCases.count, 2)
+        let passed = result.testCases.first { $0.name == "TestAdd" }
+        XCTAssertTrue(passed?.passed ?? false)
+        XCTAssertEqual(passed?.duration ?? 0, 0.01, accuracy: 0.001)
+        let failed = result.testCases.first { $0.name == "TestSub" }
+        XCTAssertFalse(failed?.passed ?? true)
+        XCTAssertEqual(failed?.duration ?? 0, 0.02, accuracy: 0.001)
+    }
+
+    func testCargoPopulatesTestCases() {
+        let output = """
+        running 2 tests
+        test math::test_add ... ok
+        test math::test_sub ... FAILED
+        test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out
+        """
+        let result = TestResultParser.parse(output)
+        XCTAssertEqual(result.testCases.count, 2)
+        let passed = result.testCases.first { $0.name == "math::test_add" }
+        XCTAssertNotNil(passed)
+        XCTAssertTrue(passed?.passed ?? false)
+        let failed = result.testCases.first { $0.name == "math::test_sub" }
+        XCTAssertNotNil(failed)
+        XCTAssertFalse(failed?.passed ?? true)
+    }
+
+    func testPytestPopulatesFailureMessage() {
+        let output = """
+        FAILED test_math.py::test_add - AssertionError: assert 1 == 2
+        ========================= 1 failed, 2 passed in 0.06s ==========================
+        """
+        let result = TestResultParser.parse(output)
+        let failed = result.testCases.first { $0.name == "test_math.py::test_add" }
+        XCTAssertNotNil(failed)
+        XCTAssertFalse(failed?.passed ?? true)
+        XCTAssertEqual(failed?.failureMessage, "AssertionError: assert 1 == 2")
+    }
 }

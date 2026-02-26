@@ -6,6 +6,7 @@ enum SidebarTab: String {
     case activity
     case search
     case history
+    case tests
 }
 
 struct ContentView: View {
@@ -38,6 +39,7 @@ struct ContentView: View {
     @AppStorage("terminalFontSize") private var terminalFontSize: Double = 14
     @StateObject private var buildVerifier = BuildVerifier()
     @StateObject private var testRunner = TestRunner()
+    @StateObject private var testResultsStore = TestResultsStore()
     @State private var isDroppingFileToTerminal = false
     @State private var showTaskBanner = false
     @State private var showBranchGuardBanner = false
@@ -212,6 +214,7 @@ struct ContentView: View {
             branchGuardTriggered = false
             buildVerifier.cancel()
             testRunner.cancel()
+            testResultsStore.clear()
             filePreview.close(persist: false)
             filePreview.rootDirectory = newURL
             terminalTabs.reset()
@@ -332,6 +335,7 @@ struct ContentView: View {
                 case "activity": sidebarTab = .activity
                 case "search": sidebarTab = .search
                 case "history": sidebarTab = .history
+                case "tests": sidebarTab = .tests
                 default: sidebarTab = .files
                 }
                 // Clear the flag so normal launches aren't affected
@@ -342,6 +346,7 @@ struct ContentView: View {
             notificationManager.connect(to: activityModel)
             terminalProxy.historyStore = promptHistoryStore
             terminalProxy.sessionMonitor = sessionHealthMonitor
+            testRunner.resultsStore = testResultsStore
             promptHistoryStore.configure(projectPath: workingDirectory.directoryURL?.standardizedFileURL.path)
             if let url = workingDirectory.directoryURL {
                 recentProjects.recordOpen(url)
@@ -477,6 +482,8 @@ struct ContentView: View {
                         searchModel: searchModel,
                         fileTreeModel: fileTreeModel,
                         commitHistoryModel: commitHistoryModel,
+                        testResultsStore: testResultsStore,
+                        testRunner: testRunner,
                         activeTab: $sidebarTab,
                         onReviewAll: { showDiffSummary = true },
                         onBranchDiff: {
@@ -495,6 +502,14 @@ struct ContentView: View {
                             showDiffSummary = false
                             showBranchDiff = false
                             showMergeConflict = true
+                        },
+                        onFixTestCase: { testName in
+                            let prompt = "Fix this failing test: \(testName)"
+                            terminalProxy.sendPrompt(prompt)
+                        },
+                        onFixTestFailure: { output in
+                            let prompt = "The test suite failed. Please fix the failing tests.\n\nTest output:\n\(output)"
+                            terminalProxy.sendPrompt(prompt)
                         },
                         lastTaskPrompt: promptHistoryStore.entries.first?.text
                     )
@@ -965,6 +980,12 @@ struct ContentView: View {
             } action: {
                 showSidebar = true
                 sidebarTab = .history
+            },
+            PaletteCommand(id: "show-tests", title: "Show Test Results", icon: "checkmark.seal", shortcut: "⌘6", category: "View") {
+                hasProject
+            } action: {
+                showSidebar = true
+                sidebarTab = .tests
             },
             PaletteCommand(id: "toggle-auto-follow", title: autoFollow ? "Disable Follow Agent" : "Enable Follow Agent", icon: autoFollow ? "eye.slash" : "eye", shortcut: "⌘⇧A", category: "View") {
                 true
@@ -1799,14 +1820,23 @@ struct SidebarView: View {
     @ObservedObject var searchModel: SearchModel
     @ObservedObject var fileTreeModel: FileTreeModel
     @ObservedObject var commitHistoryModel: CommitHistoryModel
+    @ObservedObject var testResultsStore: TestResultsStore
+    @ObservedObject var testRunner: TestRunner
     @Binding var activeTab: SidebarTab
     var onReviewAll: (() -> Void)?
     var onBranchDiff: (() -> Void)?
     var onCreatePR: (() -> Void)?
     var onResolveConflicts: ((URL) -> Void)?
+    var onFixTestCase: ((String) -> Void)?
+    var onFixTestFailure: ((String) -> Void)?
     var lastTaskPrompt: String? = nil
 
     @State private var activityUnread: Int = 0
+    /// Badge count for the Tests tab: number of failed tests in the latest run.
+    private var testsFailedCount: Int {
+        guard let run = testResultsStore.latestRun, !run.succeeded else { return 0 }
+        return run.failedCount > 0 ? run.failedCount : run.testCases.isEmpty ? 1 : 0
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -1853,6 +1883,15 @@ struct SidebarView: View {
                     isActive: activeTab == .history
                 ) {
                     activeTab = .history
+                }
+
+                SidebarTabButton(
+                    title: "Tests",
+                    systemImage: "checkmark.seal",
+                    isActive: activeTab == .tests,
+                    badge: activeTab != .tests && testsFailedCount > 0 ? testsFailedCount : nil
+                ) {
+                    activeTab = .tests
                 }
 
                 Spacer()
@@ -1914,6 +1953,15 @@ struct SidebarView: View {
                     }
                     .frame(maxWidth: .infinity)
                 }
+
+            case .tests:
+                TestResultsPanelView(
+                    store: testResultsStore,
+                    testRunner: testRunner,
+                    rootURL: model.directoryURL,
+                    onFixTestCase: onFixTestCase,
+                    onFixTestFailure: onFixTestFailure
+                )
             }
         }
         .background(Color(nsColor: .controlBackgroundColor))

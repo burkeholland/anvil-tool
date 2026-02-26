@@ -566,6 +566,13 @@ struct ViewCommands: Commands {
             .keyboardShortcut("4", modifiers: .command)
             .disabled(sidebarTab == nil)
 
+            Button("Tests") {
+                sidebarVisible?.wrappedValue = true
+                sidebarTab?.wrappedValue = .tests
+            }
+            .keyboardShortcut("6", modifiers: .command)
+            .disabled(sidebarTab == nil)
+
             Divider()
 
             Button("Close Tab") {

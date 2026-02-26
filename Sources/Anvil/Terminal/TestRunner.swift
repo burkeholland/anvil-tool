@@ -17,6 +17,10 @@ final class TestRunner: ObservableObject {
 
     @Published private(set) var status: Status = .idle
 
+    /// Populated after each completed run with the full structured result.
+    /// Available to drive the persistent test results panel.
+    weak var resultsStore: TestResultsStore?
+
     private var testProcess: Process?
     private let workQueue = DispatchQueue(label: "dev.anvil.test-runner", qos: .userInitiated)
 
@@ -24,7 +28,21 @@ final class TestRunner: ObservableObject {
         guard let cmd = detectTestCommand(at: rootURL) else {
             return
         }
+        runCommand(cmd, at: rootURL)
+    }
 
+    /// Re-runs a single named test using the project's test framework.
+    /// The test name is passed as a filter argument where the framework supports it.
+    func runSingle(_ testName: String, at rootURL: URL) {
+        guard let cmd = detectSingleTestCommand(testName: testName, at: rootURL) else {
+            // Fall back to running the full suite if we can't target a single test.
+            run(at: rootURL)
+            return
+        }
+        runCommand(cmd, at: rootURL)
+    }
+
+    private func runCommand(_ cmd: [String], at rootURL: URL) {
         cancel()
         DispatchQueue.main.async { self.status = .running }
 
@@ -71,12 +89,19 @@ final class TestRunner: ObservableObject {
             let succeeded = process.terminationStatus == 0
             let result = TestResultParser.parse(combinedOutput)
 
+            let store = self.resultsStore
             DispatchQueue.main.async {
                 if succeeded {
                     self.status = .passed(total: result.totalPassed)
                 } else {
                     self.status = .failed(failedTests: result.failedTests, output: combinedOutput)
                 }
+                store?.record(TestRunRecord(
+                    date: Date(),
+                    testCases: result.testCases,
+                    rawOutput: combinedOutput,
+                    succeeded: succeeded
+                ))
             }
         }
     }
@@ -117,6 +142,33 @@ final class TestRunner: ObservableObject {
         }
         return nil
     }
+
+    /// Returns a command to run a single named test, or nil when the framework doesn't support
+    /// individual test selection (in which case the caller should fall back to the full suite).
+    private func detectSingleTestCommand(testName: String, at rootURL: URL) -> [String]? {
+        let fm = FileManager.default
+        func exists(_ name: String) -> Bool {
+            fm.fileExists(atPath: rootURL.appendingPathComponent(name).path)
+        }
+
+        if exists("Package.swift") {
+            // Swift: `swift test --filter TestName`
+            return ["swift", "test", "--filter", testName]
+        }
+        if exists("package.json") {
+            return ["npm", "test", "--", "--testNamePattern", testName]
+        }
+        if exists("Cargo.toml") {
+            return ["cargo", "test", testName]
+        }
+        if exists("go.mod") {
+            return ["go", "test", "./...", "-run", testName]
+        }
+        if exists("pytest.ini") || exists("pyproject.toml") || exists("setup.py") {
+            return ["python", "-m", "pytest", "-k", testName, "--tb=short", "-q"]
+        }
+        return nil
+    }
 }
 
 // MARK: - Test Result Parser
@@ -134,9 +186,29 @@ final class TestRunner: ObservableObject {
 /// - Go test:              `--- PASS: TestName` / `--- FAIL: TestName`
 enum TestResultParser {
 
+    /// A single test case result.
+    struct TestCaseResult: Identifiable {
+        let id: UUID
+        let name: String
+        let passed: Bool
+        var duration: Double?       // seconds, nil when not reported by the framework
+        var failureMessage: String? // first failure message line, if available
+
+        init(name: String, passed: Bool, duration: Double? = nil, failureMessage: String? = nil) {
+            self.id = UUID()
+            self.name = name
+            self.passed = passed
+            self.duration = duration
+            self.failureMessage = failureMessage
+        }
+    }
+
     struct ParsedResult {
         var totalPassed: Int = 0
         var failedTests: [String] = []
+        /// Structured per-test results. May be empty when the framework output does not include
+        /// individual case lines (e.g. a plain `make test` that only prints a summary).
+        var testCases: [TestCaseResult] = []
     }
 
     static func parse(_ output: String) -> ParsedResult {
@@ -158,12 +230,16 @@ enum TestResultParser {
     // MARK: Swift / XCTest
 
     // "Test Suite '...' passed at ... executed 5 tests, with 0 failures"
+    // "Test Case '-[…SomeTests testSomething]' passed (0.001 seconds)."
     // "Test Case '-[…SomeTests testSomething]' failed (0.001 seconds)."
     private static let reXCSuiteSummary = try! NSRegularExpression(
         pattern: #"executed (\d+) tests?, with (\d+) failures?"#
     )
+    private static let reXCCasePassed = try! NSRegularExpression(
+        pattern: #"Test Case '(.+?)' passed \((\d+\.\d+) seconds\)"#
+    )
     private static let reXCCaseFailed = try! NSRegularExpression(
-        pattern: #"Test Case '(.+?)' failed"#
+        pattern: #"Test Case '(.+?)' failed \((\d+\.\d+) seconds\)"#
     )
 
     @discardableResult
@@ -179,10 +255,18 @@ enum TestResultParser {
                 result.totalPassed = max(total - fails, 0)
                 found = true
             }
+            if let m = reXCCasePassed.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)),
+               m.numberOfRanges == 3,
+               let name = captureGroup(line, m, 1),
+               let durStr = captureGroup(line, m, 2) {
+                result.testCases.append(TestCaseResult(name: name, passed: true, duration: Double(durStr)))
+            }
             if let m = reXCCaseFailed.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)),
-               m.numberOfRanges == 2,
-               let name = captureGroup(line, m, 1) {
+               m.numberOfRanges == 3,
+               let name = captureGroup(line, m, 1),
+               let durStr = captureGroup(line, m, 2) {
                 result.failedTests.append(name)
+                result.testCases.append(TestCaseResult(name: name, passed: false, duration: Double(durStr)))
             }
         }
         return found
@@ -194,10 +278,10 @@ enum TestResultParser {
     // "✗ Test testBadCase() failed after 0.001 seconds."
     // These use Unicode checkmark/cross characters emitted by the swift-testing runner.
     private static let reSwiftTestingPass = try! NSRegularExpression(
-        pattern: "✔ Test (.+?) (?:passed|started)"
+        pattern: "✔ Test (.+?) (?:passed|started)(?: after ([0-9.]+) seconds)?"
     )
     private static let reSwiftTestingFail = try! NSRegularExpression(
-        pattern: "✗ Test (.+?) failed"
+        pattern: "✗ Test (.+?) failed(?: after ([0-9.]+) seconds)?"
     )
 
     @discardableResult
@@ -205,14 +289,20 @@ enum TestResultParser {
         var passCount = 0
         var found = false
         for line in output.components(separatedBy: "\n") {
-            if reSwiftTestingPass.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)) != nil {
+            if let m = reSwiftTestingPass.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)),
+               m.numberOfRanges >= 2,
+               let name = captureGroup(line, m, 1) {
+                let dur = m.numberOfRanges >= 3 ? captureGroup(line, m, 2).flatMap { Double($0) } : nil
                 passCount += 1
                 found = true
+                result.testCases.append(TestCaseResult(name: name, passed: true, duration: dur))
             }
             if let m = reSwiftTestingFail.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)),
-               m.numberOfRanges == 2,
+               m.numberOfRanges >= 2,
                let name = captureGroup(line, m, 1) {
+                let dur = m.numberOfRanges >= 3 ? captureGroup(line, m, 2).flatMap { Double($0) } : nil
                 result.failedTests.append(name)
+                result.testCases.append(TestCaseResult(name: name, passed: false, duration: dur))
                 found = true
             }
         }
@@ -224,12 +314,13 @@ enum TestResultParser {
 
     // "test result: ok. 5 passed; 0 failed;"
     // "test result: FAILED. 4 passed; 1 failed;"
+    // "test module::test_name ... ok"
     // "test module::test_name ... FAILED"
     private static let reCargoSummary = try! NSRegularExpression(
         pattern: #"test result: (?:ok|FAILED)\. (\d+) passed; (\d+) failed"#
     )
-    private static let reCargoFailed = try! NSRegularExpression(
-        pattern: #"^test (.+?) \.\.\. FAILED$"#
+    private static let reCargoCase = try! NSRegularExpression(
+        pattern: #"^test (.+?) \.\.\. (ok|FAILED)$"#
     )
 
     @discardableResult
@@ -244,10 +335,15 @@ enum TestResultParser {
                 found = true
             }
             let trimmed = line.trimmingCharacters(in: .whitespaces)
-            if let m = reCargoFailed.firstMatch(in: trimmed, range: NSRange(trimmed.startIndex..., in: trimmed)),
-               m.numberOfRanges == 2,
-               let name = captureGroup(trimmed, m, 1) {
-                result.failedTests.append(name)
+            if let m = reCargoCase.firstMatch(in: trimmed, range: NSRange(trimmed.startIndex..., in: trimmed)),
+               m.numberOfRanges == 3,
+               let name = captureGroup(trimmed, m, 1),
+               let status = captureGroup(trimmed, m, 2) {
+                let passed = status == "ok"
+                result.testCases.append(TestCaseResult(name: name, passed: passed))
+                if !passed {
+                    result.failedTests.append(name)
+                }
             }
         }
         return found
@@ -263,11 +359,26 @@ enum TestResultParser {
     private static let rePytestFailed = try! NSRegularExpression(
         pattern: #"^FAILED (.+?) -"#
     )
+    private static let rePytestFailMsg = try! NSRegularExpression(
+        pattern: #"^FAILED (.+?) - (.+)$"#
+    )
 
     @discardableResult
     private static func parsePytest(_ output: String, into result: inout ParsedResult) -> Bool {
         var found = false
-        for line in output.components(separatedBy: "\n") {
+        var failureMessages: [String: String] = [:]
+        let lines = output.components(separatedBy: "\n")
+        // Collect failure messages: lines like "FAILED test_foo.py::test_bar - AssertionError: ..."
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if let m = rePytestFailMsg.firstMatch(in: trimmed, range: NSRange(trimmed.startIndex..., in: trimmed)),
+               m.numberOfRanges == 3,
+               let name = captureGroup(trimmed, m, 1),
+               let msg = captureGroup(trimmed, m, 2) {
+                failureMessages[name] = msg
+            }
+        }
+        for line in lines {
             if let m = rePytestSummary.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)),
                m.numberOfRanges == 2,
                let passStr = captureGroup(line, m, 1),
@@ -280,6 +391,7 @@ enum TestResultParser {
                m.numberOfRanges == 2,
                let name = captureGroup(trimmed, m, 1) {
                 result.failedTests.append(name)
+                result.testCases.append(TestCaseResult(name: name, passed: false, failureMessage: failureMessages[name]))
             }
         }
         return found
@@ -290,10 +402,10 @@ enum TestResultParser {
     // "--- PASS: TestSomething (0.00s)"
     // "--- FAIL: TestSomething (0.00s)"
     private static let reGoPass = try! NSRegularExpression(
-        pattern: #"^--- PASS: (\S+)"#
+        pattern: #"^--- PASS: (\S+)(?:\s+\(([0-9.]+)s\))?"#
     )
     private static let reGoFail = try! NSRegularExpression(
-        pattern: #"^--- FAIL: (\S+)"#
+        pattern: #"^--- FAIL: (\S+)(?:\s+\(([0-9.]+)s\))?"#
     )
 
     @discardableResult
@@ -302,14 +414,20 @@ enum TestResultParser {
         var found = false
         for line in output.components(separatedBy: "\n") {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
-            if reGoPass.firstMatch(in: trimmed, range: NSRange(trimmed.startIndex..., in: trimmed)) != nil {
+            if let m = reGoPass.firstMatch(in: trimmed, range: NSRange(trimmed.startIndex..., in: trimmed)),
+               m.numberOfRanges >= 2,
+               let name = captureGroup(trimmed, m, 1) {
+                let dur = m.numberOfRanges >= 3 ? captureGroup(trimmed, m, 2).flatMap { Double($0) } : nil
                 passCount += 1
                 found = true
+                result.testCases.append(TestCaseResult(name: name, passed: true, duration: dur))
             }
             if let m = reGoFail.firstMatch(in: trimmed, range: NSRange(trimmed.startIndex..., in: trimmed)),
-               m.numberOfRanges == 2,
+               m.numberOfRanges >= 2,
                let name = captureGroup(trimmed, m, 1) {
+                let dur = m.numberOfRanges >= 3 ? captureGroup(trimmed, m, 2).flatMap { Double($0) } : nil
                 result.failedTests.append(name)
+                result.testCases.append(TestCaseResult(name: name, passed: false, duration: dur))
                 found = true
             }
         }
@@ -364,6 +482,7 @@ enum TestResultParser {
                 let cleaned = name.trimmingCharacters(in: .whitespaces)
                 if !cleaned.isEmpty {
                     result.failedTests.append(cleaned)
+                    result.testCases.append(TestCaseResult(name: cleaned, passed: false))
                 }
             }
         }
