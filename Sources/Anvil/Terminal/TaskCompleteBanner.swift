@@ -273,7 +273,7 @@ struct TaskCompleteBanner: View {
                 Divider()
                 ScrollView {
                     LazyVStack(spacing: 0) {
-                        ForEach(changedFiles) { file in
+                        ForEach(ReviewPriorityScorer.sorted(changedFiles)) { file in
                             BannerFileRow(file: file) {
                                 onOpenFileDiff?(file)
                             }
@@ -481,12 +481,14 @@ private struct DiagnosticRow: View {
     }
 }
 
-/// A single row in the changed-files list showing status badge, path, and diff stats.
+/// A single row in the changed-files list showing status badge, path, diff stats, and risk indicator.
 private struct BannerFileRow: View {
     let file: ChangedFile
     let onTap: () -> Void
 
     @State private var isHovering = false
+
+    private var priority: ReviewPriority { ReviewPriorityScorer.score(file) }
 
     var body: some View {
         Button(action: onTap) {
@@ -521,6 +523,8 @@ private struct BannerFileRow: View {
                         }
                     }
                 }
+
+                ReviewPriorityIndicator(priority: priority)
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
