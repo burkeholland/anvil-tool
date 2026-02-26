@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 enum SidebarTab: String {
@@ -46,6 +47,9 @@ struct ContentView: View {
     @State private var showBranchGuardBanner = false
     @State private var branchGuardTriggered = false
     @AppStorage("branchGuardBehavior") private var branchGuardBehavior = "warn"
+    @AppStorage("agentSoundEnabled") private var agentSoundEnabled = true
+    @AppStorage("agentSoundName") private var agentSoundName = "Glass"
+    @State private var agentCompletionSound: NSSound?
     @State private var showKeyboardShortcuts = false
     @State private var showInstructions = false
     @State private var showCopilotActions = false
@@ -286,6 +290,11 @@ struct ContentView: View {
             if wasActive && !isActive && activityModel.sessionStats.totalFilesTouched > 0 {
                 withAnimation(.easeInOut(duration: 0.25)) {
                     showTaskBanner = true
+                }
+                if agentSoundEnabled {
+                    agentCompletionSound?.stop()
+                    agentCompletionSound = NSSound(named: agentSoundName)
+                    agentCompletionSound?.play()
                 }
                 if autoBuildOnTaskComplete, let url = workingDirectory.directoryURL {
                     buildVerifier.run(at: url)

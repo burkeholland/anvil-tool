@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// Anvil preferences window, accessible via ⌘, (standard macOS Settings scene).
@@ -24,7 +25,7 @@ struct SettingsView: View {
                     Label("Notifications", systemImage: "bell")
                 }
         }
-        .frame(width: 450, height: 380)
+        .frame(width: 450, height: 420)
     }
 }
 
@@ -170,12 +171,41 @@ private struct EditorSettingsTab: View {
 
 private struct NotificationsSettingsTab: View {
     @AppStorage("notificationsEnabled") private var notificationsEnabled = true
+    @AppStorage("agentSoundEnabled") private var agentSoundEnabled = true
+    @AppStorage("agentSoundName") private var agentSoundName = "Glass"
+    @State private var previewSound: NSSound?
+
+    private static let availableSounds = [
+        "Basso", "Blow", "Bottle", "Frog", "Funk",
+        "Glass", "Hero", "Morse", "Ping", "Pop",
+        "Purr", "Submarine", "Tink"
+    ]
 
     var body: some View {
         Form {
             Toggle("Enable agent notifications", isOn: $notificationsEnabled)
             Text("Show macOS notifications when the agent commits or finishes modifying files while Anvil is in the background.")
                 .settingsDescription()
+
+            Spacer().frame(height: 8)
+
+            Toggle("Play sound when agent finishes", isOn: $agentSoundEnabled)
+            Text("Play an audio alert when the agent transitions from active to idle.")
+                .settingsDescription()
+
+            Spacer().frame(height: 4)
+
+            Picker("Sound", selection: $agentSoundName) {
+                ForEach(Self.availableSounds, id: \.self) { sound in
+                    Text(sound).tag(sound)
+                }
+            }
+            .disabled(!agentSoundEnabled)
+            .onChange(of: agentSoundName) { _, newName in
+                    previewSound?.stop()
+                    previewSound = NSSound(named: newName)
+                    previewSound?.play()
+                }
         }
         .padding(20)
     }
