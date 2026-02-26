@@ -52,6 +52,7 @@ struct TaskCompleteBanner: View {
     /// Called when the user taps a file row to navigate to that file's diff.
     var onOpenFileDiff: ((ChangedFile) -> Void)?
 
+    @State private var isExpanded = false
     @State private var showBuildOutput = false
     @State private var showTestOutput = false
     @State private var showChangedFiles = false
@@ -71,21 +72,27 @@ struct TaskCompleteBanner: View {
                 if changedFileCount > 0 {
                     Text("•")
                         .foregroundStyle(.tertiary)
-                    Button {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            showChangedFiles.toggle()
+                    if isExpanded {
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                showChangedFiles.toggle()
+                            }
+                        } label: {
+                            HStack(spacing: 4) {
+                                Text("\(changedFileCount) file\(changedFileCount == 1 ? "" : "s") changed")
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(.secondary)
+                                Image(systemName: showChangedFiles ? "chevron.up" : "chevron.down")
+                                    .font(.system(size: 9))
+                                    .foregroundStyle(.tertiary)
+                            }
                         }
-                    } label: {
-                        HStack(spacing: 4) {
-                            Text("\(changedFileCount) file\(changedFileCount == 1 ? "" : "s") changed")
-                                .font(.system(size: 12))
-                                .foregroundStyle(.secondary)
-                            Image(systemName: showChangedFiles ? "chevron.up" : "chevron.down")
-                                .font(.system(size: 9))
-                                .foregroundStyle(.tertiary)
-                        }
+                        .buttonStyle(.plain)
+                    } else {
+                        Text("\(changedFileCount) file\(changedFileCount == 1 ? "" : "s") changed")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
                     }
-                    .buttonStyle(.plain)
                 }
 
                 if totalAdditions > 0 || totalDeletions > 0 {
@@ -104,10 +111,10 @@ struct TaskCompleteBanner: View {
                 }
 
                 // Build status badge
-                buildStatusBadge
+                buildStatusBadge(interactive: isExpanded)
 
                 // Test status badge
-                testStatusBadge
+                testStatusBadge(interactive: isExpanded)
 
                 // Sensitive file warning badge
                 if sensitiveFileCount > 0 {
@@ -126,73 +133,85 @@ struct TaskCompleteBanner: View {
 
                 Spacer()
 
-                if onRunTests != nil {
-                    switch testStatus {
-                    case .running:
-                        EmptyView()
-                    default:
-                        BannerPillButton(
-                            icon: "play.circle",
-                            label: "Run Tests",
-                            style: .secondary
-                        ) {
-                            onRunTests?()
+                if isExpanded {
+                    if onRunTests != nil {
+                        switch testStatus {
+                        case .running:
+                            EmptyView()
+                        default:
+                            BannerPillButton(
+                                icon: "play.circle",
+                                label: "Run Tests",
+                                style: .secondary
+                            ) {
+                                onRunTests?()
+                            }
                         }
                     }
-                }
 
-                if changedFileCount > 0 {
+                    if changedFileCount > 0 {
+                        BannerPillButton(
+                            icon: "doc.text.magnifyingglass",
+                            label: "Review Changes",
+                            style: .prominent
+                        ) {
+                            onReviewAll()
+                        }
+
+                        BannerPillButton(
+                            icon: "checkmark.circle",
+                            label: "Stage All & Commit",
+                            style: .secondary
+                        ) {
+                            onStageAllAndCommit()
+                        }
+
+                        BannerPillButton(
+                            icon: "doc.on.clipboard",
+                            label: "Copy Summary",
+                            style: .secondary
+                        ) {
+                            copySummaryToClipboard()
+                        }
+                    }
+
+                    if shouldShowCreatePR {
+                        BannerPillButton(
+                            icon: "arrow.triangle.pull",
+                            label: "Create PR",
+                            style: .secondary
+                        ) {
+                            onCreatePR?()
+                        }
+                    }
+
+                    if let exportHandler = onExportSession {
+                        BannerPillButton(
+                            icon: "arrow.down.doc",
+                            label: "Export Session",
+                            style: .secondary
+                        ) {
+                            exportHandler()
+                        }
+                    }
+
                     BannerPillButton(
-                        icon: "doc.text.magnifyingglass",
-                        label: "Review Changes",
+                        icon: "plus.circle",
+                        label: "New Task",
+                        style: .secondary
+                    ) {
+                        onNewTask()
+                    }
+                } else {
+                    BannerPillButton(
+                        icon: "magnifyingglass.circle",
+                        label: "Review",
                         style: .prominent
                     ) {
-                        onReviewAll()
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            isExpanded = true
+                        }
                     }
-
-                    BannerPillButton(
-                        icon: "checkmark.circle",
-                        label: "Stage All & Commit",
-                        style: .secondary
-                    ) {
-                        onStageAllAndCommit()
-                    }
-
-                    BannerPillButton(
-                        icon: "doc.on.clipboard",
-                        label: "Copy Summary",
-                        style: .secondary
-                    ) {
-                        copySummaryToClipboard()
-                    }
-                }
-
-                if shouldShowCreatePR {
-                    BannerPillButton(
-                        icon: "arrow.triangle.pull",
-                        label: "Create PR",
-                        style: .secondary
-                    ) {
-                        onCreatePR?()
-                    }
-                }
-
-                if let exportHandler = onExportSession {
-                    BannerPillButton(
-                        icon: "arrow.down.doc",
-                        label: "Export Session",
-                        style: .secondary
-                    ) {
-                        exportHandler()
-                    }
-                }
-
-                BannerPillButton(
-                    icon: "plus.circle",
-                    label: "New Task",
-                    style: .secondary
-                ) {
-                    onNewTask()
                 }
 
                 Button {
@@ -207,43 +226,12 @@ struct TaskCompleteBanner: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
 
-            // Expandable build error panel
-            if showBuildOutput, case .failed(let output) = buildStatus {
-                Divider()
-                if buildDiagnostics.isEmpty {
-                    // Fallback: raw output when no diagnostics could be parsed
-                    ScrollView {
-                        Text(output)
-                            .font(.system(size: 11, design: .monospaced))
-                            .foregroundStyle(.primary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(10)
-                            .textSelection(.enabled)
-                    }
-                    .frame(maxHeight: 180)
-                    .background(Color(nsColor: .textBackgroundColor).opacity(0.6))
-                } else {
-                    // Structured diagnostics list with click-to-navigate
-                    ScrollView {
-                        LazyVStack(spacing: 0) {
-                            ForEach(buildDiagnostics) { diagnostic in
-                                DiagnosticRow(diagnostic: diagnostic, onTap: {
-                                    onOpenDiagnostic?(diagnostic)
-                                }, onFix: onFixDiagnostic != nil ? { onFixDiagnostic?(diagnostic) } : nil)
-                                Divider().padding(.leading, 32)
-                            }
-                        }
-                    }
-                    .frame(maxHeight: 180)
-                    .background(Color(nsColor: .textBackgroundColor).opacity(0.6))
-                }
-            }
-
-            // Expandable test failure panel
-            if showTestOutput, case .failed(let failedTests, let output) = testStatus {
-                Divider()
-                VStack(spacing: 0) {
-                    if failedTests.isEmpty {
+            if isExpanded {
+                // Expandable build error panel
+                if showBuildOutput, case .failed(let output) = buildStatus {
+                    Divider()
+                    if buildDiagnostics.isEmpty {
+                        // Fallback: raw output when no diagnostics could be parsed
                         ScrollView {
                             Text(output)
                                 .font(.system(size: 11, design: .monospaced))
@@ -253,87 +241,120 @@ struct TaskCompleteBanner: View {
                                 .textSelection(.enabled)
                         }
                         .frame(maxHeight: 180)
+                        .background(Color(nsColor: .textBackgroundColor).opacity(0.6))
                     } else {
+                        // Structured diagnostics list with click-to-navigate
                         ScrollView {
-                            LazyVStack(alignment: .leading, spacing: 0) {
-                                ForEach(failedTests, id: \.self) { testName in
-                                    HStack(spacing: 8) {
-                                        Image(systemName: "xmark.circle.fill")
-                                            .font(.system(size: 11))
-                                            .foregroundStyle(.red)
-                                            .frame(width: 14)
-                                        Text(testName)
-                                            .font(.system(size: 11, design: .monospaced))
-                                            .foregroundStyle(.primary)
-                                            .lineLimit(1)
-                                            .frame(maxWidth: .infinity, alignment: .leading)
-                                        if let handler = onFixTestCase {
-                                            Button {
-                                                handler(testName)
-                                            } label: {
-                                                HStack(spacing: 3) {
-                                                    Image(systemName: "ant.circle")
-                                                        .font(.system(size: 10))
-                                                    Text("Fix")
-                                                        .font(.system(size: 10, weight: .medium))
-                                                }
-                                                .foregroundStyle(.white)
-                                                .padding(.horizontal, 7)
-                                                .padding(.vertical, 3)
-                                                .background(Color.red.opacity(0.85), in: Capsule())
-                                            }
-                                            .buttonStyle(.plain)
-                                        }
-                                    }
-                                    .padding(.horizontal, 10)
-                                    .padding(.vertical, 5)
+                            LazyVStack(spacing: 0) {
+                                ForEach(buildDiagnostics) { diagnostic in
+                                    DiagnosticRow(diagnostic: diagnostic, onTap: {
+                                        onOpenDiagnostic?(diagnostic)
+                                    }, onFix: onFixDiagnostic != nil ? { onFixDiagnostic?(diagnostic) } : nil)
                                     Divider().padding(.leading, 32)
                                 }
                             }
                         }
                         .frame(maxHeight: 180)
-                    }
-
-                    if let handler = onFixTestFailure {
-                        Divider()
-                        HStack {
-                            Spacer()
-                            Button {
-                                handler(output)
-                            } label: {
-                                HStack(spacing: 4) {
-                                    Image(systemName: "ant.circle")
-                                        .font(.system(size: 10))
-                                    Text("Fix with Agent")
-                                        .font(.system(size: 12))
-                                }
-                            }
-                            .buttonStyle(.borderedProminent)
-                            .tint(.red)
-                            .controlSize(.small)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
-                        }
                         .background(Color(nsColor: .textBackgroundColor).opacity(0.6))
                     }
                 }
-                .background(Color(nsColor: .textBackgroundColor).opacity(0.6))
-            }
-            // Expandable changed-files panel
-            if showChangedFiles && !changedFiles.isEmpty {
-                Divider()
-                ScrollView {
-                    LazyVStack(spacing: 0) {
-                        ForEach(ReviewPriorityScorer.sorted(changedFiles)) { file in
-                            BannerFileRow(file: file) {
-                                onOpenFileDiff?(file)
+
+                // Expandable test failure panel
+                if showTestOutput, case .failed(let failedTests, let output) = testStatus {
+                    Divider()
+                    VStack(spacing: 0) {
+                        if failedTests.isEmpty {
+                            ScrollView {
+                                Text(output)
+                                    .font(.system(size: 11, design: .monospaced))
+                                    .foregroundStyle(.primary)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(10)
+                                    .textSelection(.enabled)
                             }
-                            Divider().padding(.leading, 32)
+                            .frame(maxHeight: 180)
+                        } else {
+                            ScrollView {
+                                LazyVStack(alignment: .leading, spacing: 0) {
+                                    ForEach(failedTests, id: \.self) { testName in
+                                        HStack(spacing: 8) {
+                                            Image(systemName: "xmark.circle.fill")
+                                                .font(.system(size: 11))
+                                                .foregroundStyle(.red)
+                                                .frame(width: 14)
+                                            Text(testName)
+                                                .font(.system(size: 11, design: .monospaced))
+                                                .foregroundStyle(.primary)
+                                                .lineLimit(1)
+                                                .frame(maxWidth: .infinity, alignment: .leading)
+                                            if let handler = onFixTestCase {
+                                                Button {
+                                                    handler(testName)
+                                                } label: {
+                                                    HStack(spacing: 3) {
+                                                        Image(systemName: "ant.circle")
+                                                            .font(.system(size: 10))
+                                                        Text("Fix")
+                                                            .font(.system(size: 10, weight: .medium))
+                                                    }
+                                                    .foregroundStyle(.white)
+                                                    .padding(.horizontal, 7)
+                                                    .padding(.vertical, 3)
+                                                    .background(Color.red.opacity(0.85), in: Capsule())
+                                                }
+                                                .buttonStyle(.plain)
+                                            }
+                                        }
+                                        .padding(.horizontal, 10)
+                                        .padding(.vertical, 5)
+                                        Divider().padding(.leading, 32)
+                                    }
+                                }
+                            }
+                            .frame(maxHeight: 180)
+                        }
+
+                        if let handler = onFixTestFailure {
+                            Divider()
+                            HStack {
+                                Spacer()
+                                Button {
+                                    handler(output)
+                                } label: {
+                                    HStack(spacing: 4) {
+                                        Image(systemName: "ant.circle")
+                                            .font(.system(size: 10))
+                                        Text("Fix with Agent")
+                                            .font(.system(size: 12))
+                                    }
+                                }
+                                .buttonStyle(.borderedProminent)
+                                .tint(.red)
+                                .controlSize(.small)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                            }
+                            .background(Color(nsColor: .textBackgroundColor).opacity(0.6))
                         }
                     }
+                    .background(Color(nsColor: .textBackgroundColor).opacity(0.6))
                 }
-                .frame(maxHeight: 180)
-                .background(Color(nsColor: .textBackgroundColor).opacity(0.6))
+                // Expandable changed-files panel
+                if showChangedFiles && !changedFiles.isEmpty {
+                    Divider()
+                    ScrollView {
+                        LazyVStack(spacing: 0) {
+                            ForEach(ReviewPriorityScorer.sorted(changedFiles)) { file in
+                                BannerFileRow(file: file) {
+                                    onOpenFileDiff?(file)
+                                }
+                                Divider().padding(.leading, 32)
+                            }
+                        }
+                    }
+                    .frame(maxHeight: 180)
+                    .background(Color(nsColor: .textBackgroundColor).opacity(0.6))
+                }
             }
         }
         .background(.ultraThinMaterial)
@@ -373,7 +394,7 @@ struct TaskCompleteBanner: View {
     }
 
     @ViewBuilder
-    private var buildStatusBadge: some View {
+    private func buildStatusBadge(interactive: Bool) -> some View {
         switch buildStatus {
         case .idle:
             EmptyView()
@@ -402,11 +423,34 @@ struct TaskCompleteBanner: View {
             .padding(.vertical, 3)
             .background(Color.green.opacity(0.1), in: RoundedRectangle(cornerRadius: 4))
         case .failed:
-            Button {
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    showBuildOutput.toggle()
+            if interactive {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        showBuildOutput.toggle()
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.red)
+                        Text("Build failed")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                        if !buildDiagnostics.isEmpty {
+                            Text("(\(buildDiagnostics.count))")
+                                .font(.system(size: 10))
+                                .foregroundStyle(.tertiary)
+                        }
+                        Image(systemName: showBuildOutput ? "chevron.up" : "chevron.down")
+                            .font(.system(size: 9))
+                            .foregroundStyle(.tertiary)
+                    }
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
+                    .background(Color.red.opacity(0.1), in: RoundedRectangle(cornerRadius: 4))
                 }
-            } label: {
+                .buttonStyle(.plain)
+            } else {
                 HStack(spacing: 4) {
                     Image(systemName: "xmark.circle.fill")
                         .font(.system(size: 11))
@@ -419,20 +463,16 @@ struct TaskCompleteBanner: View {
                             .font(.system(size: 10))
                             .foregroundStyle(.tertiary)
                     }
-                    Image(systemName: showBuildOutput ? "chevron.up" : "chevron.down")
-                        .font(.system(size: 9))
-                        .foregroundStyle(.tertiary)
                 }
                 .padding(.horizontal, 6)
                 .padding(.vertical, 3)
                 .background(Color.red.opacity(0.1), in: RoundedRectangle(cornerRadius: 4))
             }
-            .buttonStyle(.plain)
         }
     }
 
     @ViewBuilder
-    private var testStatusBadge: some View {
+    private func testStatusBadge(interactive: Bool) -> some View {
         switch testStatus {
         case .idle:
             EmptyView()
@@ -461,11 +501,34 @@ struct TaskCompleteBanner: View {
             .padding(.vertical, 3)
             .background(Color.green.opacity(0.1), in: RoundedRectangle(cornerRadius: 4))
         case .failed(let failedTests, _):
-            Button {
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    showTestOutput.toggle()
+            if interactive {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        showTestOutput.toggle()
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.red)
+                        Text("Tests failed")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                        if !failedTests.isEmpty {
+                            Text("(\(failedTests.count))")
+                                .font(.system(size: 10))
+                                .foregroundStyle(.tertiary)
+                        }
+                        Image(systemName: showTestOutput ? "chevron.up" : "chevron.down")
+                            .font(.system(size: 9))
+                            .foregroundStyle(.tertiary)
+                    }
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
+                    .background(Color.red.opacity(0.1), in: RoundedRectangle(cornerRadius: 4))
                 }
-            } label: {
+                .buttonStyle(.plain)
+            } else {
                 HStack(spacing: 4) {
                     Image(systemName: "xmark.circle.fill")
                         .font(.system(size: 11))
@@ -478,15 +541,11 @@ struct TaskCompleteBanner: View {
                             .font(.system(size: 10))
                             .foregroundStyle(.tertiary)
                     }
-                    Image(systemName: showTestOutput ? "chevron.up" : "chevron.down")
-                        .font(.system(size: 9))
-                        .foregroundStyle(.tertiary)
                 }
                 .padding(.horizontal, 6)
                 .padding(.vertical, 3)
                 .background(Color.red.opacity(0.1), in: RoundedRectangle(cornerRadius: 4))
             }
-            .buttonStyle(.plain)
         }
     }
 }

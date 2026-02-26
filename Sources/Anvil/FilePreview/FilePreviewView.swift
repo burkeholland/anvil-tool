@@ -78,20 +78,6 @@ struct FilePreviewView: View {
         model.commitDiffContext == nil && model.stashDiffContext == nil && model.fileDiff != nil
     }
 
-    /// Dynamic width for the segmented tab picker based on visible tabs.
-    private var pickerWidth: CGFloat {
-        var tabs = 1 // Source is always present
-        if model.hasDiff { tabs += 1 }
-        if model.isMarkdownFile { tabs += 1 }
-        if !model.fileHistory.isEmpty { tabs += 1 }
-        switch tabs {
-        case 1:  return 100
-        case 2:  return 200
-        case 3:  return 280
-        default: return 360
-        }
-    }
-
     /// URLs of files with uncommitted changes, derived from the changesModel.
     private var changedURLs: Set<URL> {
         guard let cm = changesModel else { return [] }
@@ -201,7 +187,6 @@ struct FilePreviewView: View {
                         }
                     }
                     .pickerStyle(.segmented)
-                    .frame(width: pickerWidth)
                 }
 
                 // Symbol outline

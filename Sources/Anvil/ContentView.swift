@@ -1740,7 +1740,7 @@ struct ToolbarView: View {
     var onFocusTerminal: (() -> Void)?
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: Spacing.md) {
             Button {
                 showSidebar.toggle()
             } label: {
@@ -1760,7 +1760,7 @@ struct ToolbarView: View {
                 Button {
                     showBranchPicker.toggle()
                 } label: {
-                    HStack(spacing: 4) {
+                    HStack(spacing: Spacing.xs) {
                         Image(systemName: "arrow.triangle.branch")
                             .font(.system(size: 11))
                             .foregroundStyle(.secondary)
@@ -1821,8 +1821,8 @@ struct ToolbarView: View {
                 onCloneRepository: onCloneRepository
             )
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(.horizontal, Spacing.md)
+        .padding(.vertical, Spacing.sm)
         .background(.bar)
         .overlay(alignment: .bottom) { Divider() }
     }
@@ -2461,9 +2461,9 @@ struct SidebarView: View {
 
                 Spacer()
             }
-            .padding(.top, 12)
-            .padding(.bottom, 8)
-            .padding(.horizontal, 12)
+            .padding(.top, Spacing.md)
+            .padding(.bottom, Spacing.sm)
+            .padding(.horizontal, Spacing.md)
             .background(.bar)
 
             // Content
@@ -2473,7 +2473,7 @@ struct SidebarView: View {
                     FileTreeView(rootURL: rootURL, filePreview: filePreview, model: fileTreeModel, activityModel: activityModel, contextStore: contextStore)
                         .id(rootURL)
                 } else {
-                    VStack(spacing: 12) {
+                    VStack(spacing: Spacing.md) {
                         Spacer()
                         Image(systemName: "folder.badge.questionmark")
                             .font(.system(size: 32))
@@ -2506,7 +2506,7 @@ struct SidebarView: View {
                         rootURL: rootURL
                     )
                 } else {
-                    VStack(spacing: 12) {
+                    VStack(spacing: Spacing.md) {
                         Spacer()
                         Image(systemName: "clock.arrow.circlepath")
                             .font(.system(size: 32))
