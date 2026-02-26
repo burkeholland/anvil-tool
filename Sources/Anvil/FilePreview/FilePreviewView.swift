@@ -87,11 +87,21 @@ struct FilePreviewView: View {
         return Set(cm.changedFiles.map(\.url))
     }
 
+    /// Combined set of URLs to mark with the modified dot: git-changed files plus any
+    /// file that has in-memory unsaved edits.
+    private var tabModifiedURLs: Set<URL> {
+        var urls = changedURLs
+        if model.hasUnsavedEdits, let url = model.selectedURL {
+            urls.insert(url)
+        }
+        return urls
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             // Tab bar (when any tabs are open)
             if !model.openTabs.isEmpty {
-                PreviewTabBar(model: model, changedURLs: changedURLs)
+                PreviewTabBar(model: model, changedURLs: tabModifiedURLs)
             }
 
             // Header bar
@@ -250,6 +260,23 @@ struct FilePreviewView: View {
                           : (isTest ? "No implementation file found" : "No test file found"))
                 }
 
+                // Edit mode toggle
+                if model.activeTab == .source && model.fileContent != nil && !model.isImageFile {
+                    Button {
+                        if model.isEditing {
+                            model.exitEditMode()
+                        } else {
+                            model.isEditing = true
+                        }
+                    } label: {
+                        Image(systemName: model.isEditing ? "pencil.slash" : "pencil")
+                            .font(.system(size: 11))
+                            .foregroundStyle(model.isEditing ? Color.accentColor : Color.secondary)
+                    }
+                    .buttonStyle(.borderless)
+                    .help(model.isEditing ? "Exit Edit Mode (discards unsaved changes)" : "Edit File")
+                }
+
                 // Watch file toggle (live tail mode)
                 Button {
                     model.isWatching.toggle()
@@ -403,7 +430,17 @@ struct FilePreviewView: View {
                                 code: code
                             )
                         },
-                        diagnosticAnnotations: diagnosticsForCurrentFile
+                        diagnosticAnnotations: diagnosticsForCurrentFile,
+                        isEditable: model.isEditing,
+                        onContentChange: { [model] text in
+                            model.editedContent = text
+                            if !model.hasUnsavedEdits {
+                                model.setHasUnsavedEdits(true)
+                            }
+                        },
+                        onSave: { [model] in
+                            model.saveFile()
+                        }
                     )
                 } else {
                     if model.selectedURL == nil {
@@ -477,6 +514,14 @@ struct FilePreviewView: View {
                 showGoToLine = true
             }
             model.showGoToLine = false
+        }
+        .alert("Save Failed", isPresented: Binding(
+            get: { model.lastSaveError != nil },
+            set: { if !$0 { model.lastSaveError = nil } }
+        ), presenting: model.lastSaveError) { _ in
+            Button("OK") { model.lastSaveError = nil }
+        } message: { error in
+            Text(error)
         }
     }
 
@@ -858,6 +903,8 @@ struct PreviewTabItem: View {
 private final class PreviewTextView: NSTextView {
     /// Called when the user triggers "Send to Terminal" via context menu or ⌘⇧T.
     var onSendToTerminal: (() -> Void)?
+    /// Called when the user triggers ⌘S (save).
+    var onSave: (() -> Void)?
 
     override func menu(for event: NSEvent) -> NSMenu? {
         let menu = super.menu(for: event) ?? NSMenu()
@@ -879,6 +926,12 @@ private final class PreviewTextView: NSTextView {
         if event.modifierFlags.intersection([.command, .shift, .option, .control]) == [.command, .shift],
            event.characters?.lowercased() == "t",
            let handler = onSendToTerminal {
+            handler()
+            return true
+        }
+        if event.modifierFlags.intersection([.command, .shift, .option, .control]) == .command,
+           event.characters?.lowercased() == "s",
+           let handler = onSave {
             handler()
             return true
         }
@@ -912,6 +965,12 @@ struct HighlightedTextView: NSViewRepresentable {
     /// Build diagnostic annotations for the current file, keyed by 1-based line number.
     /// When non-empty, gutter dots are drawn (red for errors, yellow for warnings, blue for notes).
     var diagnosticAnnotations: [Int: BuildDiagnostic] = [:]
+    /// When true the text view allows editing; ⌘S triggers `onSave`.
+    var isEditable = false
+    /// Called whenever the text changes in edit mode. Receives the full current text.
+    var onContentChange: ((String) -> Void)?
+    /// Called when the user triggers ⌘S while in edit mode.
+    var onSave: (() -> Void)?
 
     func makeNSView(context: Context) -> NSScrollView {
         let scrollView = NSScrollView()
@@ -921,7 +980,7 @@ struct HighlightedTextView: NSViewRepresentable {
         scrollView.drawsBackground = false
 
         let textView = PreviewTextView()
-        textView.isEditable = false
+        textView.isEditable = isEditable
         textView.isSelectable = true
         textView.isRichText = true
         textView.drawsBackground = true
@@ -961,6 +1020,9 @@ struct HighlightedTextView: NSViewRepresentable {
         context.coordinator.fileDiff = fileDiff
         context.coordinator.onRevertHunk = onRevertHunk
         context.coordinator.onSendToTerminalAction = onSendToTerminal
+        context.coordinator.onContentChangeAction = onContentChange
+        context.coordinator.onSaveAction = onSave
+        context.coordinator.isEditing = isEditable
         context.coordinator.applyHighlighting(content: content, language: language)
         rulerView.gutterChanges = gutterChanges
         rulerView.blameLines = blameLines
@@ -971,11 +1033,24 @@ struct HighlightedTextView: NSViewRepresentable {
         textView.onSendToTerminal = { [weak coordinator] in
             coordinator?.sendCurrentSelectionToTerminal()
         }
+        textView.onSave = { [weak coordinator] in
+            coordinator?.onSaveAction?()
+        }
+        textView.delegate = context.coordinator
 
         return scrollView
     }
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
+        context.coordinator.isEditing = isEditable
+        context.coordinator.onContentChangeAction = onContentChange
+        context.coordinator.onSaveAction = onSave
+        if let textView = scrollView.documentView as? PreviewTextView {
+            textView.isEditable = isEditable
+            textView.onSave = { [weak coordinator = context.coordinator] in
+                coordinator?.onSaveAction?()
+            }
+        }
         context.coordinator.applyHighlighting(content: content, language: language)
         context.coordinator.rulerView?.gutterChanges = gutterChanges
         context.coordinator.rulerView?.blameLines = blameLines
@@ -1003,26 +1078,43 @@ struct HighlightedTextView: NSViewRepresentable {
         Coordinator()
     }
 
-    final class Coordinator {
+    final class Coordinator: NSObject, NSTextViewDelegate {
         weak var textView: NSTextView?
         weak var rulerView: LineNumberRulerView?
         var fileDiff: FileDiff?
         var onRevertHunk: ((DiffHunk) -> Void)?
         /// Called when the user triggers "Send to Terminal". Receives code, startLine, endLine.
         var onSendToTerminalAction: ((String, Int, Int) -> Void)?
+        /// Called whenever the user edits text. Receives the full current text.
+        var onContentChangeAction: ((String) -> Void)?
+        /// Called when the user triggers ⌘S.
+        var onSaveAction: (() -> Void)?
+        /// Whether the text view is currently in edit mode (suppresses highlight re-apply).
+        var isEditing = false
         private let highlightr: Highlightr? = Highlightr()
         private var lastContent: String?
         private var lastLanguage: String?
         private var activePopover: NSPopover?
 
-        init() {
+        override init() {
+            super.init()
             highlightr?.setTheme(to: "atom-one-dark")
+        }
+
+        // MARK: NSTextViewDelegate
+
+        func textDidChange(_ notification: Notification) {
+            guard let textView = notification.object as? NSTextView else { return }
+            onContentChangeAction?(textView.string)
+            rulerView?.refreshAfterContentChange()
         }
 
         func applyHighlighting(content: String, language: String?) {
             guard let textView = textView else { return }
             // Skip if content hasn't changed
             if content == lastContent && language == lastLanguage { return }
+            // Don't replace user edits while in editing mode
+            if isEditing && lastContent != nil { return }
             lastContent = content
             lastLanguage = language
 
