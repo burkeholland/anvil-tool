@@ -444,6 +444,80 @@ final class DiffParserTests: XCTestCase {
         XCTAssertTrue(patch.hasSuffix("\n"))
     }
 
+    // MARK: - Gutter Changes
+
+    func testGutterChangesAddedLines() {
+        let diffOutput = """
+        diff --git a/test.txt b/test.txt
+        index 1234567..abcdefg 100644
+        --- a/test.txt
+        +++ b/test.txt
+        @@ -1,2 +1,4 @@
+         unchanged
+        +added line A
+        +added line B
+         unchanged
+        """
+
+        let diffs = DiffParser.parse(diffOutput)
+        let changes = DiffParser.gutterChanges(from: diffs[0])
+
+        // Pure additions (not preceded by deletions) → .added
+        XCTAssertEqual(changes[2], .added)
+        XCTAssertEqual(changes[3], .added)
+        // Context lines have no marker
+        XCTAssertNil(changes[1])
+        XCTAssertNil(changes[4])
+    }
+
+    func testGutterChangesModifiedLines() {
+        let diffOutput = """
+        diff --git a/test.txt b/test.txt
+        index 1234567..abcdefg 100644
+        --- a/test.txt
+        +++ b/test.txt
+        @@ -1,3 +1,3 @@
+         unchanged
+        -old line
+        +new line
+         unchanged
+        """
+
+        let diffs = DiffParser.parse(diffOutput)
+        let changes = DiffParser.gutterChanges(from: diffs[0])
+
+        // Deletion followed immediately by addition → .modified on the new-file line
+        XCTAssertEqual(changes[2], .modified)
+        XCTAssertNil(changes[1])
+        XCTAssertNil(changes[3])
+    }
+
+    func testGutterChangesDeletedLines() {
+        let diffOutput = """
+        diff --git a/test.txt b/test.txt
+        index 1234567..abcdefg 100644
+        --- a/test.txt
+        +++ b/test.txt
+        @@ -1,3 +1,2 @@
+         before
+        -removed line
+         after
+        """
+
+        let diffs = DiffParser.parse(diffOutput)
+        let changes = DiffParser.gutterChanges(from: diffs[0])
+
+        // Pure deletion → .deleted marker placed at nearest new-file line (line 2 = "after")
+        XCTAssertEqual(changes[2], .deleted)
+        XCTAssertNil(changes[1])
+    }
+
+    func testGutterChangesEmptyDiff() {
+        let diff = FileDiff(id: "empty.txt", oldPath: "empty.txt", newPath: "empty.txt", hunks: [])
+        let changes = DiffParser.gutterChanges(from: diff)
+        XCTAssertTrue(changes.isEmpty)
+    }
+
     func testReconstructPatchSelectsOneHunk() {
         let diffOutput = """
         diff --git a/big.txt b/big.txt
