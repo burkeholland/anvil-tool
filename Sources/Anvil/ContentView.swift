@@ -63,6 +63,149 @@ struct ContentView: View {
     @StateObject private var followAgent = FollowAgentController()
 
     var body: some View {
+        bodyBase
+        .onChange(of: workingDirectory.directoryURL) { _, newURL in
+            showTaskBanner = false
+            showBranchGuardBanner = false
+            branchGuardTriggered = false
+            buildVerifier.cancel()
+            testRunner.cancel()
+            testResultsStore.clear()
+            filePreview.close(persist: false)
+            filePreview.rootDirectory = newURL
+            terminalTabs.reset()
+            sessionHealthMonitor.reset()
+            promptHistoryStore.configure(projectPath: newURL?.standardizedFileURL.path)
+            if let url = newURL {
+                recentProjects.recordOpen(url)
+                changesModel.start(rootURL: url)
+                activityModel.start(rootURL: url)
+                searchModel.setRoot(url)
+                fileTreeModel.start(rootURL: url)
+                commitHistoryModel.start(rootURL: url)
+            }
+        }
+        .onChange(of: activityModel.latestFileChange) { _, change in
+            guard autoFollow, let change = change else { return }
+            followAgent.reportChange(change.url)
+        }
+        .onChange(of: followAgent.followEvent) { _, event in
+            guard let event = event else { return }
+            filePreview.autoFollowChange(to: event.url)
+            revealInFileTree(event.url)
+        }
+        .onChange(of: activityModel.latestFileChange) { _, change in
+            guard change != nil else { return }
+            checkBranchGuard()
+        }
+        .onChange(of: filePreview.selectedURL) { _, newURL in
+            // Keep tree expanded to the selected file regardless of how it was opened
+            if let url = newURL {
+                fileTreeModel.revealFile(url: url)
+            }
+            // Auto-mark as reviewed after dwell time (2 s) when viewing a changed file
+            reviewDwellTask?.cancel()
+            if let url = newURL,
+               let file = changesModel.changedFiles.first(where: { $0.url == url }),
+               !changesModel.isReviewed(file) {
+                let dwellURL = url
+                reviewDwellTask = Task {
+                    try? await Task.sleep(nanoseconds: 2_000_000_000)
+                    guard !Task.isCancelled, filePreview.selectedURL == dwellURL else { return }
+                    if let current = changesModel.changedFiles.first(where: { $0.url == dwellURL }),
+                       !changesModel.isReviewed(current) {
+                        changesModel.toggleReviewed(current)
+                    }
+                }
+            }
+        }
+        .onChange(of: activityModel.isAgentActive) { wasActive, isActive in
+            if wasActive && !isActive && activityModel.sessionStats.totalFilesTouched > 0 {
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    showTaskBanner = true
+                }
+                if autoBuildOnTaskComplete, let url = workingDirectory.directoryURL {
+                    buildVerifier.run(at: url)
+                }
+                // Auto-select the first unreviewed changed file to kick off review workflow.
+                if autoFollow, let first = changesModel.changedFiles.first(where: { !changesModel.isReviewed($0) }) {
+                    filePreview.select(first.url)
+                    sidebarTab = .changes
+                    showSidebar = true
+                    fileTreeModel.revealFile(url: first.url)
+                }
+            } else if isActive {
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    showTaskBanner = false
+                }
+                buildVerifier.cancel()
+                testRunner.cancel()
+            }
+        }
+        .onChange(of: buildVerifier.status) { _, newStatus in
+            // Auto-run tests once the build passes.
+            if case .passed = newStatus, let url = workingDirectory.directoryURL {
+                testRunner.run(at: url)
+            }
+            // Send task-complete notification when the build fails (tests won't follow).
+            if case .failed = newStatus, showTaskBanner {
+                notificationManager.notifyTaskComplete(
+                    changedFileCount: changesModel.changedFiles.count,
+                    buildStatus: newStatus,
+                    testStatus: testRunner.status
+                )
+            }
+        }
+        .onChange(of: testRunner.status) { _, newStatus in
+            // Send task-complete notification once test results are final.
+            switch newStatus {
+            case .passed, .failed:
+                if showTaskBanner {
+                    notificationManager.notifyTaskComplete(
+                        changedFileCount: changesModel.changedFiles.count,
+                        buildStatus: buildVerifier.status,
+                        testStatus: newStatus
+                    )
+                }
+            default:
+                break
+            }
+        }
+        .onChange(of: terminalProxy.promptSentCount) { _, _ in
+            // Record the current change set as the task-start baseline for scoped review.
+            changesModel.recordTaskStart()
+            // Auto-dismiss the task-complete banner when the user starts a new prompt.
+            if showTaskBanner {
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    showTaskBanner = false
+                }
+            }
+        }
+        .onAppear { handleAppear() }
+        .onReceive(NotificationCenter.default.publisher(for: AppDelegate.openDirectoryNotification)) { notification in
+            if let url = notification.userInfo?["url"] as? URL {
+                openDirectory(url)
+            }
+        }
+        .sheet(isPresented: $showCloneSheet) {
+            CloneRepositoryView(
+                onCloned: { url in openDirectory(url) },
+                onDismiss: { showCloneSheet = false }
+            )
+        }
+        .sheet(isPresented: $showCreatePR) {
+            CreatePullRequestView(
+                workingDirectory: workingDirectory,
+                changesModel: changesModel,
+                activityFeedModel: activityModel,
+                onDismiss: { showCreatePR = false }
+            )
+        }
+    }
+
+    /// Extracted ZStack + FocusedSceneModifier to keep `body` under the Swift type-checker
+    /// expression-complexity limit.
+    private var bodyBase: some View {
         ZStack {
             Group {
                 if workingDirectory.directoryURL != nil {
@@ -208,143 +351,6 @@ struct ContentView: View {
                 }
             } : nil
         ))
-        .onChange(of: workingDirectory.directoryURL) { _, newURL in
-            showTaskBanner = false
-            showBranchGuardBanner = false
-            branchGuardTriggered = false
-            buildVerifier.cancel()
-            testRunner.cancel()
-            testResultsStore.clear()
-            filePreview.close(persist: false)
-            filePreview.rootDirectory = newURL
-            terminalTabs.reset()
-            sessionHealthMonitor.reset()
-            promptHistoryStore.configure(projectPath: newURL?.standardizedFileURL.path)
-            if let url = newURL {
-                recentProjects.recordOpen(url)
-                changesModel.start(rootURL: url)
-                activityModel.start(rootURL: url)
-                searchModel.setRoot(url)
-                fileTreeModel.start(rootURL: url)
-                commitHistoryModel.start(rootURL: url)
-            }
-        }
-        .onChange(of: activityModel.latestFileChange) { _, change in
-            guard autoFollow, let change = change else { return }
-            followAgent.reportChange(change.url)
-        }
-        .onChange(of: followAgent.followEvent) { _, event in
-            guard let event = event else { return }
-            filePreview.autoFollowChange(to: event.url)
-            revealInFileTree(event.url)
-        }
-        .onChange(of: activityModel.latestFileChange) { _, change in
-            guard change != nil else { return }
-            checkBranchGuard()
-        }
-        .onChange(of: filePreview.selectedURL) { _, newURL in
-            // Keep tree expanded to the selected file regardless of how it was opened
-            if let url = newURL {
-                fileTreeModel.revealFile(url: url)
-            }
-            // Auto-mark as reviewed after dwell time (2 s) when viewing a changed file
-            reviewDwellTask?.cancel()
-            if let url = newURL,
-               let file = changesModel.changedFiles.first(where: { $0.url == url }),
-               !changesModel.isReviewed(file) {
-                let dwellURL = url
-                reviewDwellTask = Task {
-                    try? await Task.sleep(nanoseconds: 2_000_000_000)
-                    guard !Task.isCancelled, filePreview.selectedURL == dwellURL else { return }
-                    if let current = changesModel.changedFiles.first(where: { $0.url == dwellURL }),
-                       !changesModel.isReviewed(current) {
-                        changesModel.toggleReviewed(current)
-                    }
-                }
-            }
-        }
-        .onChange(of: activityModel.isAgentActive) { wasActive, isActive in
-            if wasActive && !isActive && activityModel.sessionStats.totalFilesTouched > 0 {
-                withAnimation(.easeInOut(duration: 0.25)) {
-                    showTaskBanner = true
-                }
-                if autoBuildOnTaskComplete, let url = workingDirectory.directoryURL {
-                    buildVerifier.run(at: url)
-                }
-                // Auto-select the first unreviewed changed file to kick off review workflow.
-                if autoFollow, let first = changesModel.changedFiles.first(where: { !changesModel.isReviewed($0) }) {
-                    filePreview.select(first.url)
-                    sidebarTab = .changes
-                    showSidebar = true
-                    fileTreeModel.revealFile(url: first.url)
-                }
-            } else if isActive {
-                withAnimation(.easeInOut(duration: 0.25)) {
-                    showTaskBanner = false
-                }
-                buildVerifier.cancel()
-                testRunner.cancel()
-            }
-        }
-        .onChange(of: buildVerifier.status) { _, newStatus in
-            // Auto-run tests once the build passes.
-            if case .passed = newStatus, let url = workingDirectory.directoryURL {
-                testRunner.run(at: url)
-            }
-            // Send task-complete notification when the build fails (tests won't follow).
-            if case .failed = newStatus, showTaskBanner {
-                notificationManager.notifyTaskComplete(
-                    changedFileCount: changesModel.changedFiles.count,
-                    buildStatus: newStatus,
-                    testStatus: testRunner.status
-                )
-            }
-        }
-        .onChange(of: testRunner.status) { _, newStatus in
-            // Send task-complete notification once test results are final.
-            switch newStatus {
-            case .passed, .failed:
-                if showTaskBanner {
-                    notificationManager.notifyTaskComplete(
-                        changedFileCount: changesModel.changedFiles.count,
-                        buildStatus: buildVerifier.status,
-                        testStatus: newStatus
-                    )
-                }
-            default:
-                break
-            }
-        }
-        .onChange(of: terminalProxy.promptSentCount) { _, _ in
-            // Record the current change set as the task-start baseline for scoped review.
-            changesModel.recordTaskStart()
-            // Auto-dismiss the task-complete banner when the user starts a new prompt.
-            if showTaskBanner {
-                withAnimation(.easeInOut(duration: 0.25)) {
-                    showTaskBanner = false
-                }
-            }
-        }
-        .onAppear { handleAppear() }
-        .onReceive(NotificationCenter.default.publisher(for: AppDelegate.openDirectoryNotification)) { notification in
-            if let url = notification.userInfo?["url"] as? URL {
-                openDirectory(url)
-            }
-        }
-        .sheet(isPresented: $showCloneSheet) {
-            CloneRepositoryView(
-                onCloned: { url in openDirectory(url) },
-                onDismiss: { showCloneSheet = false }
-            )
-        }
-        .sheet(isPresented: $showCreatePR) {
-            CreatePullRequestView(
-                workingDirectory: workingDirectory,
-                changesModel: changesModel,
-                activityFeedModel: activityModel,
-                onDismiss: { showCreatePR = false }
-            )
-        }
     }
 
     @ViewBuilder private var taskCompleteBannerView: some View {
