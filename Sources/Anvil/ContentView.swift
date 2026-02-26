@@ -36,8 +36,12 @@ struct ContentView: View {
     @AppStorage("autoFollowChanges") private var autoFollow = true
     @AppStorage("terminalFontSize") private var terminalFontSize: Double = 14
     @StateObject private var buildVerifier = BuildVerifier()
+    @StateObject private var testRunner = TestRunner()
     @State private var isDroppingFileToTerminal = false
     @State private var showTaskBanner = false
+    @State private var showBranchGuardBanner = false
+    @State private var branchGuardTriggered = false
+    @AppStorage("branchGuardBehavior") private var branchGuardBehavior = "warn"
     @State private var showKeyboardShortcuts = false
     @State private var showInstructions = false
     @State private var showCopilotActions = false
@@ -45,6 +49,8 @@ struct ContentView: View {
     @State private var showBranchDiff = false
     @State private var showCloneSheet = false
     @State private var showCreatePR = false
+    @State private var showMergeConflict = false
+    @StateObject private var mergeConflictModel = MergeConflictModel()
 
     var body: some View {
         ZStack {
@@ -132,6 +138,12 @@ struct ContentView: View {
             onFindInTerminal: {
                 terminalProxy.showFindBar()
             },
+            onFindTerminalNext: {
+                terminalProxy.findTerminalNext()
+            },
+            onFindTerminalPrevious: {
+                terminalProxy.findTerminalPrevious()
+            },
             onShowCommandPalette: {
                 buildCommandPalette()
                 showCommandPalette = true
@@ -158,11 +170,20 @@ struct ContentView: View {
             } : nil,
             onSplitTerminalV: workingDirectory.directoryURL != nil ? {
                 terminalTabs.splitPane(direction: .vertical)
+            } : nil,
+            onNextPreviewTab: filePreview.openTabs.count > 1 ? { [weak filePreview] in
+                filePreview?.selectNextTab()
+            } : nil,
+            onPreviousPreviewTab: filePreview.openTabs.count > 1 ? { [weak filePreview] in
+                filePreview?.selectPreviousTab()
             } : nil
         ))
         .onChange(of: workingDirectory.directoryURL) { _, newURL in
             showTaskBanner = false
+            showBranchGuardBanner = false
+            branchGuardTriggered = false
             buildVerifier.cancel()
+            testRunner.cancel()
             filePreview.close(persist: false)
             filePreview.rootDirectory = newURL
             terminalTabs.reset()
@@ -179,6 +200,10 @@ struct ContentView: View {
             guard autoFollow, activityModel.isAgentActive, let change = change else { return }
             filePreview.autoFollowChange(to: change.url)
             revealInFileTree(change.url)
+        }
+        .onChange(of: activityModel.latestFileChange) { _, change in
+            guard change != nil else { return }
+            checkBranchGuard()
         }
         .onChange(of: filePreview.selectedURL) { _, newURL in
             // Keep tree expanded to the selected file regardless of how it was opened
@@ -199,6 +224,13 @@ struct ContentView: View {
                     showTaskBanner = false
                 }
                 buildVerifier.cancel()
+                testRunner.cancel()
+            }
+        }
+        .onChange(of: buildVerifier.status) { _, newStatus in
+            // Auto-run tests once the build passes.
+            if case .passed = newStatus, let url = workingDirectory.directoryURL {
+                testRunner.run(at: url)
             }
         }
         .onAppear {
@@ -228,6 +260,7 @@ struct ContentView: View {
             CreatePullRequestView(
                 workingDirectory: workingDirectory,
                 changesModel: changesModel,
+                activityFeedModel: activityModel,
                 onDismiss: { showCreatePR = false }
             )
         }
@@ -254,7 +287,15 @@ struct ContentView: View {
                             showDiffSummary = false
                             showBranchDiff = true
                         },
-                        onCreatePR: { showCreatePR = true }
+                        onCreatePR: { showCreatePR = true },
+                        onResolveConflicts: { fileURL in
+                            if let rootURL = workingDirectory.directoryURL {
+                                mergeConflictModel.load(fileURL: fileURL, rootURL: rootURL)
+                            }
+                            showDiffSummary = false
+                            showBranchDiff = false
+                            showMergeConflict = true
+                        }
                     )
                         .frame(width: max(sidebarWidth, 0))
 
@@ -412,12 +453,56 @@ struct ContentView: View {
                         }
                     }
 
+                    if showBranchGuardBanner, let rootURL = workingDirectory.directoryURL,
+                       let branch = workingDirectory.gitBranch {
+                        BranchGuardBanner(
+                            branchName: branch,
+                            rootURL: rootURL,
+                            onBranchCreated: { _ in
+                                withAnimation(.easeInOut(duration: 0.25)) {
+                                    showBranchGuardBanner = false
+                                }
+                            },
+                            onDismiss: {
+                                withAnimation(.easeInOut(duration: 0.25)) {
+                                    showBranchGuardBanner = false
+                                }
+                            }
+                        )
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
+
                     if showTaskBanner {
                         TaskCompleteBanner(
                             changedFileCount: changesModel.changedFiles.count,
                             totalAdditions: changesModel.totalAdditions,
                             totalDeletions: changesModel.totalDeletions,
                             buildStatus: buildVerifier.status,
+                            sensitiveFileCount: changesModel.changedFiles.filter { SensitiveFileClassifier.isSensitive($0.relativePath) }.count,
+                            buildDiagnostics: buildVerifier.diagnostics,
+                            onOpenDiagnostic: { diagnostic in
+                                let rootURL = workingDirectory.directoryURL
+                                let url: URL
+                                if (diagnostic.filePath as NSString).isAbsolutePath {
+                                    url = URL(fileURLWithPath: diagnostic.filePath)
+                                } else if let root = rootURL {
+                                    url = root.appendingPathComponent(diagnostic.filePath)
+                                } else {
+                                    return
+                                }
+                                filePreview.select(url, line: diagnostic.line)
+                            },
+                            testStatus: testRunner.status,
+                            onRunTests: workingDirectory.directoryURL != nil ? {
+                                if let url = workingDirectory.directoryURL {
+                                    testRunner.run(at: url)
+                                }
+                            } : nil,
+                            onFixTestFailure: { output in
+                                let prompt = "The test suite failed. Please fix the failing tests.\n\nTest output:\n\(output)"
+                                terminalProxy.send(prompt + "\n")
+                                showTaskBanner = false
+                            },
                             onReviewAll: {
                                 showDiffSummary = true
                                 showTaskBanner = false
@@ -448,7 +533,7 @@ struct ContentView: View {
                     )
                 }
 
-                if filePreview.selectedURL != nil || showDiffSummary || showBranchDiff {
+                if filePreview.selectedURL != nil || showDiffSummary || showBranchDiff || showMergeConflict {
                     PanelDivider(
                         width: $previewWidth,
                         minWidth: 200,
@@ -457,7 +542,15 @@ struct ContentView: View {
                     )
 
                     VStack(spacing: 0) {
-                        if showBranchDiff {
+                        if showMergeConflict {
+                            MergeConflictView(
+                                model: mergeConflictModel,
+                                onDismiss: {
+                                    showMergeConflict = false
+                                    mergeConflictModel.close()
+                                }
+                            )
+                        } else if showBranchDiff {
                             BranchDiffView(
                                 model: branchDiffModel,
                                 onSelectFile: { path, _ in
@@ -839,6 +932,12 @@ struct ContentView: View {
                 changesModel?.stageFocusedHunk()
             },
 
+            PaletteCommand(id: "unstage-focused-hunk", title: "Unstage Focused Hunk", icon: "minus.circle", shortcut: "u", category: "Review") {
+                changesModel.focusedHunk != nil
+            } action: { [weak changesModel] in
+                changesModel?.unstageFocusedHunk()
+            },
+
             PaletteCommand(id: "discard-focused-hunk", title: "Discard Focused Hunk", icon: "arrow.uturn.backward.circle", shortcut: "⌦", category: "Review") {
                 changesModel.focusedHunk != nil
             } action: { [weak changesModel] in
@@ -864,6 +963,24 @@ struct ContentView: View {
                 hasProject && workingDirectory.gitBranch != nil
             } action: {
                 showBranchPicker = true
+            },
+
+            PaletteCommand(id: "git-commit", title: "Commit", icon: "checkmark.circle", shortcut: "⌘↩", category: "Git") {
+                hasProject && changesModel.canCommit
+            } action: { [weak changesModel] in
+                changesModel?.commit()
+            },
+
+            PaletteCommand(id: "git-commit-push", title: "Commit & Push", icon: "arrow.up.circle", shortcut: nil, category: "Git") {
+                hasProject && changesModel.canCommit && workingDirectory.hasRemotes && !workingDirectory.isPushing
+            } action: { [weak changesModel, weak workingDirectory] in
+                changesModel?.commitAndPush { workingDirectory?.push() }
+            },
+
+            PaletteCommand(id: "git-stage-all-commit", title: "Stage All & Commit", icon: "checkmark.circle.badge.plus", shortcut: nil, category: "Git") {
+                hasProject && !changesModel.changedFiles.isEmpty && !changesModel.commitMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            } action: { [weak changesModel] in
+                changesModel?.stageAllAndCommit()
             },
 
             PaletteCommand(id: "discard-all", title: "Discard All Changes", icon: "arrow.uturn.backward", shortcut: nil, category: "Git") {
@@ -946,15 +1063,66 @@ struct ContentView: View {
             } action: { [weak terminalProxy] in
                 terminalProxy?.send("/diff\n")
             },
-            PaletteCommand(id: "copilot-model", title: "Copilot: Switch Model", icon: "brain", shortcut: nil, category: "Copilot") {
+            PaletteCommand(id: "copilot-model", title: "Copilot: Switch Model", icon: "brain", shortcut: nil, category: "Copilot",
+                           argumentPrompt: "Model name (leave blank to list models)") {
                 hasProject
             } action: { [weak terminalProxy] in
                 terminalProxy?.send("/model\n")
+            } actionWithArgument: { [weak terminalProxy] arg in
+                let trimmed = arg.trimmingCharacters(in: .whitespaces)
+                if trimmed.isEmpty {
+                    terminalProxy?.send("/model\n")
+                } else {
+                    terminalProxy?.send("/model \(trimmed)\n")
+                }
             },
             PaletteCommand(id: "copilot-help", title: "Copilot: Help", icon: "questionmark.circle", shortcut: nil, category: "Copilot") {
                 hasProject
             } action: { [weak terminalProxy] in
                 terminalProxy?.send("/help\n")
+            },
+            PaletteCommand(id: "copilot-context", title: "Copilot: Show Context", icon: "scope", shortcut: nil, category: "Copilot") {
+                hasProject
+            } action: { [weak terminalProxy] in
+                terminalProxy?.send("/context\n")
+            },
+            PaletteCommand(id: "copilot-review", title: "Copilot: Review Changes", icon: "eye", shortcut: nil, category: "Copilot") {
+                hasProject
+            } action: { [weak terminalProxy] in
+                terminalProxy?.send("/review\n")
+            },
+            PaletteCommand(id: "copilot-tasks", title: "Copilot: Show Tasks", icon: "checklist", shortcut: nil, category: "Copilot") {
+                hasProject
+            } action: { [weak terminalProxy] in
+                terminalProxy?.send("/tasks\n")
+            },
+            PaletteCommand(id: "copilot-session", title: "Copilot: Session Info", icon: "clock.arrow.circlepath", shortcut: nil, category: "Copilot") {
+                hasProject
+            } action: { [weak terminalProxy] in
+                terminalProxy?.send("/session\n")
+            },
+            PaletteCommand(id: "copilot-instructions", title: "Copilot: View Instructions", icon: "doc.plaintext", shortcut: nil, category: "Copilot") {
+                hasProject
+            } action: { [weak terminalProxy] in
+                terminalProxy?.send("/instructions\n")
+            },
+            PaletteCommand(id: "copilot-agent", title: "Copilot: Agent Mode", icon: "cpu", shortcut: nil, category: "Copilot",
+                           argumentPrompt: "Agent name or command (optional)") {
+                hasProject
+            } action: { [weak terminalProxy] in
+                terminalProxy?.send("/agent\n")
+            } actionWithArgument: { [weak terminalProxy] arg in
+                let trimmed = arg.trimmingCharacters(in: .whitespaces)
+                if trimmed.isEmpty {
+                    terminalProxy?.send("/agent\n")
+                } else {
+                    terminalProxy?.send("/agent \(trimmed)\n")
+                }
+            },
+            PaletteCommand(id: "copilot-mcp", title: "Copilot: MCP Tools", icon: "wrench.and.screwdriver", shortcut: nil, category: "Copilot") {
+                hasProject
+            } action: { [weak terminalProxy] in
+                terminalProxy?.send("/mcp\n")
             },
             PaletteCommand(id: "copilot-cycle-mode", title: "Copilot: Cycle Mode", icon: "arrow.left.arrow.right", shortcut: nil, category: "Copilot") {
                 hasProject
@@ -979,9 +1147,13 @@ struct ContentView: View {
 
     private func closeCurrentProject() {
         showTaskBanner = false
+        showBranchGuardBanner = false
+        branchGuardTriggered = false
         filePreview.close(persist: false)
         showDiffSummary = false
         showBranchDiff = false
+        showMergeConflict = false
+        mergeConflictModel.close()
         changesModel.stop()
         activityModel.stop()
         searchModel.clear()
@@ -1027,6 +1199,31 @@ struct ContentView: View {
         showSidebar = true
         sidebarTab = .changes
         filePreview.select(files[prevIndex].url)
+    }
+
+    private func checkBranchGuard() {
+        guard !branchGuardTriggered else { return }
+        guard let branch = workingDirectory.gitBranch,
+              branch == "main" || branch == "master" else { return }
+        guard branchGuardBehavior != "disabled" else { return }
+        branchGuardTriggered = true
+        if branchGuardBehavior == "autoBranch", let rootURL = workingDirectory.directoryURL {
+            let name = BranchGuardBanner.autoBranchName()
+            DispatchQueue.global(qos: .userInitiated).async {
+                let result = GitBranchProvider.createBranch(named: name, in: rootURL)
+                if !result.success {
+                    DispatchQueue.main.async {
+                        withAnimation(.easeInOut(duration: 0.25)) {
+                            showBranchGuardBanner = true
+                        }
+                    }
+                }
+            }
+        } else {
+            withAnimation(.easeInOut(duration: 0.25)) {
+                showBranchGuardBanner = true
+            }
+        }
     }
 
     private func handleDrop(_ urls: [URL]) -> Bool {
@@ -1145,7 +1342,8 @@ struct ToolbarView: View {
                             onDismiss: { showBranchPicker = false },
                             onBranchChanged: {
                                 changesModel.refresh()
-                            }
+                            },
+                            workingDirectory: workingDirectory
                         )
                     }
                 }
@@ -1155,10 +1353,7 @@ struct ToolbarView: View {
 
             Spacer()
 
-            AgentActivityIndicator(
-                activityModel: activityModel,
-                onFocusTerminal: { terminalProxy.focusTerminal() }
-            )
+            AgentActivityIndicator(activityModel: activityModel)
 
             Button {
                 showCopilotActions.toggle()
@@ -1369,6 +1564,11 @@ struct SidebarView: View {
     var onReviewAll: (() -> Void)?
     var onBranchDiff: (() -> Void)?
     var onCreatePR: (() -> Void)?
+    var onResolveConflicts: ((URL) -> Void)?
+
+    @State private var changesUnread: Int = 0
+    @State private var activityUnread: Int = 0
+    @State private var filesUnread: Int = 0
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -1377,7 +1577,8 @@ struct SidebarView: View {
                 SidebarTabButton(
                     title: "Files",
                     systemImage: "folder",
-                    isActive: activeTab == .files
+                    isActive: activeTab == .files,
+                    badge: filesUnread > 0 ? filesUnread : nil
                 ) {
                     activeTab = .files
                 }
@@ -1386,7 +1587,7 @@ struct SidebarView: View {
                     title: "Changes",
                     systemImage: "arrow.triangle.2.circlepath",
                     isActive: activeTab == .changes,
-                    badge: changesModel.changedFiles.isEmpty ? nil : changesModel.changedFiles.count
+                    badge: changesUnread > 0 ? changesUnread : nil
                 ) {
                     activeTab = .changes
                 }
@@ -1395,7 +1596,7 @@ struct SidebarView: View {
                     title: "Activity",
                     systemImage: "clock",
                     isActive: activeTab == .activity,
-                    badge: activityModel.events.isEmpty ? nil : activityModel.events.count
+                    badge: activityUnread > 0 ? activityUnread : nil
                 ) {
                     activeTab = .activity
                 }
@@ -1448,10 +1649,10 @@ struct SidebarView: View {
                 }
 
             case .changes:
-                ChangesListView(model: changesModel, filePreview: filePreview, workingDirectory: model, onReviewAll: onReviewAll, onBranchDiff: onBranchDiff, onCreatePR: onCreatePR)
+                ChangesListView(model: changesModel, filePreview: filePreview, workingDirectory: model, onReviewAll: onReviewAll, onBranchDiff: onBranchDiff, onCreatePR: onCreatePR, onResolveConflicts: onResolveConflicts)
 
             case .activity:
-                ActivityFeedView(model: activityModel, filePreview: filePreview)
+                ActivityFeedView(model: activityModel, filePreview: filePreview, rootURL: model.directoryURL)
 
             case .search:
                 SearchView(model: searchModel, filePreview: filePreview)
@@ -1479,6 +1680,29 @@ struct SidebarView: View {
             }
         }
         .background(Color(nsColor: .controlBackgroundColor))
+        .onChange(of: changesModel.changedFiles.count) { oldCount, newCount in
+            if activeTab != .changes && newCount > oldCount {
+                changesUnread += newCount - oldCount
+            }
+        }
+        .onChange(of: activityModel.events.count) { oldCount, newCount in
+            if activeTab != .activity && newCount > oldCount {
+                activityUnread += newCount - oldCount
+            }
+        }
+        .onChange(of: fileTreeModel.changedFileCount) { oldCount, newCount in
+            if activeTab != .files && newCount > oldCount {
+                filesUnread += newCount - oldCount
+            }
+        }
+        .onChange(of: activeTab) { _, newTab in
+            switch newTab {
+            case .files: filesUnread = 0
+            case .changes: changesUnread = 0
+            case .activity: activityUnread = 0
+            default: break
+            }
+        }
     }
 }
 
@@ -1539,6 +1763,8 @@ private struct FocusedSceneModifier: ViewModifier {
     var onNewTerminalTab: () -> Void
     var onNewCopilotTab: () -> Void
     var onFindInTerminal: () -> Void
+    var onFindTerminalNext: () -> Void
+    var onFindTerminalPrevious: () -> Void
     var onShowCommandPalette: () -> Void
     var onNextChange: (() -> Void)?
     var onPreviousChange: (() -> Void)?
@@ -1550,6 +1776,8 @@ private struct FocusedSceneModifier: ViewModifier {
     var onCloneRepository: (() -> Void)?
     var onSplitTerminalH: (() -> Void)?
     var onSplitTerminalV: (() -> Void)?
+    var onNextPreviewTab: (() -> Void)?
+    var onPreviousPreviewTab: (() -> Void)?
 
     func body(content: Content) -> some View {
         content
@@ -1583,11 +1811,17 @@ private struct FocusedSceneModifier: ViewModifier {
             .modifier(FocusedSceneModifierC(
                 hasProject: hasProject,
                 onNewCopilotTab: onNewCopilotTab,
+                onFindTerminalNext: onFindTerminalNext,
+                onFindTerminalPrevious: onFindTerminalPrevious,
                 onRevealInTree: onRevealInTree,
                 onMentionInTerminal: onMentionInTerminal,
                 onCloneRepository: onCloneRepository,
                 onSplitTerminalH: onSplitTerminalH,
                 onSplitTerminalV: onSplitTerminalV
+            ))
+            .modifier(FocusedSceneModifierD(
+                onNextPreviewTab: onNextPreviewTab,
+                onPreviousPreviewTab: onPreviousPreviewTab
             ))
     }
 }
@@ -1661,6 +1895,8 @@ private struct FocusedSceneModifierB: ViewModifier {
 private struct FocusedSceneModifierC: ViewModifier {
     var hasProject: Bool
     var onNewCopilotTab: () -> Void
+    var onFindTerminalNext: () -> Void
+    var onFindTerminalPrevious: () -> Void
     var onRevealInTree: (() -> Void)?
     var onMentionInTerminal: (() -> Void)?
     var onCloneRepository: (() -> Void)?
@@ -1670,11 +1906,24 @@ private struct FocusedSceneModifierC: ViewModifier {
     func body(content: Content) -> some View {
         content
             .focusedSceneValue(\.newCopilotTab, hasProject ? onNewCopilotTab : nil)
+            .focusedSceneValue(\.findTerminalNext, hasProject ? onFindTerminalNext : nil)
+            .focusedSceneValue(\.findTerminalPrevious, hasProject ? onFindTerminalPrevious : nil)
             .focusedSceneValue(\.revealInTree, onRevealInTree)
             .focusedSceneValue(\.mentionInTerminal, onMentionInTerminal)
             .focusedSceneValue(\.cloneRepository, onCloneRepository)
             .focusedSceneValue(\.splitTerminalH, onSplitTerminalH)
             .focusedSceneValue(\.splitTerminalV, onSplitTerminalV)
+    }
+}
+
+private struct FocusedSceneModifierD: ViewModifier {
+    var onNextPreviewTab: (() -> Void)?
+    var onPreviousPreviewTab: (() -> Void)?
+
+    func body(content: Content) -> some View {
+        content
+            .focusedSceneValue(\.nextPreviewTab, onNextPreviewTab)
+            .focusedSceneValue(\.previousPreviewTab, onPreviousPreviewTab)
     }
 }
 
@@ -1727,21 +1976,37 @@ struct ChangesNavigationBar: View {
     }
 }
 
-/// Compact indicator in the toolbar showing whether the agent is actively making changes.
+/// Compact status pill in the toolbar showing the current agent state.
+/// Always visible; clicking expands a popover with activity details.
 struct AgentActivityIndicator: View {
     @ObservedObject var activityModel: ActivityFeedModel
-    var onFocusTerminal: (() -> Void)? = nil
+    @EnvironmentObject var terminalProxy: TerminalInputProxy
     @State private var isPulsing = false
+    @State private var showPopover = false
+
+    private enum AgentState {
+        case idle       // no file changes this session yet
+        case working    // changes detected within the last 10 s
+        case completed  // was working, now quiet, with changes recorded
+    }
+
+    private var currentState: AgentState {
+        if activityModel.isAgentActive { return .working }
+        if activityModel.sessionStats.isActive { return .completed }
+        return .idle
+    }
 
     var body: some View {
-        if activityModel.sessionStats.isActive {
+        Button {
+            showPopover.toggle()
+        } label: {
             HStack(spacing: 5) {
                 Circle()
-                    .fill(activityModel.isAgentActive ? Color.green : Color.secondary.opacity(0.3))
+                    .fill(dotColor)
                     .frame(width: 7, height: 7)
-                    .scaleEffect(isPulsing && activityModel.isAgentActive ? 1.3 : 1.0)
+                    .scaleEffect(isPulsing && currentState == .working ? 1.3 : 1.0)
                     .animation(
-                        activityModel.isAgentActive
+                        currentState == .working
                             ? .easeInOut(duration: 0.8).repeatForever(autoreverses: true)
                             : .default,
                         value: isPulsing
@@ -1749,48 +2014,96 @@ struct AgentActivityIndicator: View {
                     .onChange(of: activityModel.isAgentActive) { _, active in
                         isPulsing = active
                     }
+                    .onAppear { isPulsing = activityModel.isAgentActive }
 
-                VStack(alignment: .leading, spacing: 0) {
-                    if activityModel.isAgentActive {
-                        HStack(spacing: 4) {
-                            if let change = activityModel.latestFileChange {
-                                Text(change.url.lastPathComponent)
-                                    .font(.system(size: 10))
-                                    .lineLimit(1)
-                                    .foregroundStyle(.primary)
-                            }
-                            Text(formattedElapsed)
-                                .font(.system(size: 10, design: .monospaced))
-                                .foregroundStyle(.secondary)
-                        }
-                    } else {
-                        HStack(spacing: 4) {
-                            Text(summaryText)
-                                .font(.system(size: 10))
-                                .foregroundStyle(.secondary)
-                            if activityModel.isTaskStalled {
-                                stallBadge
-                            }
-                        }
-                    }
+                Text(pillLabel)
+                    .font(.system(size: 10))
+                    .lineLimit(1)
+                    .foregroundStyle(currentState == .idle ? .tertiary : .secondary)
+
+                if currentState == .working {
+                    Text(formattedElapsed)
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                } else if currentState != .idle {
+                    Text("\(activityModel.sessionStats.totalFilesTouched)")
+                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .accessibilityLabel("\(activityModel.sessionStats.totalFilesTouched) files changed")
+                }
+
+                if currentState == .completed && activityModel.isTaskStalled {
+                    stallBadge
                 }
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 3)
             .background(
                 RoundedRectangle(cornerRadius: 4)
-                    .fill(activityModel.isAgentActive
-                          ? Color.green.opacity(0.08)
-                          : Color.clear)
+                    .fill(pillBackgroundColor)
             )
-            .help(activityModel.isAgentActive ? "Agent is actively making changes" : "Agent idle — \(activityModel.sessionStats.totalFilesTouched) files touched this session")
+        }
+        .buttonStyle(.plain)
+        .help(helpText)
+        .popover(isPresented: $showPopover, arrowEdge: .bottom) {
+            AgentStatusPopover(
+                activityModel: activityModel,
+                onJumpToTerminal: {
+                    showPopover = false
+                    if let tv = terminalProxy.terminalView {
+                        tv.window?.makeFirstResponder(tv)
+                    }
+                }
+            )
+        }
+    }
+
+    private var dotColor: Color {
+        switch currentState {
+        case .idle:      return Color.secondary.opacity(0.3)
+        case .working:   return Color.green
+        case .completed: return Color.green.opacity(0.6)
+        }
+    }
+
+    private var pillBackgroundColor: Color {
+        switch currentState {
+        case .idle:      return Color.clear
+        case .working:   return Color.green.opacity(0.1)
+        case .completed: return Color.secondary.opacity(0.08)
+        }
+    }
+
+    private var pillLabel: String {
+        switch currentState {
+        case .idle:
+            return "Idle"
+        case .working:
+            if let change = activityModel.latestFileChange {
+                return change.url.lastPathComponent
+            }
+            return "Working…"
+        case .completed:
+            return summaryText
+        }
+    }
+
+    private var helpText: String {
+        switch currentState {
+        case .idle:
+            return "Agent idle — no changes this session"
+        case .working:
+            return "Agent is actively making changes"
+        case .completed:
+            let n = activityModel.sessionStats.totalFilesTouched
+            return "Agent idle — \(n) file\(n == 1 ? "" : "s") touched this session"
         }
     }
 
     @ViewBuilder
     private var stallBadge: some View {
         Button {
-            onFocusTerminal?()
+            terminalProxy.focusTerminal()
         } label: {
             Text("possibly stalled")
                 .font(.system(size: 9, weight: .medium))
@@ -1816,5 +2129,133 @@ struct AgentActivityIndicator: View {
             parts.append("\(stats.commitCount) commit\(stats.commitCount == 1 ? "" : "s")")
         }
         return parts.joined(separator: " · ")
+    }
+}
+
+/// Compact popover shown when the agent status pill is clicked.
+/// Displays a summary of files touched, diff totals, the last event, and
+/// a button to focus the terminal.
+struct AgentStatusPopover: View {
+    @ObservedObject var activityModel: ActivityFeedModel
+    var onJumpToTerminal: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Header
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(activityModel.isAgentActive ? Color.green : Color.secondary.opacity(0.4))
+                    .frame(width: 7, height: 7)
+                Text(activityModel.isAgentActive ? "Working…" : "Agent Idle")
+                    .font(.system(size: 12, weight: .semibold))
+                Spacer()
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 10) {
+                let stats = activityModel.sessionStats
+
+                if stats.totalFilesTouched > 0 {
+                    // Files breakdown
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Files Changed")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(.secondary)
+
+                        HStack(spacing: 10) {
+                            if stats.filesCreated > 0 {
+                                Label("\(stats.filesCreated) added", systemImage: "plus.circle.fill")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(.green)
+                            }
+                            if stats.filesModified > 0 {
+                                Label("\(stats.filesModified) modified", systemImage: "pencil.circle.fill")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(.orange)
+                            }
+                            if stats.filesDeleted > 0 {
+                                Label("\(stats.filesDeleted) deleted", systemImage: "minus.circle.fill")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(.red)
+                            }
+                        }
+                    }
+
+                    // Diff line totals
+                    if stats.totalAdditions > 0 || stats.totalDeletions > 0 {
+                        HStack(spacing: 8) {
+                            if stats.totalAdditions > 0 {
+                                Text("+\(stats.totalAdditions)")
+                                    .font(.system(size: 11, design: .monospaced))
+                                    .foregroundStyle(.green)
+                            }
+                            if stats.totalDeletions > 0 {
+                                Text("-\(stats.totalDeletions)")
+                                    .font(.system(size: 11, design: .monospaced))
+                                    .foregroundStyle(.red)
+                            }
+                        }
+                    }
+
+                    if stats.commitCount > 0 {
+                        Label("\(stats.commitCount) commit\(stats.commitCount == 1 ? "" : "s")", systemImage: "arrow.triangle.branch")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.purple)
+                    }
+                } else {
+                    Text("No changes this session")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.tertiary)
+                }
+
+                // Last event
+                if let lastEvent = activityModel.events.last {
+                    Divider()
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Last Event")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(.secondary)
+
+                        HStack(spacing: 4) {
+                            Image(systemName: lastEvent.icon)
+                                .font(.system(size: 10))
+                                .foregroundStyle(.secondary)
+                            Text(lastEvent.displayName)
+                                .font(.system(size: 11))
+                                .lineLimit(1)
+                                .foregroundStyle(.primary)
+                        }
+
+                        Text(lastEvent.timestamp, style: .relative)
+                            .font(.system(size: 10))
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+
+            Divider()
+
+            // Jump to terminal
+            Button(action: onJumpToTerminal) {
+                HStack(spacing: 6) {
+                    Image(systemName: "terminal")
+                        .font(.system(size: 11))
+                    Text("Jump to Terminal")
+                        .font(.system(size: 12))
+                    Spacer()
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+        }
+        .frame(width: 260)
     }
 }

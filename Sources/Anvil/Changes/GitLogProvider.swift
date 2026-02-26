@@ -138,6 +138,39 @@ enum GitLogProvider {
         return commits
     }
 
+    /// Fetch commits on the current branch that are not yet in `base`.
+    /// Used to populate the PR description with branch-specific commit history.
+    static func branchCommits(base: String, in directory: URL) -> [GitCommit] {
+        let format = "%H%n%h%n%s%n%an%n%aI"
+        guard let output = runGit(
+            args: ["log", "--pretty=format:\(format)", "--no-merges", "\(base)..HEAD"],
+            at: directory
+        ), !output.isEmpty else {
+            return []
+        }
+
+        let lines = output.components(separatedBy: "\n")
+        var commits: [GitCommit] = []
+        var i = 0
+
+        while i + 4 < lines.count {
+            let sha = lines[i]
+            let shortSHA = lines[i + 1]
+            let message = lines[i + 2]
+            let author = lines[i + 3]
+            let dateStr = lines[i + 4]
+            i += 5
+
+            let date = ISO8601DateFormatter().date(from: dateStr) ?? Date()
+            commits.append(GitCommit(
+                sha: sha, shortSHA: shortSHA, message: message,
+                author: author, date: date, files: nil
+            ))
+        }
+
+        return commits
+    }
+
     /// Fetch recent commits that touched a specific file path.
     static func fileLog(path: String, in directory: URL, count: Int = 20) -> [GitCommit] {
         let format = "%H%n%h%n%s%n%an%n%aI"

@@ -3,6 +3,15 @@ import Foundation
 /// Runs `git diff` and returns parsed results.
 enum DiffProvider {
 
+    /// Get the staged diff for a specific file (`git diff --cached` vs HEAD).
+    /// Returns nil when there are no staged changes for the file.
+    static func stagedDiff(for fileURL: URL, in directory: URL) -> FileDiff? {
+        let relativePath = relativePath(of: fileURL, in: directory)
+        guard let output = runGitDiff(args: ["diff", "--cached", "--", relativePath], at: directory),
+              !output.isEmpty else { return nil }
+        return DiffParser.parseSingleFile(output)
+    }
+
     /// Get the diff for a specific file (all uncommitted changes vs HEAD).
     /// Falls back to a synthetic all-additions diff for untracked files.
     static func diff(for fileURL: URL, in directory: URL) -> FileDiff? {
@@ -25,6 +34,33 @@ enum DiffProvider {
             return []
         }
         return DiffParser.parse(output)
+    }
+
+    /// Get the diff for a specific file in a stash entry.
+    static func stashFileDiff(stashIndex: Int, filePath: String, in directory: URL) -> FileDiff? {
+        let ref = "stash@{\(stashIndex)}"
+        if let output = runGitDiff(
+            args: ["diff", "\(ref)^1", ref, "--", filePath],
+            at: directory
+        ), !output.isEmpty {
+            return DiffParser.parseSingleFile(output)
+        }
+        // Fallback: show stash@{N}:filePath as a new-file diff (e.g. untracked)
+        if let output = runGitDiff(
+            args: ["show", "\(ref):\(filePath)"],
+            at: directory
+        ), !output.isEmpty {
+            // Wrap raw content as synthetic additions diff
+            let lines = output.components(separatedBy: "\n")
+            let diffLines: [DiffLine] = lines.enumerated().map { i, text in
+                DiffLine(id: i + 1, kind: .addition, text: text,
+                         oldLineNumber: nil, newLineNumber: i + 1)
+            }
+            let header = "@@ -0,0 +1,\(lines.count) @@"
+            let hunk = DiffHunk(id: 0, header: header, lines: diffLines)
+            return FileDiff(id: filePath, oldPath: "/dev/null", newPath: filePath, hunks: [hunk])
+        }
+        return nil
     }
 
     /// Get the diff for a specific file in a specific commit.

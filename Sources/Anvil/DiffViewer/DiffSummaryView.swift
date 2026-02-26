@@ -11,6 +11,8 @@ struct DiffSummaryView: View {
     @State private var scrollTarget: URL?
     @AppStorage("diffViewMode") private var diffMode: String = DiffViewMode.unified.rawValue
     @State private var showCommitForm = false
+    @State private var requestFixContext: RequestFixContext?
+    @EnvironmentObject var terminalProxy: TerminalInputProxy
 
     private var filesWithDiffs: [ChangedFile] {
         changesModel.changedFiles.filter { $0.diff != nil }
@@ -22,6 +24,19 @@ struct DiffSummaryView: View {
             summaryHeader
 
             Divider()
+
+            // Request Fix prompt bar (shown when a fix is requested)
+            if let context = requestFixContext {
+                RequestFixPromptView(
+                    context: context,
+                    onSubmit: { prompt in
+                        terminalProxy.send(prompt)
+                        requestFixContext = nil
+                    },
+                    onDismiss: { requestFixContext = nil }
+                )
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
 
             if changesModel.changedFiles.isEmpty {
                 emptyState
@@ -73,6 +88,11 @@ struct DiffSummaryView: View {
             case "s": changesModel.stageFocusedHunk(); return .handled
             case "d": changesModel.discardFocusedHunk(); return .handled
             case "r": changesModel.toggleFocusedFileReviewed(); return .handled
+            case "f":
+                if let file = changesModel.focusedFile {
+                    requestFix(for: file, hunk: changesModel.focusedHunk)
+                }
+                return .handled
             default:
                 if keyPress.key == .return {
                     if let url = changesModel.focusedFile?.url { onSelectFile?(url) }
@@ -91,6 +111,21 @@ struct DiffSummaryView: View {
         .focusedValue(\.openFocusedFile, changesModel.focusedFile != nil ? {
             if let url = changesModel.focusedFile?.url { onSelectFile?(url) }
         } : nil)
+        .focusedValue(\.requestFix, changesModel.focusedFile != nil ? {
+            if let file = changesModel.focusedFile {
+                requestFix(for: file, hunk: changesModel.focusedHunk)
+            }
+        } : nil)
+        .animation(.easeInOut(duration: 0.15), value: requestFixContext != nil)
+    }
+
+    // MARK: - Request Fix helper
+
+    private func requestFix(for file: ChangedFile, hunk: DiffHunk?) {
+        requestFixContext = RequestFixContext(
+            filePath: file.relativePath,
+            lineRange: hunk?.newFileLineRange
+        )
     }
 
     // MARK: - Header
@@ -284,6 +319,17 @@ struct DiffSummaryView: View {
                 .buttonStyle(.borderless)
                 .help("Open in Preview")
 
+                // Request Fix button for this file
+                Button {
+                    requestFix(for: file, hunk: nil)
+                } label: {
+                    Image(systemName: "wrench.and.screwdriver")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.orange)
+                }
+                .buttonStyle(.borderless)
+                .help("Request Fix for this file")
+
                 // Review toggle
                 Button {
                     changesModel.toggleReviewed(file)
@@ -342,11 +388,17 @@ struct DiffSummaryView: View {
                                 DiffHunkView(
                                     hunk: hunk,
                                     syntaxHighlights: highlights,
-                                    onStage: {
+                                    onStage: file.staging != .staged ? {
                                         changesModel.stageHunk(patch: DiffParser.reconstructPatch(fileDiff: diff, hunk: hunk))
-                                    },
+                                    } : nil,
+                                    onUnstage: file.staging != .unstaged ? {
+                                        changesModel.unstageHunk(patch: DiffParser.reconstructPatch(fileDiff: diff, hunk: hunk))
+                                    } : nil,
                                     onDiscard: {
                                         changesModel.discardHunk(patch: DiffParser.reconstructPatch(fileDiff: diff, hunk: hunk))
+                                    },
+                                    onRequestFix: {
+                                        requestFix(for: file, hunk: hunk)
                                     },
                                     isFocused: isFocusedFile && changesModel.focusedHunkIndex == hunkIdx
                                 )

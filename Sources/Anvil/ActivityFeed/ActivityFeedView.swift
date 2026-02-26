@@ -5,6 +5,7 @@ import AppKit
 struct ActivityFeedView: View {
     @ObservedObject var model: ActivityFeedModel
     @ObservedObject var filePreview: FilePreviewModel
+    var rootURL: URL?
 
     var body: some View {
         if model.groups.isEmpty {
@@ -59,7 +60,8 @@ struct ActivityFeedView: View {
                             ForEach(model.groups) { group in
                                 ActivityGroupView(
                                     group: group,
-                                    filePreview: filePreview
+                                    filePreview: filePreview,
+                                    rootURL: rootURL
                                 )
                             }
                         }
@@ -81,6 +83,7 @@ struct ActivityFeedView: View {
 struct ActivityGroupView: View {
     let group: ActivityGroup
     @ObservedObject var filePreview: FilePreviewModel
+    var rootURL: URL?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -123,7 +126,7 @@ struct ActivityGroupView: View {
 
             // Events in this group
             ForEach(group.events) { event in
-                ActivityEventRow(event: event, filePreview: filePreview)
+                ActivityEventRow(event: event, filePreview: filePreview, rootURL: rootURL)
             }
         }
         .id(group.id)
@@ -133,7 +136,13 @@ struct ActivityGroupView: View {
 struct ActivityEventRow: View {
     let event: ActivityEvent
     @ObservedObject var filePreview: FilePreviewModel
+    var rootURL: URL?
     @EnvironmentObject var terminalProxy: TerminalInputProxy
+
+    @State private var isHovering = false
+    @State private var dismissTask: DispatchWorkItem?
+    @State private var hoveredDiff: FileDiff?
+    @State private var isLoadingDiff = false
 
     var body: some View {
         HStack(spacing: 6) {
@@ -205,6 +214,26 @@ struct ActivityEventRow: View {
                 ? RoundedRectangle(cornerRadius: 4).fill(Color.accentColor.opacity(0.1))
                 : nil
         )
+        .onHover { hovering in
+            dismissTask?.cancel()
+            if hovering {
+                isHovering = true
+                if hoveredDiff == nil && !isLoadingDiff { loadDiff() }
+            } else {
+                let task = DispatchWorkItem { isHovering = false }
+                dismissTask = task
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4, execute: task)
+            }
+        }
+        .onDisappear { dismissTask?.cancel() }
+        .popover(isPresented: Binding(
+            get: { isHovering && hoveredDiff != nil },
+            set: { if !$0 { isHovering = false } }
+        ), arrowEdge: .trailing) {
+            if let diff = hoveredDiff {
+                DiffPreviewPopover(diff: diff, onOpenFull: event.fileURL.map { url in { filePreview.select(url) } })
+            }
+        }
         .contextMenu {
             if let url = event.fileURL {
                 if !event.path.isEmpty {
@@ -261,6 +290,23 @@ struct ActivityEventRow: View {
         case .fileDeleted:  return .red
         case .fileRenamed:  return .blue
         case .gitCommit:    return .purple
+        }
+    }
+
+    private func loadDiff() {
+        guard let fileURL = event.fileURL, let root = rootURL else { return }
+        // Only load for file change events that have a readable file
+        switch event.kind {
+        case .gitCommit, .fileDeleted: return
+        default: break
+        }
+        isLoadingDiff = true
+        DispatchQueue.global(qos: .userInitiated).async {
+            let diff = DiffProvider.diff(for: fileURL, in: root)
+            DispatchQueue.main.async {
+                self.hoveredDiff = diff
+                self.isLoadingDiff = false
+            }
         }
     }
 }

@@ -41,6 +41,8 @@ final class ChangesModel: ObservableObject {
     @Published var lastUndoneCommitSHA: String?
     /// Error message from the most recent hunk-level operation.
     @Published var lastHunkError: String?
+    /// The patch that was last discarded via "Discard Hunk", kept for a few seconds so the user can undo.
+    @Published var lastDiscardedHunkPatch: String?
 
     // MARK: - Review Tracking
 
@@ -75,6 +77,7 @@ final class ChangesModel: ObservableObject {
     private var refreshGeneration: UInt64 = 0
     private var commitGeneration: UInt64 = 0
     private var stashGeneration: UInt64 = 0
+    private var discardHunkGeneration: UInt64 = 0
     private var fileWatcher: FileWatcher?
 
     deinit {
@@ -95,6 +98,10 @@ final class ChangesModel: ObservableObject {
 
     var unstagedFiles: [ChangedFile] {
         changedFiles.filter { $0.staging == .unstaged || $0.staging == .partial }
+    }
+
+    var conflictedFiles: [ChangedFile] {
+        changedFiles.filter { $0.status == .conflicted }
     }
 
     var canCommit: Bool {
@@ -123,17 +130,75 @@ final class ChangesModel: ObservableObject {
         // Build subject line
         let subject = buildSubject(added: added, modified: modified, deleted: deleted, renamed: renamed)
 
-        // Build body with per-file stats
+        // Build body with per-directory grouping, per-file stats, and extracted symbols
         var bodyLines: [String] = []
         if files.count > 1 {
             bodyLines.append("")
-            for file in files {
-                let stats = fileStatsLabel(file)
-                bodyLines.append("- \(file.relativePath)\(stats)")
+            let groups = Dictionary(grouping: files) { $0.directoryPath }
+            let sortedDirs = groups.keys.sorted()
+            if sortedDirs.count > 1 {
+                // Multiple directories: group files under their parent directory
+                for dir in sortedDirs {
+                    let dirLabel = dir.isEmpty ? "(root)" : "\(dir)/"
+                    bodyLines.append(dirLabel)
+                    for file in groups[dir]! {
+                        let stats = fileStatsLabel(file)
+                        let symbols = extractedSymbols(file)
+                        let symbolSuffix = symbols.isEmpty ? "" : ": \(symbols)"
+                        bodyLines.append("  - \(file.fileName)\(stats)\(symbolSuffix)")
+                    }
+                }
+            } else {
+                // Single directory: flat list with optional symbol annotation
+                for file in files {
+                    let stats = fileStatsLabel(file)
+                    let symbols = extractedSymbols(file)
+                    let symbolSuffix = symbols.isEmpty ? "" : ": \(symbols)"
+                    bodyLines.append("- \(file.relativePath)\(stats)\(symbolSuffix)")
+                }
             }
         }
 
         return subject + bodyLines.joined(separator: "\n")
+    }
+
+    /// Extracts up to three top-level symbol names (functions, types, etc.) from
+    /// the addition lines of a file's diff, using `SymbolParser`.
+    private func extractedSymbols(_ file: ChangedFile) -> String {
+        guard let diff = file.diff, !diff.hunks.isEmpty else { return "" }
+        let ext = (file.relativePath as NSString).pathExtension.lowercased()
+        let language = languageFromExtension(ext)
+        guard !language.isEmpty else { return "" }
+        let addedLines = diff.hunks.flatMap(\.lines)
+            .filter { $0.kind == .addition }
+            .compactMap { $0.text.hasPrefix("+") ? String($0.text.dropFirst()) : nil }
+        guard !addedLines.isEmpty else { return "" }
+        let source = addedLines.joined(separator: "\n")
+        let symbols = SymbolParser.parse(source: source, language: language)
+        let topLevel = symbols.filter { $0.depth == 0 }.prefix(3).map(\.name)
+        guard !topLevel.isEmpty else { return "" }
+        return topLevel.joined(separator: ", ")
+    }
+
+    /// Maps a file extension to the Highlightr language identifier used by `SymbolParser`.
+    private func languageFromExtension(_ ext: String) -> String {
+        switch ext {
+        case "swift":             return "swift"
+        case "ts", "tsx":        return "typescript"
+        case "js", "jsx":        return "javascript"
+        case "py":               return "python"
+        case "go":               return "go"
+        case "rs":               return "rust"
+        case "java":             return "java"
+        case "kt", "kts":        return "kotlin"
+        case "cs":               return "csharp"
+        case "c", "h":           return "c"
+        case "cpp", "cc", "cxx", "hpp": return "cpp"
+        case "m", "mm":          return "objectivec"
+        case "rb":               return "ruby"
+        case "php":              return "php"
+        default:                 return ""
+        }
     }
 
     private func buildSubject(added: [ChangedFile], modified: [ChangedFile], deleted: [ChangedFile], renamed: [ChangedFile]) -> String {
@@ -284,6 +349,11 @@ final class ChangesModel: ObservableObject {
     func stageFocusedHunk() {
         guard let file = focusedFile, let hunk = focusedHunk, let diff = file.diff else { return }
         stageHunk(patch: DiffParser.reconstructPatch(fileDiff: diff, hunk: hunk))
+    }
+
+    func unstageFocusedHunk() {
+        guard let file = focusedFile, let hunk = focusedHunk, let diff = file.diff else { return }
+        unstageHunk(patch: DiffParser.reconstructPatch(fileDiff: diff, hunk: hunk))
     }
 
     func discardFocusedHunk() {
@@ -583,7 +653,34 @@ final class ChangesModel: ObservableObject {
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let (success, error) = Self.runGitApply(patch: patch, args: ["apply", "--reverse"], at: rootURL)
             DispatchQueue.main.async {
-                if !success { self?.lastHunkError = error ?? "Failed to discard hunk" }
+                if success {
+                    self?.discardHunkGeneration &+= 1
+                    let generation = self?.discardHunkGeneration ?? 0
+                    self?.lastDiscardedHunkPatch = patch
+                    // Auto-dismiss the undo toast after 8 seconds
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self] in
+                        if self?.discardHunkGeneration == generation {
+                            self?.lastDiscardedHunkPatch = nil
+                        }
+                    }
+                } else {
+                    self?.lastHunkError = error ?? "Failed to discard hunk"
+                }
+                self?.refresh()
+            }
+        }
+    }
+
+    /// Re-apply the last discarded hunk patch to undo a hunk discard.
+    func undoDiscardHunk() {
+        guard let rootURL = rootDirectory, let patch = lastDiscardedHunkPatch else { return }
+        discardHunkGeneration &+= 1
+        lastDiscardedHunkPatch = nil
+        lastHunkError = nil
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let (success, error) = Self.runGitApply(patch: patch, args: ["apply"], at: rootURL)
+            DispatchQueue.main.async {
+                if !success { self?.lastHunkError = error ?? "Failed to undo hunk discard" }
                 self?.refresh()
             }
         }
@@ -617,7 +714,7 @@ final class ChangesModel: ObservableObject {
 
     /// Stage all files and commit atomically, without relying on intermediate
     /// UI state refresh between the two git operations.
-    func stageAllAndCommit() {
+    func stageAllAndCommit(completion: (() -> Void)? = nil) {
         guard let rootURL = rootDirectory else { return }
         let message = commitMessage.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !message.isEmpty, !changedFiles.isEmpty else { return }
@@ -634,6 +731,62 @@ final class ChangesModel: ObservableObject {
                 if success {
                     self.commitMessage = ""
                     self.lastCommitError = nil
+                    completion?()
+                } else {
+                    self.lastCommitError = error ?? "Commit failed"
+                }
+                self.refresh()
+                self.refreshCommits()
+            }
+        }
+    }
+
+    /// Commit staged changes and then push to the remote.
+    func commitAndPush(pushAction: @escaping () -> Void) {
+        guard let rootURL = rootDirectory else { return }
+        let message = commitMessage.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !message.isEmpty, !stagedFiles.isEmpty else { return }
+
+        isCommitting = true
+        lastCommitError = nil
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let (success, error) = Self.runGitCommit(message: message, at: rootURL)
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                self.isCommitting = false
+                if success {
+                    self.commitMessage = ""
+                    self.lastCommitError = nil
+                    pushAction()
+                } else {
+                    self.lastCommitError = error ?? "Commit failed"
+                }
+                self.refresh()
+                self.refreshCommits()
+            }
+        }
+    }
+
+    /// Stage all files, commit atomically, and then push to the remote.
+    func stageAllAndCommitAndPush(pushAction: @escaping () -> Void) {
+        guard let rootURL = rootDirectory else { return }
+        let message = commitMessage.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !message.isEmpty, !changedFiles.isEmpty else { return }
+
+        isCommitting = true
+        lastCommitError = nil
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            Self.runGitSync(args: ["add", "-A"], at: rootURL)
+            let (success, error) = Self.runGitCommit(message: message, at: rootURL)
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                self.isCommitting = false
+                if success {
+                    self.commitMessage = ""
+                    self.lastCommitError = nil
+                    pushAction()
                 } else {
                     self.lastCommitError = error ?? "Commit failed"
                 }
@@ -748,6 +901,26 @@ final class ChangesModel: ObservableObject {
     }
 
     // MARK: - Stash Management
+
+    /// Stash all uncommitted changes (staged and unstaged) with an optional message.
+    func stashAll(message: String = "") {
+        guard let rootURL = rootDirectory, !changedFiles.isEmpty else { return }
+        lastStashError = nil
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let msg = message.trimmingCharacters(in: .whitespacesAndNewlines)
+            let (success, error) = GitStashProvider.push(
+                message: msg.isEmpty ? nil : msg,
+                in: rootURL
+            )
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                if !success { self.lastStashError = error ?? "Failed to stash" }
+                self.refresh()
+                self.refreshStashes()
+            }
+        }
+    }
 
     func refreshStashes() {
         guard let rootURL = rootDirectory else { return }

@@ -25,9 +25,9 @@ struct FilePreviewView: View {
         model.changeRegions(from: currentGutterChanges).count
     }
 
-    /// True when viewing a working-tree diff (not commit history).
+    /// True when viewing a working-tree diff (not commit history or stash).
     private var isLiveDiffAvailable: Bool {
-        model.commitDiffContext == nil && model.fileDiff != nil
+        model.commitDiffContext == nil && model.stashDiffContext == nil && model.fileDiff != nil
     }
 
     /// Dynamic width for the segmented tab picker based on visible tabs.
@@ -44,11 +44,17 @@ struct FilePreviewView: View {
         }
     }
 
+    /// URLs of files with uncommitted changes, derived from the changesModel.
+    private var changedURLs: Set<URL> {
+        guard let cm = changesModel else { return [] }
+        return Set(cm.changedFiles.map(\.url))
+    }
+
     var body: some View {
         VStack(spacing: 0) {
-            // Tab bar (when multiple tabs are open)
-            if model.openTabs.count > 1 {
-                PreviewTabBar(model: model)
+            // Tab bar (when any tabs are open)
+            if !model.openTabs.isEmpty {
+                PreviewTabBar(model: model, changedURLs: changedURLs)
             }
 
             // Header bar
@@ -66,6 +72,14 @@ struct FilePreviewView: View {
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
                         .background(Capsule().fill(.purple.opacity(0.7)))
+                }
+                if let ctx = model.stashDiffContext {
+                    Text("stash@{\(ctx.stashIndex)}")
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Capsule().fill(.teal.opacity(0.7)))
                 }
 
                 Spacer()
@@ -177,6 +191,18 @@ struct FilePreviewView: View {
                     .help(model.showBlame ? "Hide Blame Annotations" : "Show Blame Annotations")
                 }
 
+                // Watch file toggle (live tail mode)
+                Button {
+                    model.isWatching.toggle()
+                } label: {
+                    Image(systemName: model.isWatching ? "pin.fill" : "pin")
+                        .font(.system(size: 11))
+                        .foregroundStyle(model.isWatching ? Color.accentColor : Color.secondary)
+                }
+                .buttonStyle(.borderless)
+                .help(model.isWatching ? "Stop Watching File" : "Watch File – auto-scroll to changes")
+                .disabled(model.selectedURL == nil)
+
                 // @Mention in terminal
                 Button {
                     terminalProxy.mentionFile(relativePath: model.relativePath)
@@ -187,6 +213,18 @@ struct FilePreviewView: View {
                 }
                 .buttonStyle(.borderless)
                 .help("Mention in Terminal (@)")
+                .disabled(model.selectedURL == nil)
+
+                // Add to Copilot context
+                Button {
+                    terminalProxy.addToContext(relativePath: model.relativePath)
+                } label: {
+                    Image(systemName: "scope")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.borderless)
+                .help("Add to Copilot Context (/context add)")
                 .disabled(model.selectedURL == nil)
 
                 Button {
@@ -201,6 +239,23 @@ struct FilePreviewView: View {
                 .buttonStyle(.borderless)
                 .help(ExternalEditorManager.preferred.map { "Open in \($0.name)" } ?? "Open in Default App")
                 .disabled(model.selectedURL == nil)
+
+                Button {
+                    if let rootURL = model.rootDirectory {
+                        if let ctx = model.commitDiffContext {
+                            GitHubURLBuilder.openFile(rootURL: rootURL, sha: ctx.sha, relativePath: ctx.filePath)
+                        } else {
+                            GitHubURLBuilder.openFile(rootURL: rootURL, relativePath: model.relativePath)
+                        }
+                    }
+                } label: {
+                    Image(systemName: "arrow.up.right.square")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.borderless)
+                .help("Open in GitHub")
+                .disabled(model.selectedURL == nil || model.rootDirectory == nil)
 
                 Button {
                     if let url = model.selectedURL {
@@ -234,16 +289,23 @@ struct FilePreviewView: View {
                         fileSize: model.imageFileSize
                     )
                 } else if model.activeTab == .changes, let diff = model.fileDiff {
-                    // Only show hunk actions for working tree diffs, not commit history
-                    let isLiveDiff = model.commitDiffContext == nil
+                    // Only show hunk actions for working tree diffs, not commit history or stash
+                    let isLiveDiff = model.commitDiffContext == nil && model.stashDiffContext == nil
+                    let stagedIDs: Set<Int> = isLiveDiff
+                        ? model.stagedFileDiff.map { DiffParser.stagedHunkIDs(combinedDiff: diff, stagedDiff: $0) } ?? []
+                        : []
                     DiffView(
                         diff: diff,
                         onStageHunk: isLiveDiff ? changesModel.map { cm in
                             { hunk in cm.stageHunk(patch: DiffParser.reconstructPatch(fileDiff: diff, hunk: hunk)) }
                         } : nil,
+                        onUnstageHunk: isLiveDiff ? changesModel.map { cm in
+                            { hunk in cm.unstageHunk(patch: DiffParser.reconstructPatch(fileDiff: diff, hunk: hunk)) }
+                        } : nil,
                         onDiscardHunk: isLiveDiff ? changesModel.map { cm in
                             { hunk in cm.discardHunk(patch: DiffParser.reconstructPatch(fileDiff: diff, hunk: hunk)) }
-                        } : nil
+                        } : nil,
+                        stagedHunkIDs: stagedIDs
                     )
                 } else if model.activeTab == .rendered, model.isMarkdownFile, let content = model.fileContent {
                     MarkdownPreviewView(content: content)
@@ -265,7 +327,19 @@ struct FilePreviewView: View {
                             }
                         } : nil,
                         blameLines: model.showBlame ? model.blameLines : [],
-                        scrollToLine: $model.scrollToLine
+                        scrollToLine: $model.scrollToLine,
+                        onBlameClick: { [model] sha in
+                            model.navigateToBlameCommit(sha: sha)
+                        },
+                        onSendToTerminal: { [model, terminalProxy] code, startLine, endLine in
+                            terminalProxy.sendCodeSnippet(
+                                relativePath: model.relativePath,
+                                language: model.highlightLanguage,
+                                startLine: startLine,
+                                endLine: endLine,
+                                code: code
+                            )
+                        }
                     )
                 } else {
                     Spacer()
@@ -597,6 +671,7 @@ struct ImagePreviewContent: View {
 /// Tab bar for switching between open files in the preview pane.
 struct PreviewTabBar: View {
     @ObservedObject var model: FilePreviewModel
+    var changedURLs: Set<URL> = []
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
@@ -606,6 +681,7 @@ struct PreviewTabBar: View {
                         url: url,
                         displayName: model.tabDisplayName(for: url),
                         isActive: model.selectedURL == url,
+                        isModified: changedURLs.contains(url),
                         onSelect: { model.select(url) },
                         onClose: { model.closeTab(url) }
                     )
@@ -623,6 +699,7 @@ struct PreviewTabItem: View {
     let url: URL
     let displayName: String
     let isActive: Bool
+    var isModified: Bool = false
     let onSelect: () -> Void
     let onClose: () -> Void
     @State private var isHovering = false
@@ -638,18 +715,25 @@ struct PreviewTabItem: View {
                 .lineLimit(1)
                 .foregroundStyle(isActive ? .primary : .secondary)
 
-            Button {
-                onClose()
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 8, weight: .semibold))
-                    .foregroundStyle(.tertiary)
-                    .frame(width: 14, height: 14)
-                    .contentShape(Rectangle())
+            if isModified && !isHovering {
+                Circle()
+                    .fill(Color.orange)
+                    .frame(width: 5, height: 5)
+                    .onTapGesture { onSelect() }
+            } else {
+                Button {
+                    onClose()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 8, weight: .semibold))
+                        .foregroundStyle(.tertiary)
+                        .frame(width: 14, height: 14)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .opacity(isHovering || isActive ? 1 : 0)
+                .allowsHitTesting(isHovering || isActive)
             }
-            .buttonStyle(.plain)
-            .opacity(isHovering || isActive ? 1 : 0)
-            .allowsHitTesting(isHovering || isActive)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 5)
@@ -684,6 +768,43 @@ struct PreviewTabItem: View {
     }
 }
 
+/// NSTextView subclass that adds a "Send to Terminal" context menu item and
+/// handles the ⌘⇧T keyboard shortcut for sending selected code to the terminal.
+private final class PreviewTextView: NSTextView {
+    /// Called when the user triggers "Send to Terminal" via context menu or ⌘⇧T.
+    var onSendToTerminal: (() -> Void)?
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let menu = super.menu(for: event) ?? NSMenu()
+        if onSendToTerminal != nil {
+            let item = NSMenuItem(
+                title: "Send to Terminal",
+                action: #selector(handleSendToTerminal(_:)),
+                keyEquivalent: "t"
+            )
+            item.keyEquivalentModifierMask = [.command, .shift]
+            item.target = self
+            menu.insertItem(NSMenuItem.separator(), at: 0)
+            menu.insertItem(item, at: 0)
+        }
+        return menu
+    }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if event.modifierFlags.intersection([.command, .shift, .option, .control]) == [.command, .shift],
+           event.characters?.lowercased() == "t",
+           let handler = onSendToTerminal {
+            handler()
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+
+    @objc private func handleSendToTerminal(_ sender: Any) {
+        onSendToTerminal?()
+    }
+}
+
 /// NSViewRepresentable wrapper around NSTextView with Highlightr syntax highlighting
 /// and a line number gutter with optional change indicators.
 struct HighlightedTextView: NSViewRepresentable {
@@ -698,6 +819,11 @@ struct HighlightedTextView: NSViewRepresentable {
     var blameLines: [BlameLine] = []
     /// Binding to scroll to a specific line (1-based). Set to nil after scrolling.
     @Binding var scrollToLine: Int?
+    /// Called when the user clicks a blame annotation. Receives the full commit SHA.
+    var onBlameClick: ((String) -> Void)?
+    /// Called when the user triggers "Send to Terminal". Receives the selected code (or empty
+    /// string when nothing is selected), plus the 1-based start and end line numbers.
+    var onSendToTerminal: ((String, Int, Int) -> Void)?
 
     func makeNSView(context: Context) -> NSScrollView {
         let scrollView = NSScrollView()
@@ -706,7 +832,7 @@ struct HighlightedTextView: NSViewRepresentable {
         scrollView.autohidesScrollers = true
         scrollView.drawsBackground = false
 
-        let textView = NSTextView()
+        let textView = PreviewTextView()
         textView.isEditable = false
         textView.isSelectable = true
         textView.isRichText = true
@@ -741,9 +867,16 @@ struct HighlightedTextView: NSViewRepresentable {
         context.coordinator.rulerView = rulerView
         context.coordinator.fileDiff = fileDiff
         context.coordinator.onRevertHunk = onRevertHunk
+        context.coordinator.onSendToTerminalAction = onSendToTerminal
         context.coordinator.applyHighlighting(content: content, language: language)
         rulerView.gutterChanges = gutterChanges
         rulerView.blameLines = blameLines
+        rulerView.onBlameClick = onBlameClick
+
+        let coordinator = context.coordinator
+        textView.onSendToTerminal = { [weak coordinator] in
+            coordinator?.sendCurrentSelectionToTerminal()
+        }
 
         return scrollView
     }
@@ -752,8 +885,16 @@ struct HighlightedTextView: NSViewRepresentable {
         context.coordinator.applyHighlighting(content: content, language: language)
         context.coordinator.rulerView?.gutterChanges = gutterChanges
         context.coordinator.rulerView?.blameLines = blameLines
+        context.coordinator.rulerView?.onBlameClick = onBlameClick
         context.coordinator.fileDiff = fileDiff
         context.coordinator.onRevertHunk = onRevertHunk
+        context.coordinator.onSendToTerminalAction = onSendToTerminal
+        if let textView = context.coordinator.textView as? PreviewTextView {
+            let coordinator = context.coordinator
+            textView.onSendToTerminal = onSendToTerminal != nil ? { [weak coordinator] in
+                coordinator?.sendCurrentSelectionToTerminal()
+            } : nil
+        }
 
         if let line = scrollToLine {
             DispatchQueue.main.async {
@@ -772,6 +913,8 @@ struct HighlightedTextView: NSViewRepresentable {
         weak var rulerView: LineNumberRulerView?
         var fileDiff: FileDiff?
         var onRevertHunk: ((DiffHunk) -> Void)?
+        /// Called when the user triggers "Send to Terminal". Receives code, startLine, endLine.
+        var onSendToTerminalAction: ((String, Int, Int) -> Void)?
         private let highlightr: Highlightr? = Highlightr()
         private var lastContent: String?
         private var lastLanguage: String?
@@ -905,6 +1048,47 @@ struct HighlightedTextView: NSViewRepresentable {
             let upToVisible = content.substring(to: charRange.location)
             return upToVisible.components(separatedBy: "\n").count
         }
+
+        /// Returns the approximate 1-based line number at the bottom of the visible area.
+        func visibleBottomLine() -> Int {
+            guard let textView = textView,
+                  let layoutManager = textView.layoutManager,
+                  let textContainer = textView.textContainer,
+                  let scrollView = textView.enclosingScrollView else { return 1 }
+
+            let visibleRect = scrollView.contentView.bounds
+            let glyphRange = layoutManager.glyphRange(forBoundingRect: visibleRect, in: textContainer)
+            let charRange = layoutManager.characterRange(forGlyphRange: glyphRange, actualGlyphRange: nil)
+            let content = textView.string as NSString
+            let endIndex = min(NSMaxRange(charRange), content.length)
+            let upToEnd = content.substring(to: endIndex)
+            return upToEnd.components(separatedBy: "\n").count
+        }
+
+        /// Computes the selection (or visible range if nothing is selected) and invokes
+        /// `onSendToTerminalAction` with the code string and 1-based start/end line numbers.
+        func sendCurrentSelectionToTerminal() {
+            guard let textView = textView else { return }
+            let nsString = textView.string as NSString
+            let sel = textView.selectedRange()
+
+            let code: String
+            let startLine: Int
+            let endLine: Int
+
+            if sel.length > 0 {
+                code = nsString.substring(with: sel)
+                startLine = nsString.substring(to: sel.location).components(separatedBy: "\n").count
+                let endCharIndex = max(0, NSMaxRange(sel) - 1)
+                endLine = nsString.substring(to: endCharIndex).components(separatedBy: "\n").count
+            } else {
+                startLine = visibleTopLine()
+                endLine = visibleBottomLine()
+                code = ""
+            }
+
+            onSendToTerminalAction?(code, startLine, endLine)
+        }
     }
 }
 
@@ -918,6 +1102,23 @@ final class LineNumberRulerView: NSRulerView {
     private let blameFont = NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .regular)
     private let blameAuthorColor = NSColor(white: 0.50, alpha: 1.0)
     private let blameDateColor = NSColor(white: 0.35, alpha: 1.0)
+    /// Number of "M" characters used to size the blame column (≈ max displayable content).
+    private let blameColumnCharCount = 20
+    /// Horizontal padding between the blame column and the blame separator line.
+    private let blameSeparatorPadding: CGFloat = 8
+    /// Gap between the right edge of the blame column and the left edge of the line numbers.
+    private let blameToLineNumbersGap: CGFloat = 12
+
+    /// Width of the blame column (author + date), derived from the worst-case string width.
+    private var blameColumnWidth: CGFloat {
+        let label = String(repeating: "M", count: blameColumnCharCount) as NSString
+        return label.size(withAttributes: [.font: blameFont]).width
+    }
+
+    /// The x-coordinate of the separator between the blame column and line numbers.
+    private var blameSeparatorX: CGFloat {
+        blameColumnWidth + blameSeparatorPadding
+    }
 
     /// Line-number → change kind mapping. Set externally; triggers redraw.
     var gutterChanges: [Int: GutterChangeKind] = [:] {
@@ -938,6 +1139,9 @@ final class LineNumberRulerView: NSRulerView {
     /// Called when the user clicks on a gutter change indicator.
     /// Parameters: (lineNumber, rectInRulerCoordinates).
     var onGutterClick: ((Int, NSRect) -> Void)?
+
+    /// Called when the user clicks on a blame annotation. Receives the full commit SHA.
+    var onBlameClick: ((String) -> Void)?
 
     init(textView: NSTextView) {
         self.targetTextView = textView
@@ -988,19 +1192,36 @@ final class LineNumberRulerView: NSRulerView {
         let newThickness: CGFloat
         if !blameMap.isEmpty {
             // Add space for blame: "author  2d ago" (approx 20 chars)
-            let blameLabel = String(repeating: "M", count: 20) as NSString
-            let blameWidth = blameLabel.size(withAttributes: [.font: blameFont]).width
-            newThickness = baseThickness + blameWidth + 12 // 12pt gap between blame and line numbers
+            newThickness = baseThickness + blameColumnWidth + blameToLineNumbersGap
         } else {
             newThickness = baseThickness
         }
         if abs(ruleThickness - newThickness) > 1 {
             ruleThickness = newThickness
         }
+        window?.invalidateCursorRects(for: self)
+    }
+
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        guard !blameMap.isEmpty else { return }
+        addCursorRect(NSRect(x: 0, y: 0, width: blameSeparatorX, height: bounds.height), cursor: .pointingHand)
     }
 
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
+
+        // If blame is visible, check whether the click landed in the blame column
+        if !blameMap.isEmpty {
+            if point.x < blameSeparatorX,
+               let lineNum = lineNumber(at: point),
+               let blame = blameMap[lineNum],
+               !blame.isUncommitted {
+                onBlameClick?(blame.sha)
+                return
+            }
+        }
+
         guard let lineNum = lineNumber(at: point),
               gutterChanges[lineNum] != nil else {
             super.mouseDown(with: event)
@@ -1086,9 +1307,7 @@ final class LineNumberRulerView: NSRulerView {
 
         // When blame is active, draw a second separator between blame and line numbers
         if hasBlame {
-            let blameLabel = String(repeating: "M", count: 20) as NSString
-            let blameWidth = blameLabel.size(withAttributes: [.font: blameFont]).width
-            let blameSepX = blameWidth + 8 + 0.5
+            let blameSepX = blameSeparatorX + 0.5
             NSColor(white: 0.20, alpha: 1.0).setStroke()
             let blameSepPath = NSBezierPath()
             blameSepPath.move(to: NSPoint(x: blameSepX, y: rect.minY))
@@ -1183,23 +1402,25 @@ final class LineNumberRulerView: NSRulerView {
 
                 // Draw gutter change indicator bar
                 if let change = gutterChanges[lineNumber] {
-                    let barColor: NSColor
-                    switch change {
-                    case .added:    barColor = NSColor.systemGreen
-                    case .modified: barColor = NSColor.systemBlue
-                    case .deleted:  barColor = NSColor.systemRed
-                    }
-                    barColor.setFill()
-                    let barWidth: CGFloat = change == .deleted ? 6 : 3
                     let barY = lineRect.minY - visibleRect.origin.y
-                    let barHeight = change == .deleted ? 3 : lineRect.height
-                    let barRect = NSRect(
-                        x: bounds.maxX - barWidth - 1,
-                        y: barY,
-                        width: barWidth,
-                        height: barHeight
-                    )
-                    NSBezierPath(roundedRect: barRect, xRadius: 1, yRadius: 1).fill()
+                    switch change {
+                    case .added, .modified:
+                        let barColor: NSColor = change == .added ? .systemGreen : .systemBlue
+                        barColor.setFill()
+                        let changeBarRect = NSRect(x: bounds.maxX - 4, y: barY, width: 3, height: lineRect.height)
+                        NSBezierPath(roundedRect: changeBarRect, xRadius: 1, yRadius: 1).fill()
+                    case .deleted:
+                        // Draw a small downward-pointing red triangle at the line boundary
+                        NSColor.systemRed.setFill()
+                        let triSize: CGFloat = 6
+                        let triX = bounds.maxX - triSize - 1
+                        let deletionPath = NSBezierPath()
+                        deletionPath.move(to: NSPoint(x: triX, y: barY))
+                        deletionPath.line(to: NSPoint(x: triX + triSize, y: barY))
+                        deletionPath.line(to: NSPoint(x: triX + triSize / 2, y: barY + triSize))
+                        deletionPath.close()
+                        deletionPath.fill()
+                    }
                 }
             }
 
