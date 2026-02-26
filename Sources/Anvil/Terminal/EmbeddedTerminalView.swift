@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import SwiftTerm
+import UniformTypeIdentifiers
 
 /// Wraps a SwiftTerm terminal with process lifecycle management.
 /// Shows a restart overlay when the shell process exits.
@@ -22,6 +23,7 @@ struct EmbeddedTerminalView: View {
     @State private var lastExitCode: Int32?
     @State private var terminalID = UUID()
     @State private var copilotNotFound = false
+    @State private var isDragTargeted = false
 
     private var shouldLaunchCopilot: Bool {
         // Only launch Copilot if the tab allows it AND the global setting is on
@@ -70,6 +72,13 @@ struct EmbeddedTerminalView: View {
             )
             .id(terminalID)
 
+            if isDragTargeted {
+                RoundedRectangle(cornerRadius: 4)
+                    .strokeBorder(Color.accentColor, lineWidth: 2)
+                    .background(Color.accentColor.opacity(0.08).clipShape(RoundedRectangle(cornerRadius: 4)))
+                    .allowsHitTesting(false)
+            }
+
             if !processRunning {
                 terminalRestartOverlay
             }
@@ -84,6 +93,63 @@ struct EmbeddedTerminalView: View {
                     .animation(.easeInOut(duration: 0.2), value: terminalProxy.isShowingFindBar)
             }
         }
+        .onDrop(of: [.fileURL], isTargeted: $isDragTargeted) { providers in
+            handleFileDrop(providers: providers)
+            return true
+        }
+    }
+
+    private func handleFileDrop(providers: [NSItemProvider]) {
+        var results: [Int: String] = [:]
+        let group = DispatchGroup()
+        let lock = NSLock()
+        let rootURL = workingDirectory.directoryURL
+
+        for (index, provider) in providers.enumerated() {
+            group.enter()
+            provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
+                defer { group.leave() }
+                guard let data = item as? Data,
+                      let url = URL(dataRepresentation: data, relativeTo: nil) else { return }
+                let raw = Self.projectRelativePath(for: url, rootURL: rootURL)
+                let sanitized = String(raw.unicodeScalars
+                    .filter { $0.value >= 0x20 && $0 != "\u{7F}" }
+                    .map { Character($0) })
+                let escaped = Self.shellEscapePath(sanitized)
+                lock.lock()
+                results[index] = escaped
+                lock.unlock()
+            }
+        }
+
+        group.notify(queue: .main) {
+            let text = (0..<providers.count).compactMap { results[$0] }.joined(separator: " ")
+            guard !text.isEmpty else { return }
+            terminalProxy.send(text)
+        }
+    }
+
+    private static func projectRelativePath(for url: URL, rootURL: URL?) -> String {
+        guard let rootURL = rootURL else { return url.path }
+        let rootPath = rootURL.standardizedFileURL.path
+        let filePath = url.standardizedFileURL.path
+        let rootPrefix = rootPath.hasSuffix("/") ? rootPath : rootPath + "/"
+        if filePath.hasPrefix(rootPrefix) {
+            return String(filePath.dropFirst(rootPrefix.count))
+        }
+        return url.path
+    }
+
+    private static let shellSpecialChars: Set<Character> = [
+        " ", "\t", "\n", "!", "\"", "#", "$", "&", "'",
+        "(", ")", "*", ",", ";", "<", "=", ">", "?",
+        "[", "\\", "]", "^", "`", "{", "|", "}", "~"
+    ]
+
+    private static func shellEscapePath(_ path: String) -> String {
+        guard path.contains(where: { shellSpecialChars.contains($0) }) else { return path }
+        let escaped = path.replacingOccurrences(of: "'", with: "'\\''")
+        return "'\(escaped)'"
     }
 
     private var copilotNotFoundBanner: some View {
