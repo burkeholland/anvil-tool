@@ -70,7 +70,11 @@ struct ChangesListView: View {
     // MARK: - Scope-filtered file lists
 
     private var displayedFiles: [ChangedFile] {
-        changeScope == .lastTask ? model.lastTaskChangedFiles : model.changedFiles
+        // Non-default baselines show the precomputed baseline file list
+        if model.diffBaseline != .workingChanges {
+            return model.baselineFiles
+        }
+        return changeScope == .lastTask ? model.lastTaskChangedFiles : model.changedFiles
     }
 
     private var displayedStagedFiles: [ChangedFile] {
@@ -274,9 +278,10 @@ struct ChangesListView: View {
 
     /// A segmented toggle shown when a task-start baseline has been recorded,
     /// letting the user switch between all uncommitted changes and last-task changes.
+    /// Hidden when a non-default diff baseline is active (scope doesn't apply there).
     @ViewBuilder
     private var changeScopeSection: some View {
-        if model.hasTaskStart && !model.changedFiles.isEmpty {
+        if model.diffBaseline == .workingChanges && model.hasTaskStart && !model.changedFiles.isEmpty {
             Section {
                 Picker("Changes scope", selection: $changeScope) {
                     ForEach(ChangeScope.allCases, id: \.self) { scope in
@@ -287,6 +292,24 @@ struct ChangesListView: View {
                 .labelsHidden()
                 .padding(.vertical, 2)
             }
+        }
+    }
+
+    /// A segmented control to select the diff baseline (always visible).
+    @ViewBuilder
+    private var diffBaselineSection: some View {
+        Section {
+            Picker("Diff baseline", selection: Binding(
+                get: { model.diffBaseline },
+                set: { model.setBaseline($0) }
+            )) {
+                ForEach(DiffBaseline.allCases, id: \.self) { baseline in
+                    Text(baseline.label).tag(baseline)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .padding(.vertical, 2)
         }
     }
 
@@ -311,7 +334,7 @@ struct ChangesListView: View {
     /// A segmented toggle for choosing how the changed-file list is grouped.
     @ViewBuilder
     private var groupingModeSection: some View {
-        if !model.changedFiles.isEmpty {
+        if !displayedFiles.isEmpty {
             Section {
                 Picker("Group by", selection: $groupingMode) {
                     ForEach(GroupingMode.allCases, id: \.self) { mode in
@@ -398,7 +421,21 @@ struct ChangesListView: View {
                 HStack {
                     Spacer()
                     VStack(spacing: 4) {
-                        if changeScope == .lastTask && !model.changedFiles.isEmpty {
+                        if model.diffBaseline == .sinceLastCommit {
+                            Image(systemName: "arrow.backward.circle")
+                                .font(.system(size: 16))
+                                .foregroundStyle(.secondary.opacity(0.6))
+                            Text("No changes since last commit")
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                        } else if model.diffBaseline == .sinceBranchPoint {
+                            Image(systemName: "arrow.triangle.branch")
+                                .font(.system(size: 16))
+                                .foregroundStyle(.secondary.opacity(0.6))
+                            Text("No changes since branch point")
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                        } else if changeScope == .lastTask && !model.changedFiles.isEmpty {
                             Image(systemName: "clock.arrow.circlepath")
                                 .font(.system(size: 16))
                                 .foregroundStyle(.secondary.opacity(0.6))
@@ -539,6 +576,7 @@ struct ChangesListView: View {
         ScrollViewReader { proxy in
             List {
                 changesTopSections
+                diffBaselineSection
                 changeScopeSection
                 groupingModeSection
                 conflictsSection

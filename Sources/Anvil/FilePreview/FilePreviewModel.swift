@@ -62,6 +62,10 @@ final class FilePreviewModel: ObservableObject {
         }
     }
 
+    /// When set, diffs are computed relative to this commit SHA instead of HEAD.
+    /// Set by ContentView when the Changes panel baseline selector changes.
+    var diffBaselineSHA: String?
+
     private var fileWatcher: FileWatcher?
 
     deinit {
@@ -264,7 +268,7 @@ final class FilePreviewModel: ObservableObject {
                 } else {
                     content = nil
                 }
-                let diff = DiffProvider.diff(for: url, in: root)
+                let diff = DiffProvider.diff(for: url, in: root, baselineSHA: self?.diffBaselineSHA)
                 let staged = DiffProvider.stagedDiff(for: url, in: root)
                 DispatchQueue.main.async {
                     guard self?.selectedURL == url else { return }
@@ -397,7 +401,7 @@ final class FilePreviewModel: ObservableObject {
                 } else {
                     content = nil
                 }
-                let diff: FileDiff? = root.flatMap { DiffProvider.diff(for: url, in: $0) }
+                let diff: FileDiff? = root.flatMap { DiffProvider.diff(for: url, in: $0, baselineSHA: self?.diffBaselineSHA) }
                 let staged: FileDiff? = root.flatMap { DiffProvider.stagedDiff(for: url, in: $0) }
                 DispatchQueue.main.async {
                     guard self?.selectedURL == url else { return }

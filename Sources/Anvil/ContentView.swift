@@ -341,6 +341,18 @@ struct ContentView: View {
                 }
             }
         }
+        .onChange(of: changesModel.diffBaseline) { _, newBaseline in
+            if newBaseline == .workingChanges {
+                filePreview.diffBaselineSHA = nil
+                if filePreview.selectedURL != nil { filePreview.refresh() }
+            }
+        }
+        .onChange(of: changesModel.currentBaselineSHA) { _, sha in
+            if changesModel.diffBaseline != .workingChanges {
+                filePreview.diffBaselineSHA = sha
+                if filePreview.selectedURL != nil { filePreview.refresh() }
+            }
+        }
         .onAppear {
             let screenshotMode = UserDefaults.standard.bool(forKey: "anvil.screenshotMode")
             if screenshotMode {

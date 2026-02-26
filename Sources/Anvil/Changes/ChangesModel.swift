@@ -36,6 +36,15 @@ struct DiscardedFileEntry: Identifiable {
     let rawContent: Data?
 }
 
+/// Controls what the Changes panel diffs are compared against.
+enum DiffBaseline: String, CaseIterable {
+    case workingChanges  = "Working"
+    case sinceLastCommit = "Last Commit"
+    case sinceBranchPoint = "Branch Point"
+
+    var label: String { rawValue }
+}
+
 /// Manages the list of git-changed files and their diffs.
 /// Owns its own FileWatcher to refresh independently of the file tree tab.
 final class ChangesModel: ObservableObject {
@@ -65,6 +74,17 @@ final class ChangesModel: ObservableObject {
     /// The entry currently shown in the undo toast banner; nil when no banner is visible.
     /// Separate from discardUndoStack so dismissing the banner doesn't expose older entries.
     @Published var activeDiscardBannerEntry: DiscardedFileEntry?
+
+    // MARK: - Diff Baseline
+
+    /// The selected diff baseline for the Changes panel.
+    @Published var diffBaseline: DiffBaseline = .workingChanges
+    /// File list computed against the non-default baseline (empty when baseline is .workingChanges).
+    @Published private(set) var baselineFiles: [ChangedFile] = []
+    /// The resolved git SHA for the current non-default baseline; nil when using workingChanges.
+    @Published private(set) var currentBaselineSHA: String?
+
+    private var baselineRefreshGeneration: UInt64 = 0
 
     // MARK: - Task Scope Tracking
 
@@ -410,6 +430,128 @@ final class ChangesModel: ObservableObject {
         reviewedPaths = Set(stored.keys)
     }
 
+    // MARK: - Diff Baseline Persistence
+
+    private static let diffBaselineKeyPrefix = "dev.anvil.diffBaseline."
+
+    private func baselinePersistenceKey(for rootURL: URL) -> String {
+        Self.diffBaselineKeyPrefix + rootURL.standardizedFileURL.path
+    }
+
+    private func saveBaseline() {
+        guard let rootURL = rootDirectory else { return }
+        UserDefaults.standard.set(diffBaseline.rawValue, forKey: baselinePersistenceKey(for: rootURL))
+    }
+
+    private func loadBaseline(for rootURL: URL) {
+        let key = baselinePersistenceKey(for: rootURL)
+        guard let raw = UserDefaults.standard.string(forKey: key),
+              let mode = DiffBaseline(rawValue: raw) else { return }
+        diffBaseline = mode
+    }
+
+    /// Switch to a new diff baseline, persist the choice, and refresh the baseline file list.
+    func setBaseline(_ baseline: DiffBaseline) {
+        diffBaseline = baseline
+        saveBaseline()
+        refreshBaselineFiles()
+    }
+
+    // MARK: - Baseline File Refresh
+
+    /// Recomputes `baselineFiles` and `currentBaselineSHA` for the current non-default baseline.
+    /// Clears both when the baseline is `.workingChanges`.
+    func refreshBaselineFiles() {
+        guard let rootURL = rootDirectory, diffBaseline != .workingChanges else {
+            baselineFiles = []
+            currentBaselineSHA = nil
+            return
+        }
+
+        let baseline = diffBaseline
+        baselineRefreshGeneration &+= 1
+        let generation = baselineRefreshGeneration
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            // Resolve the baseline commit SHA.
+            // `runGitOutput` returns nil on non-zero exit status, so single-commit repos
+            // (where HEAD~1 doesn't exist) or branches with no common ancestor will
+            // gracefully fall through to clearing baselineFiles.
+            let sha: String?
+            switch baseline {
+            case .workingChanges:
+                sha = nil
+            case .sinceLastCommit:
+                sha = Self.runGitOutput(args: ["rev-parse", "HEAD~1"], at: rootURL)
+            case .sinceBranchPoint:
+                let defaultBranch = DiffProvider.defaultBranch(in: rootURL) ?? "main"
+                sha = DiffProvider.mergeBase(defaultBranch, in: rootURL)
+            }
+
+            guard let baselineSHA = sha, !baselineSHA.isEmpty else {
+                DispatchQueue.main.async {
+                    guard let self = self, self.baselineRefreshGeneration == generation else { return }
+                    self.baselineFiles = []
+                    self.currentBaselineSHA = nil
+                }
+                return
+            }
+
+            // Resolve the git root directory so we can build correct absolute paths.
+            // If the command fails (detached HEAD, corrupted repo, etc.) bail out rather
+            // than produce paths relative to a potentially wrong directory.
+            guard let gitRootPath = Self.runGitOutput(args: ["rev-parse", "--show-toplevel"], at: rootURL),
+                  !gitRootPath.isEmpty else {
+                DispatchQueue.main.async {
+                    guard let self = self, self.baselineRefreshGeneration == generation else { return }
+                    self.baselineFiles = []
+                    self.currentBaselineSHA = nil
+                }
+                return
+            }
+            let gitRootURL = URL(fileURLWithPath: gitRootPath)
+
+            // Get all diffs from the baseline commit to the working tree
+            let diffs = DiffProvider.allChanges(from: baselineSHA, in: rootURL)
+
+            var files: [ChangedFile] = []
+            for fileDiff in diffs {
+                // For deleted files the relevant path is the old one; otherwise the new path
+                let relativePath = fileDiff.newPath != "/dev/null" ? fileDiff.newPath : fileDiff.oldPath
+                let url = gitRootURL.appendingPathComponent(relativePath)
+
+                let status: GitFileStatus
+                if fileDiff.oldPath == "/dev/null" {
+                    status = .added
+                } else if fileDiff.newPath == "/dev/null" {
+                    status = .deleted
+                } else {
+                    status = .modified
+                }
+
+                // Baseline-mode files are shown as unstaged so the existing
+                // unstagedSection displays them all under the "Changes" header.
+                // Staging/commit operations always operate on the real git index
+                // via model.changedFiles, which remains unaffected by the baseline.
+                files.append(ChangedFile(
+                    url: url,
+                    relativePath: relativePath,
+                    status: status,
+                    staging: .unstaged,
+                    diff: fileDiff,
+                    stagedDiff: nil
+                ))
+            }
+            files.sort { $0.relativePath.localizedStandardCompare($1.relativePath) == .orderedAscending }
+
+            DispatchQueue.main.async {
+                guard let self = self, self.baselineRefreshGeneration == generation else { return }
+                self.baselineFiles = files
+                self.currentBaselineSHA = baselineSHA
+            }
+        }
+    }
+
     // MARK: - Keyboard Navigation
 
     func focusNextFile() {
@@ -535,13 +677,16 @@ final class ChangesModel: ObservableObject {
     func start(rootURL: URL) {
         self.rootDirectory = rootURL
         loadReviewedState(for: rootURL)
+        loadBaseline(for: rootURL)
         fileWatcher?.stop()
         fileWatcher = FileWatcher(directory: rootURL) { [weak self] in
             self?.refresh()
+            self?.refreshBaselineFiles()
             self?.refreshCommits()
             self?.refreshStashes()
         }
         refresh()
+        refreshBaselineFiles()
         refreshCommits()
         refreshStashes()
     }
@@ -554,9 +699,12 @@ final class ChangesModel: ObservableObject {
         refreshGeneration &+= 1
         commitGeneration &+= 1
         stashGeneration &+= 1
+        baselineRefreshGeneration &+= 1
         changedFiles = []
         recentCommits = []
         stashes = []
+        baselineFiles = []
+        currentBaselineSHA = nil
         isLoading = false
         isLoadingCommits = false
         isLoadingStashes = false

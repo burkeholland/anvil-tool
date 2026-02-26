@@ -14,15 +14,17 @@ enum DiffProvider {
 
     /// Get the diff for a specific file (all uncommitted changes vs HEAD).
     /// Falls back to a synthetic all-additions diff for untracked files.
-    static func diff(for fileURL: URL, in directory: URL) -> FileDiff? {
+    /// Pass `baselineSHA` to compare against a specific commit instead of HEAD.
+    static func diff(for fileURL: URL, in directory: URL, baselineSHA: String? = nil) -> FileDiff? {
         let relativePath = relativePath(of: fileURL, in: directory)
-        // Use HEAD to capture both staged and unstaged changes in one pass
-        if let output = runGitDiff(args: ["diff", "HEAD", "--", relativePath], at: directory),
+        let baseRef = baselineSHA ?? "HEAD"
+        // Use baseRef to capture changes relative to the chosen baseline
+        if let output = runGitDiff(args: ["diff", baseRef, "--", relativePath], at: directory),
            !output.isEmpty {
             return DiffParser.parseSingleFile(output)
         }
-        // No diff from git — check if this is an untracked file
-        if isUntracked(relativePath, in: directory) {
+        // No diff from git — check if this is an untracked file (only for working-tree baseline)
+        if baselineSHA == nil, isUntracked(relativePath, in: directory) {
             return newFileDiff(for: fileURL, relativePath: relativePath)
         }
         return nil
@@ -31,6 +33,15 @@ enum DiffProvider {
     /// Get all changed files with their diffs (all uncommitted changes vs HEAD).
     static func allChanges(in directory: URL) -> [FileDiff] {
         guard let output = runGitDiff(args: ["diff", "HEAD"], at: directory), !output.isEmpty else {
+            return []
+        }
+        return DiffParser.parse(output)
+    }
+
+    /// Get all changed files with their diffs relative to a specific baseline commit SHA.
+    /// Includes both committed and uncommitted changes since that baseline.
+    static func allChanges(from baselineSHA: String, in directory: URL) -> [FileDiff] {
+        guard let output = runGitDiff(args: ["diff", baselineSHA], at: directory), !output.isEmpty else {
             return []
         }
         return DiffParser.parse(output)
