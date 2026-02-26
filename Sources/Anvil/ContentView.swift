@@ -11,6 +11,7 @@ enum SidebarTab: String {
 struct ContentView: View {
     @StateObject private var workingDirectory = WorkingDirectoryModel()
     @StateObject private var filePreview = FilePreviewModel()
+    @StateObject private var filePreview2 = FilePreviewModel()
     @StateObject private var changesModel = ChangesModel()
     @StateObject private var activityModel = ActivityFeedModel()
     @StateObject private var recentProjects = RecentProjectsModel()
@@ -27,7 +28,9 @@ struct ContentView: View {
     @AppStorage("previewWidth") private var previewWidth: Double = 400
     @AppStorage("showSidebar") private var showSidebar = true
     @AppStorage("sidebarTab") private var sidebarTab: SidebarTab = .files
+    @AppStorage("splitPreview") private var splitPreview = false
     @State private var showQuickOpen = false
+    @State private var showSecondaryQuickOpen = false
     @State private var showMentionPicker = false
     @State private var showCommandPalette = false
     @State private var showBranchPicker = false
@@ -210,6 +213,9 @@ struct ContentView: View {
                 if let counterpart = filePreview?.testFileCounterpart {
                     filePreview?.select(counterpart)
                 }
+            } : nil,
+            onToggleSplitPreview: workingDirectory.directoryURL != nil ? {
+                splitPreview.toggle()
             } : nil
         ))
     }
@@ -224,6 +230,8 @@ struct ContentView: View {
             testRunner.cancel()
             filePreview.close(persist: false)
             filePreview.rootDirectory = newURL
+            filePreview2.close(persist: false)
+            filePreview2.rootDirectory = newURL
             terminalTabs.reset()
             sessionHealthMonitor.reset()
             promptMarkerStore.clear()
@@ -350,6 +358,7 @@ struct ContentView: View {
                 UserDefaults.standard.removeObject(forKey: "anvil.screenshotTab")
             }
             filePreview.rootDirectory = workingDirectory.directoryURL
+            filePreview2.rootDirectory = workingDirectory.directoryURL
             notificationManager.connect(to: activityModel)
             terminalProxy.historyStore = promptHistoryStore
             terminalProxy.sessionMonitor = sessionHealthMonitor
@@ -740,7 +749,7 @@ struct ContentView: View {
                     )
                 }
 
-                if filePreview.selectedURL != nil || showDiffSummary || showBranchDiff || showMergeConflict {
+                if filePreview.selectedURL != nil || showDiffSummary || showBranchDiff || showMergeConflict || splitPreview {
                     PanelDivider(
                         width: $previewWidth,
                         minWidth: 200,
@@ -748,64 +757,94 @@ struct ContentView: View {
                         edge: .trailing
                     )
 
-                    VStack(spacing: 0) {
-                        if showMergeConflict {
-                            MergeConflictView(
-                                model: mergeConflictModel,
-                                onDismiss: {
-                                    showMergeConflict = false
-                                    mergeConflictModel.close()
-                                },
-                                onNavigateToFile: { fileURL in
-                                    if let rootURL = workingDirectory.directoryURL {
-                                        mergeConflictModel.load(fileURL: fileURL, rootURL: rootURL, allConflictURLs: mergeConflictModel.allConflictURLs)
+                    Group {
+                        if !showMergeConflict && !showBranchDiff && !showDiffSummary && splitPreview {
+                            // Split file preview: two independent panels side by side
+                            HSplitView {
+                                VStack(spacing: 0) {
+                                    if let idx = currentChangeIndex {
+                                        ChangesNavigationBar(
+                                            currentIndex: idx,
+                                            totalCount: changesModel.changedFiles.count,
+                                            onPrevious: { navigateToPreviousChange() },
+                                            onNext: { navigateToNextChange() }
+                                        )
                                     }
+                                    FilePreviewView(model: filePreview, changesModel: changesModel, buildDiagnostics: buildVerifier.diagnostics)
                                 }
-                            )
-                        } else if showBranchDiff {
-                            BranchDiffView(
-                                model: branchDiffModel,
-                                annotationStore: diffAnnotationStore,
-                                onSelectFile: { path, _ in
-                                    showBranchDiff = false
-                                    if let root = workingDirectory.directoryURL {
-                                        let url = root.appendingPathComponent(path)
-                                        filePreview.select(url)
+                                FilePreviewView(
+                                    model: filePreview2,
+                                    changesModel: changesModel,
+                                    buildDiagnostics: buildVerifier.diagnostics,
+                                    onOpenFile: {
+                                        if let url = workingDirectory.directoryURL {
+                                            quickOpenModel.index(rootURL: url, recentURLs: filePreview2.recentlyViewedURLs)
+                                        }
+                                        showSecondaryQuickOpen = true
                                     }
-                                },
-                                onDismiss: { showBranchDiff = false },
-                                onShowInPreview: { [weak filePreview] path, line in
-                                    showBranchDiff = false
-                                    if let root = workingDirectory.directoryURL {
-                                        let url = root.appendingPathComponent(path)
-                                        filePreview?.select(url, line: line)
-                                    }
-                                }
-                            )
-                        } else if showDiffSummary {
-                            DiffSummaryView(
-                                changesModel: changesModel,
-                                onSelectFile: { url in
-                                    showDiffSummary = false
-                                    filePreview.select(url)
-                                },
-                                onDismiss: { showDiffSummary = false },
-                                onShowFileAtLine: { [weak filePreview] url, line in
-                                    showDiffSummary = false
-                                    filePreview?.select(url, line: line)
-                                }
-                            )
-                        } else {
-                            if let idx = currentChangeIndex {
-                                ChangesNavigationBar(
-                                    currentIndex: idx,
-                                    totalCount: changesModel.changedFiles.count,
-                                    onPrevious: { navigateToPreviousChange() },
-                                    onNext: { navigateToNextChange() }
                                 )
                             }
+                        } else {
+                            VStack(spacing: 0) {
+                                if showMergeConflict {
+                                    MergeConflictView(
+                                        model: mergeConflictModel,
+                                        onDismiss: {
+                                            showMergeConflict = false
+                                            mergeConflictModel.close()
+                                        },
+                                        onNavigateToFile: { fileURL in
+                                            if let rootURL = workingDirectory.directoryURL {
+                                                mergeConflictModel.load(fileURL: fileURL, rootURL: rootURL, allConflictURLs: mergeConflictModel.allConflictURLs)
+                                            }
+                                        }
+                                    )
+                                } else if showBranchDiff {
+                                    BranchDiffView(
+                                        model: branchDiffModel,
+                                        annotationStore: diffAnnotationStore,
+                                        onSelectFile: { path, _ in
+                                            showBranchDiff = false
+                                            if let root = workingDirectory.directoryURL {
+                                                let url = root.appendingPathComponent(path)
+                                                filePreview.select(url)
+                                            }
+                                        },
+                                        onDismiss: { showBranchDiff = false },
+                                        onShowInPreview: { [weak filePreview] path, line in
+                                            showBranchDiff = false
+                                            if let root = workingDirectory.directoryURL {
+                                                let url = root.appendingPathComponent(path)
+                                                filePreview?.select(url, line: line)
+                                            }
+                                        }
+                                    )
+                                } else if showDiffSummary {
+                                    DiffSummaryView(
+                                        changesModel: changesModel,
+                                        onSelectFile: { url in
+                                            showDiffSummary = false
+                                            filePreview.select(url)
+                                        },
+                                        onDismiss: { showDiffSummary = false },
+                                        onShowFileAtLine: { [weak filePreview] url, line in
+                                            showDiffSummary = false
+                                            filePreview?.select(url, line: line)
+                                        }
+                                    )
+                                } else {
+                                    if let idx = currentChangeIndex {
+                                        ChangesNavigationBar(
+                                            currentIndex: idx,
+                                            totalCount: changesModel.changedFiles.count,
+                                            onPrevious: { navigateToPreviousChange() },
+                                            onNext: { navigateToNextChange() }
+                                        )
+                                    }
 
-                            FilePreviewView(model: filePreview, changesModel: changesModel, buildDiagnostics: buildVerifier.diagnostics)
+                                    FilePreviewView(model: filePreview, changesModel: changesModel, buildDiagnostics: buildVerifier.diagnostics)
+                                }
+                            }
                         }
                     }
                     .frame(width: max(previewWidth, 0))
@@ -864,6 +903,24 @@ struct ContentView: View {
                     .padding(6)
                     .allowsHitTesting(false)
             }
+
+            // Secondary panel Quick Open overlay
+            if showSecondaryQuickOpen {
+                Color.black.opacity(0.2)
+                    .ignoresSafeArea()
+                    .onTapGesture { dismissSecondaryQuickOpen() }
+
+                VStack {
+                    QuickOpenView(
+                        model: quickOpenModel,
+                        filePreview: filePreview2,
+                        onDismiss: { dismissSecondaryQuickOpen() }
+                    )
+                    .padding(.top, 60)
+
+                    Spacer()
+                }
+            }
         }
         .onChange(of: showQuickOpen) { _, isShowing in
             if isShowing, let url = workingDirectory.directoryURL {
@@ -903,6 +960,11 @@ struct ContentView: View {
 
     private func dismissQuickOpen() {
         showQuickOpen = false
+        quickOpenModel.reset()
+    }
+
+    private func dismissSecondaryQuickOpen() {
+        showSecondaryQuickOpen = false
         quickOpenModel.reset()
     }
 
@@ -962,6 +1024,11 @@ struct ContentView: View {
                 true
             } action: {
                 showSidebar.toggle()
+            },
+            PaletteCommand(id: "toggle-split-preview", title: splitPreview ? "Disable Split Preview" : "Enable Split Preview", icon: "rectangle.split.2x1", shortcut: "⌘\\", category: "View") {
+                hasProject
+            } action: {
+                splitPreview.toggle()
             },
             PaletteCommand(id: "show-files", title: "Show Files", icon: "folder", shortcut: "⌘1", category: "View") {
                 hasProject
@@ -1384,6 +1451,7 @@ struct ContentView: View {
         showBranchGuardBanner = false
         branchGuardTriggered = false
         filePreview.close(persist: false)
+        filePreview2.close(persist: false)
         showDiffSummary = false
         showBranchDiff = false
         showMergeConflict = false
@@ -2034,6 +2102,7 @@ private struct FocusedSceneModifier: ViewModifier {
     var onPreviousPreviewTab: (() -> Void)?
     var onShowPromptHistory: (() -> Void)?
     var onGoToTestFile: (() -> Void)?
+    var onToggleSplitPreview: (() -> Void)?
 
     func body(content: Content) -> some View {
         content
@@ -2079,7 +2148,8 @@ private struct FocusedSceneModifier: ViewModifier {
                 onNextPreviewTab: onNextPreviewTab,
                 onPreviousPreviewTab: onPreviousPreviewTab,
                 onShowPromptHistory: onShowPromptHistory,
-                onGoToTestFile: onGoToTestFile
+                onGoToTestFile: onGoToTestFile,
+                onToggleSplitPreview: onToggleSplitPreview
             ))
     }
 }
@@ -2179,6 +2249,7 @@ private struct FocusedSceneModifierD: ViewModifier {
     var onPreviousPreviewTab: (() -> Void)?
     var onShowPromptHistory: (() -> Void)?
     var onGoToTestFile: (() -> Void)?
+    var onToggleSplitPreview: (() -> Void)?
 
     func body(content: Content) -> some View {
         content
@@ -2186,6 +2257,7 @@ private struct FocusedSceneModifierD: ViewModifier {
             .focusedSceneValue(\.previousPreviewTab, onPreviousPreviewTab)
             .focusedSceneValue(\.showPromptHistory, onShowPromptHistory)
             .focusedSceneValue(\.goToTestFile, onGoToTestFile)
+            .focusedSceneValue(\.toggleSplitPreview, onToggleSplitPreview)
     }
 }
 
