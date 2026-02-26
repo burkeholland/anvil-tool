@@ -388,9 +388,12 @@ struct DiffSummaryView: View {
                                 DiffHunkView(
                                     hunk: hunk,
                                     syntaxHighlights: highlights,
-                                    onStage: {
+                                    onStage: file.staging != .staged ? {
                                         changesModel.stageHunk(patch: DiffParser.reconstructPatch(fileDiff: diff, hunk: hunk))
-                                    },
+                                    } : nil,
+                                    onUnstage: file.staging != .unstaged ? {
+                                        changesModel.unstageHunk(patch: DiffParser.reconstructPatch(fileDiff: diff, hunk: hunk))
+                                    } : nil,
                                     onDiscard: {
                                         changesModel.discardHunk(patch: DiffParser.reconstructPatch(fileDiff: diff, hunk: hunk))
                                     },

@@ -131,6 +131,10 @@ struct StageFocusedHunkKey: FocusedValueKey {
     typealias Value = () -> Void
 }
 
+struct UnstageFocusedHunkKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
 struct DiscardFocusedHunkKey: FocusedValueKey {
     typealias Value = () -> Void
 }
@@ -316,6 +320,11 @@ extension FocusedValues {
         set { self[StageFocusedHunkKey.self] = newValue }
     }
 
+    var unstageFocusedHunk: (() -> Void)? {
+        get { self[UnstageFocusedHunkKey.self] }
+        set { self[UnstageFocusedHunkKey.self] = newValue }
+    }
+
     var discardFocusedHunk: (() -> Void)? {
         get { self[DiscardFocusedHunkKey.self] }
         set { self[DiscardFocusedHunkKey.self] = newValue }
@@ -380,6 +389,7 @@ struct ViewCommands: Commands {
     @FocusedValue(\.nextHunk) var nextHunk
     @FocusedValue(\.previousHunk) var previousHunk
     @FocusedValue(\.stageFocusedHunk) var stageFocusedHunk
+    @FocusedValue(\.unstageFocusedHunk) var unstageFocusedHunk
     @FocusedValue(\.discardFocusedHunk) var discardFocusedHunk
     @FocusedValue(\.toggleFocusedFileReviewed) var toggleFocusedFileReviewed
     @FocusedValue(\.openFocusedFile) var openFocusedFile
@@ -560,6 +570,12 @@ struct ViewCommands: Commands {
             }
             .keyboardShortcut("s", modifiers: [])
             .disabled(stageFocusedHunk == nil)
+
+            Button("Unstage Focused Hunk") {
+                unstageFocusedHunk?()
+            }
+            .keyboardShortcut("u", modifiers: [])
+            .disabled(unstageFocusedHunk == nil)
 
             Button("Discard Focused Hunk") {
                 discardFocusedHunk?()

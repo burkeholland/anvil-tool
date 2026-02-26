@@ -313,6 +313,14 @@ struct ChangesListView: View {
 
     // List + keyboard + focused-value bindings (split to stay within type-checker limits)
     private var listBase: some View {
+        listWithKeyPress
+            .focusedValue(\.nextReviewFile, !model.changedFiles.isEmpty ? { model.focusNextFile() } : nil)
+            .focusedValue(\.previousReviewFile, !model.changedFiles.isEmpty ? { model.focusPreviousFile() } : nil)
+            .focusedValue(\.nextHunk, !model.changedFiles.isEmpty ? { model.focusNextHunk() } : nil)
+            .focusedValue(\.previousHunk, !model.changedFiles.isEmpty ? { model.focusPreviousHunk() } : nil)
+    }
+
+    private var listWithKeyPress: some View {
         List {
             changesTopSections
             conflictsSection
@@ -328,6 +336,7 @@ struct ChangesListView: View {
             case "j", "n": model.focusNextHunk(); return .handled
             case "k", "p": model.focusPreviousHunk(); return .handled
             case "s": model.stageFocusedHunk(); return .handled
+            case "u": model.unstageFocusedHunk(); return .handled
             case "d": model.discardFocusedHunk(); return .handled
             case "r": model.toggleFocusedFileReviewed(); return .handled
             default:
@@ -338,11 +347,8 @@ struct ChangesListView: View {
                 return .ignored
             }
         }
-        .focusedValue(\.nextReviewFile, !model.changedFiles.isEmpty ? { model.focusNextFile() } : nil)
-        .focusedValue(\.previousReviewFile, !model.changedFiles.isEmpty ? { model.focusPreviousFile() } : nil)
-        .focusedValue(\.nextHunk, !model.changedFiles.isEmpty ? { model.focusNextHunk() } : nil)
-        .focusedValue(\.previousHunk, !model.changedFiles.isEmpty ? { model.focusPreviousHunk() } : nil)
         .focusedValue(\.stageFocusedHunk, model.focusedHunk != nil ? { model.stageFocusedHunk() } : nil)
+        .focusedValue(\.unstageFocusedHunk, model.focusedHunk != nil ? { model.unstageFocusedHunk() } : nil)
         .focusedValue(\.discardFocusedHunk, model.focusedHunk != nil ? { model.discardFocusedHunk() } : nil)
         .focusedValue(\.toggleFocusedFileReviewed, model.focusedFile != nil ? { model.toggleFocusedFileReviewed() } : nil)
         .focusedValue(\.openFocusedFile, model.focusedFile != nil ? { if let url = model.focusedFile?.url { filePreview.select(url) } } : nil)
@@ -1306,10 +1312,18 @@ struct ChangedFileRow: View {
             }
 
             // Staging indicator
-            if isStaged {
+            switch file.staging {
+            case .staged:
                 Image(systemName: "checkmark.circle.fill")
                     .font(.system(size: 12))
                     .foregroundStyle(.green)
+            case .partial:
+                Image(systemName: "circle.lefthalf.filled")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.orange)
+                    .help("Partially staged - some hunks are staged, others are not")
+            case .unstaged:
+                EmptyView()
             }
         }
         .padding(.vertical, 2)

@@ -253,14 +253,21 @@ struct FilePreviewView: View {
                 } else if model.activeTab == .changes, let diff = model.fileDiff {
                     // Only show hunk actions for working tree diffs, not commit history
                     let isLiveDiff = model.commitDiffContext == nil
+                    let stagedIDs: Set<Int> = isLiveDiff
+                        ? model.stagedFileDiff.map { DiffParser.stagedHunkIDs(combinedDiff: diff, stagedDiff: $0) } ?? []
+                        : []
                     DiffView(
                         diff: diff,
                         onStageHunk: isLiveDiff ? changesModel.map { cm in
                             { hunk in cm.stageHunk(patch: DiffParser.reconstructPatch(fileDiff: diff, hunk: hunk)) }
                         } : nil,
+                        onUnstageHunk: isLiveDiff ? changesModel.map { cm in
+                            { hunk in cm.unstageHunk(patch: DiffParser.reconstructPatch(fileDiff: diff, hunk: hunk)) }
+                        } : nil,
                         onDiscardHunk: isLiveDiff ? changesModel.map { cm in
                             { hunk in cm.discardHunk(patch: DiffParser.reconstructPatch(fileDiff: diff, hunk: hunk)) }
-                        } : nil
+                        } : nil,
+                        stagedHunkIDs: stagedIDs
                     )
                 } else if model.activeTab == .rendered, model.isMarkdownFile, let content = model.fileContent {
                     MarkdownPreviewView(content: content)
