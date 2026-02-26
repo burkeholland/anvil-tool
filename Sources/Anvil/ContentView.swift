@@ -34,6 +34,7 @@ struct ContentView: View {
     @State private var showDiffSummary = false
     @State private var isDroppingFolder = false
     @AppStorage("autoFollowChanges") private var autoFollow = true
+    @AppStorage("autoBuildOnTaskComplete") private var autoBuildOnTaskComplete = true
     @AppStorage("terminalFontSize") private var terminalFontSize: Double = 14
     @StateObject private var buildVerifier = BuildVerifier()
     @StateObject private var testRunner = TestRunner()
@@ -258,7 +259,7 @@ struct ContentView: View {
                 withAnimation(.easeInOut(duration: 0.25)) {
                     showTaskBanner = true
                 }
-                if let url = workingDirectory.directoryURL {
+                if autoBuildOnTaskComplete, let url = workingDirectory.directoryURL {
                     buildVerifier.run(at: url)
                 }
                 // Auto-select the first unreviewed changed file to kick off review workflow.
