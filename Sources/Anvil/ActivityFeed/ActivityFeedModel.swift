@@ -19,6 +19,11 @@ final class ActivityFeedModel: ObservableObject {
     @Published private(set) var sessionStats = SessionStats()
     /// True when file changes were detected within the last 10 seconds.
     @Published private(set) var isAgentActive = false
+    /// Active file-tree pulse tokens keyed by absolute path.
+    /// Updated on every file create/modify event so views can animate a flash.
+    /// Parent directory paths are also included (same mechanism) so collapsed
+    /// folders still convey activity. Cleared when isAgentActive → false.
+    @Published private(set) var activePulses: [String: UUID] = [:]
     /// Timestamp of the last detected activity event.
     private(set) var lastActivityTime: Date?
     /// Timer that clears the active state after a quiet period.
@@ -122,6 +127,7 @@ final class ActivityFeedModel: ObservableObject {
         groups.removeAll()
         latestFileChange = nil
         isAgentActive = false
+        activePulses = [:]
         lastActivityTime = nil
         sessionStats = SessionStats()
     }
@@ -278,12 +284,33 @@ final class ActivityFeedModel: ObservableObject {
             latestFileChange = LatestFileChange(id: UUID(), url: latest.fileURL!)
         }
 
+        // Update file-tree pulse tokens for create/modify events
+        if let rootURL = rootURL {
+            let rootPath = rootURL.standardizedFileURL.path
+            for event in newEvents {
+                guard (event.kind == .fileCreated || event.kind == .fileModified),
+                      let fileURL = event.fileURL else { continue }
+                let absPath = fileURL.standardizedFileURL.path
+                activePulses[absPath] = UUID()
+                // Propagate a pulse token to every ancestor directory up to (not
+                // including) the root so that collapsed folders still flash.
+                var dir = fileURL.deletingLastPathComponent().standardizedFileURL
+                while dir.path.hasPrefix(rootPath + "/") {
+                    activePulses[dir.path] = UUID()
+                    let parent = dir.deletingLastPathComponent().standardizedFileURL
+                    if parent.path == dir.path { break }
+                    dir = parent
+                }
+            }
+        }
+
         // Mark agent as active and schedule cooldown
         lastActivityTime = Date()
         isAgentActive = true
         activityCooldownTimer?.invalidate()
         activityCooldownTimer = Timer.scheduledTimer(withTimeInterval: 10.0, repeats: false) { [weak self] _ in
             self?.isAgentActive = false
+            self?.activePulses = [:]
         }
     }
 

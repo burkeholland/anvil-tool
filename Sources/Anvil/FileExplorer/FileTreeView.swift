@@ -5,6 +5,7 @@ struct FileTreeView: View {
     let rootURL: URL
     @ObservedObject var filePreview: FilePreviewModel
     @ObservedObject var model: FileTreeModel
+    @ObservedObject var activityModel: ActivityFeedModel
     @EnvironmentObject var terminalProxy: TerminalInputProxy
 
     // File operation dialog state
@@ -146,6 +147,7 @@ struct FileTreeView: View {
                                 gitStatus: model.gitStatuses[entry.url.path],
                                 dirChangeCount: entry.isDirectory ? model.dirChangeCounts[entry.url.path] : nil,
                                 diffStat: entry.isDirectory ? nil : model.diffStats[entry.url.path],
+                                pulseToken: activityModel.activePulses[entry.url.standardizedFileURL.path],
                                 onToggle: { handleTap(entry) }
                             )
                             .id(entry.url)
@@ -437,7 +439,12 @@ struct FileRowView: View {
     var gitStatus: GitFileStatus? = nil
     var dirChangeCount: Int? = nil
     var diffStat: DiffStat? = nil
+    /// A token that changes each time this path receives a new activity pulse.
+    /// When non-nil, the row plays a short green flash that fades out.
+    var pulseToken: UUID? = nil
     let onToggle: () -> Void
+
+    @State private var pulseOpacity: Double = 0
 
     var body: some View {
         HStack(spacing: 4) {
@@ -505,7 +512,21 @@ struct FileRowView: View {
                 ? RoundedRectangle(cornerRadius: 4).fill(Color.accentColor.opacity(0.2))
                 : nil
         )
+        .overlay(
+            RoundedRectangle(cornerRadius: 4)
+                .fill(Color.green.opacity((entry.isDirectory ? 0.15 : 0.3) * pulseOpacity))
+        )
         .contentShape(Rectangle())
         .onTapGesture { onToggle() }
+        .onChange(of: pulseToken) { _, token in
+            if token != nil {
+                withAnimation(.linear(duration: 0)) { pulseOpacity = 1.0 }
+                withAnimation(.easeOut(duration: 2.5)) {
+                    pulseOpacity = 0.0
+                }
+            } else {
+                pulseOpacity = 0.0
+            }
+        }
     }
 }
