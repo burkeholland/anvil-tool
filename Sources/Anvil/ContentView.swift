@@ -52,6 +52,7 @@ struct ContentView: View {
     @State private var showMergeConflict = false
     @StateObject private var mergeConflictModel = MergeConflictModel()
     @StateObject private var promptHistoryStore = PromptHistoryStore()
+    @StateObject private var sessionHealthMonitor = SessionHealthMonitor()
     @State private var showPromptHistory = false
     @State private var reviewDwellTask: Task<Void, Never>? = nil
 
@@ -193,6 +194,7 @@ struct ContentView: View {
             filePreview.close(persist: false)
             filePreview.rootDirectory = newURL
             terminalTabs.reset()
+            sessionHealthMonitor.reset()
             promptHistoryStore.configure(projectPath: newURL?.standardizedFileURL.path)
             if let url = newURL {
                 recentProjects.recordOpen(url)
@@ -274,6 +276,7 @@ struct ContentView: View {
             filePreview.rootDirectory = workingDirectory.directoryURL
             notificationManager.connect(to: activityModel)
             terminalProxy.historyStore = promptHistoryStore
+            terminalProxy.sessionMonitor = sessionHealthMonitor
             promptHistoryStore.configure(projectPath: workingDirectory.directoryURL?.standardizedFileURL.path)
             if let url = workingDirectory.directoryURL {
                 recentProjects.recordOpen(url)
@@ -423,6 +426,7 @@ struct ContentView: View {
                         filePreview: filePreview,
                         recentProjects: recentProjects,
                         promptHistoryStore: promptHistoryStore,
+                        sessionHealthMonitor: sessionHealthMonitor,
                         showSidebar: $showSidebar,
                         autoFollow: $autoFollow,
                         showBranchPicker: $showBranchPicker,
@@ -432,7 +436,11 @@ struct ContentView: View {
                         showProjectSwitcher: $showProjectSwitcher,
                         onOpenDirectory: { browseForDirectory() },
                         onSwitchProject: { url in openDirectory(url) },
-                        onCloneRepository: { showCloneSheet = true }
+                        onCloneRepository: { showCloneSheet = true },
+                        onCompact: {
+                            terminalProxy.send("/compact\n")
+                            sessionHealthMonitor.reset()
+                        }
                     )
 
                     TerminalTabBar(
@@ -1348,6 +1356,7 @@ struct ToolbarView: View {
     @ObservedObject var filePreview: FilePreviewModel
     @ObservedObject var recentProjects: RecentProjectsModel
     @ObservedObject var promptHistoryStore: PromptHistoryStore
+    @ObservedObject var sessionHealthMonitor: SessionHealthMonitor
     @Binding var showSidebar: Bool
     @Binding var autoFollow: Bool
     @Binding var showBranchPicker: Bool
@@ -1358,6 +1367,7 @@ struct ToolbarView: View {
     var onOpenDirectory: () -> Void
     var onSwitchProject: (URL) -> Void
     var onCloneRepository: () -> Void
+    var onCompact: () -> Void
 
     var body: some View {
         HStack(spacing: 12) {
@@ -1421,6 +1431,8 @@ struct ToolbarView: View {
             Spacer()
 
             AgentActivityIndicator(activityModel: activityModel)
+
+            SessionHealthView(monitor: sessionHealthMonitor, onCompact: onCompact)
 
             Button {
                 showCopilotActions.toggle()

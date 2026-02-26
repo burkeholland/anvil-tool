@@ -18,6 +18,9 @@ final class TerminalInputProxy: ObservableObject {
     /// Optional store for recording prompt history.
     var historyStore: PromptHistoryStore?
 
+    /// Optional session health monitor updated on each prompt turn.
+    var sessionMonitor: SessionHealthMonitor?
+
     private var currentFindTerm: String = ""
     private var currentFindOptions: SearchOptions = SearchOptions()
 
@@ -29,6 +32,7 @@ final class TerminalInputProxy: ObservableObject {
     /// Also increments promptSentCount so observers can auto-dismiss contextual banners.
     func sendPrompt(_ text: String) {
         historyStore?.add(text)
+        sessionMonitor?.recordTurn()
         send(text + "\n")
         promptSentCount += 1
     }
