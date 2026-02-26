@@ -1324,23 +1324,25 @@ final class LineNumberRulerView: NSRulerView {
 
                 // Draw gutter change indicator bar
                 if let change = gutterChanges[lineNumber] {
-                    let barColor: NSColor
-                    switch change {
-                    case .added:    barColor = NSColor.systemGreen
-                    case .modified: barColor = NSColor.systemBlue
-                    case .deleted:  barColor = NSColor.systemRed
-                    }
-                    barColor.setFill()
-                    let barWidth: CGFloat = change == .deleted ? 6 : 3
                     let barY = lineRect.minY - visibleRect.origin.y
-                    let barHeight = change == .deleted ? 3 : lineRect.height
-                    let barRect = NSRect(
-                        x: bounds.maxX - barWidth - 1,
-                        y: barY,
-                        width: barWidth,
-                        height: barHeight
-                    )
-                    NSBezierPath(roundedRect: barRect, xRadius: 1, yRadius: 1).fill()
+                    switch change {
+                    case .added, .modified:
+                        let barColor: NSColor = change == .added ? .systemGreen : .systemBlue
+                        barColor.setFill()
+                        let changeBarRect = NSRect(x: bounds.maxX - 4, y: barY, width: 3, height: lineRect.height)
+                        NSBezierPath(roundedRect: changeBarRect, xRadius: 1, yRadius: 1).fill()
+                    case .deleted:
+                        // Draw a small downward-pointing red triangle at the line boundary
+                        NSColor.systemRed.setFill()
+                        let triSize: CGFloat = 6
+                        let triX = bounds.maxX - triSize - 1
+                        let deletionPath = NSBezierPath()
+                        deletionPath.move(to: NSPoint(x: triX, y: barY))
+                        deletionPath.line(to: NSPoint(x: triX + triSize, y: barY))
+                        deletionPath.line(to: NSPoint(x: triX + triSize / 2, y: barY + triSize))
+                        deletionPath.close()
+                        deletionPath.fill()
+                    }
                 }
             }
 
