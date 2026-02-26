@@ -362,45 +362,65 @@ struct ChangesListView: View {
     // List + keyboard + focused-value bindings (split to stay within type-checker limits)
     private var listBase: some View {
         listWithKeyPress
-            .focusedValue(\.nextReviewFile, !model.changedFiles.isEmpty ? { model.focusNextFile() } : nil)
-            .focusedValue(\.previousReviewFile, !model.changedFiles.isEmpty ? { model.focusPreviousFile() } : nil)
+            .focusedValue(\.nextReviewFile, !model.changedFiles.isEmpty ? {
+                model.focusNextFile()
+                if let url = model.focusedFile?.url { filePreview.select(url) }
+            } : nil)
+            .focusedValue(\.previousReviewFile, !model.changedFiles.isEmpty ? {
+                model.focusPreviousFile()
+                if let url = model.focusedFile?.url { filePreview.select(url) }
+            } : nil)
             .focusedValue(\.nextHunk, !model.changedFiles.isEmpty ? { model.focusNextHunk() } : nil)
             .focusedValue(\.previousHunk, !model.changedFiles.isEmpty ? { model.focusPreviousHunk() } : nil)
     }
 
     private var listWithKeyPress: some View {
-        List {
-            changesTopSections
-            conflictsSection
-            sensitiveFilesSection
-            stagedSection
-            unstagedSection
-            historyAndStashSections
-        }
-        .listStyle(.sidebar)
-        .onKeyPress { keyPress in
-            switch keyPress.characters {
-            case "]": model.focusNextFile(); return .handled
-            case "[": model.focusPreviousFile(); return .handled
-            case "j", "n": model.focusNextHunk(); return .handled
-            case "k", "p": model.focusPreviousHunk(); return .handled
-            case "s": model.stageFocusedHunk(); return .handled
-            case "u": model.unstageFocusedHunk(); return .handled
-            case "d": model.discardFocusedHunk(); return .handled
-            case "r": model.toggleFocusedFileReviewed(); return .handled
-            default:
-                if keyPress.key == .return {
+        ScrollViewReader { proxy in
+            List {
+                changesTopSections
+                conflictsSection
+                sensitiveFilesSection
+                stagedSection
+                unstagedSection
+                historyAndStashSections
+            }
+            .listStyle(.sidebar)
+            .onKeyPress { keyPress in
+                switch keyPress.characters {
+                case "]":
+                    model.focusNextFile()
                     if let url = model.focusedFile?.url { filePreview.select(url) }
                     return .handled
+                case "[":
+                    model.focusPreviousFile()
+                    if let url = model.focusedFile?.url { filePreview.select(url) }
+                    return .handled
+                case "j", "n": model.focusNextHunk(); return .handled
+                case "k", "p": model.focusPreviousHunk(); return .handled
+                case "s": model.stageFocusedHunk(); return .handled
+                case "u": model.unstageFocusedHunk(); return .handled
+                case "d": model.discardFocusedHunk(); return .handled
+                case "r": model.toggleFocusedFileReviewed(); return .handled
+                default:
+                    if keyPress.key == .return {
+                        if let url = model.focusedFile?.url { filePreview.select(url) }
+                        return .handled
+                    }
+                    return .ignored
                 }
-                return .ignored
+            }
+            .focusedValue(\.stageFocusedHunk, model.focusedHunk != nil ? { model.stageFocusedHunk() } : nil)
+            .focusedValue(\.unstageFocusedHunk, model.focusedHunk != nil ? { model.unstageFocusedHunk() } : nil)
+            .focusedValue(\.discardFocusedHunk, model.focusedHunk != nil ? { model.discardFocusedHunk() } : nil)
+            .focusedValue(\.toggleFocusedFileReviewed, model.focusedFile != nil ? { model.toggleFocusedFileReviewed() } : nil)
+            .focusedValue(\.openFocusedFile, model.focusedFile != nil ? { if let url = model.focusedFile?.url { filePreview.select(url) } } : nil)
+            .onChange(of: model.focusedFileIndex) { _, idx in
+                guard let idx, model.changedFiles.indices.contains(idx) else { return }
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    proxy.scrollTo(model.changedFiles[idx].id, anchor: .center)
+                }
             }
         }
-        .focusedValue(\.stageFocusedHunk, model.focusedHunk != nil ? { model.stageFocusedHunk() } : nil)
-        .focusedValue(\.unstageFocusedHunk, model.focusedHunk != nil ? { model.unstageFocusedHunk() } : nil)
-        .focusedValue(\.discardFocusedHunk, model.focusedHunk != nil ? { model.discardFocusedHunk() } : nil)
-        .focusedValue(\.toggleFocusedFileReviewed, model.focusedFile != nil ? { model.toggleFocusedFileReviewed() } : nil)
-        .focusedValue(\.openFocusedFile, model.focusedFile != nil ? { if let url = model.focusedFile?.url { filePreview.select(url) } } : nil)
     }
 
     // Alerts layered on top of listBase
@@ -521,6 +541,7 @@ struct ChangesListView: View {
         }
         .contextMenu { changedFileContextMenu(file: file, isStaged: isStaged) }
         .draggable(file.url)
+        .id(file.id)
     }
 
     /// Renders files either grouped by directory (when ≥2 directories) or as a flat list.

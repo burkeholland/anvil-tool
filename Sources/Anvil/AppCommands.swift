@@ -592,13 +592,13 @@ struct ViewCommands: Commands {
             Button("Next File in Review") {
                 nextReviewFile?()
             }
-            .keyboardShortcut("]", modifiers: [])
+            .keyboardShortcut("]", modifiers: .command)
             .disabled(nextReviewFile == nil)
 
             Button("Previous File in Review") {
                 previousReviewFile?()
             }
-            .keyboardShortcut("[", modifiers: [])
+            .keyboardShortcut("[", modifiers: .command)
             .disabled(previousReviewFile == nil)
 
             Button("Next Hunk") {
