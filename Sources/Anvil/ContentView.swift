@@ -520,6 +520,16 @@ struct ContentView: View {
             onAgentWaitingForInput: { waiting in
                 terminalTabs.setWaitingForInput(waiting, tabID: tab.id)
             },
+            onAgentModeChanged: { mode in
+                if tab.id == terminalTabs.activeTabID {
+                    terminalTabs.agentMode = mode
+                }
+            },
+            onAgentModelChanged: { model in
+                if tab.id == terminalTabs.activeTabID {
+                    terminalTabs.agentModel = model
+                }
+            },
             markerStore: promptMarkerStore
         )
         .opacity(tab.id == terminalTabs.activeTabID ? 1 : 0)
@@ -586,6 +596,8 @@ struct ContentView: View {
                         showPromptHistory: $showPromptHistory,
                         showProjectSwitcher: $showProjectSwitcher,
                         isAgentWaitingForInput: terminalTabs.isAnyTabWaitingForInput,
+                        agentMode: terminalTabs.agentMode,
+                        agentModel: terminalTabs.agentModel,
                         onOpenDirectory: { browseForDirectory() },
                         onSwitchProject: { url in openDirectory(url) },
                         onCloneRepository: { showCloneSheet = true },
@@ -1608,6 +1620,10 @@ struct ToolbarView: View {
     @Binding var showProjectSwitcher: Bool
     /// True when at least one terminal tab is waiting for user input.
     var isAgentWaitingForInput: Bool = false
+    /// The current Copilot CLI agent mode (nil if not yet detected).
+    var agentMode: AgentMode? = nil
+    /// The current Copilot CLI model name (nil if not yet detected).
+    var agentModel: String? = nil
     var onOpenDirectory: () -> Void
     var onSwitchProject: (URL) -> Void
     var onCloneRepository: () -> Void
@@ -1676,6 +1692,8 @@ struct ToolbarView: View {
             }
 
             Spacer()
+
+            AgentModePill(mode: agentMode, model: agentModel)
 
             if isAgentWaitingForInput {
                 AgentInputIndicator(onFocusTerminal: onFocusTerminal ?? {})
@@ -2584,6 +2602,120 @@ struct AgentStatusPopover: View {
             .foregroundStyle(.secondary)
         }
         .frame(width: 260)
+    }
+}
+
+// MARK: - Agent Mode Pill
+
+/// Compact toolbar pill that shows the current Copilot CLI agent mode and model.
+/// Tapping the mode segment cycles through Interactive → Plan → Autopilot.
+/// Tapping the model segment opens a popover listing available models.
+private struct AgentModePill: View {
+    var mode: AgentMode?
+    var model: String?
+    @EnvironmentObject private var terminalProxy: TerminalInputProxy
+    @State private var showModelPicker = false
+
+    /// Known Copilot CLI models shown in the model picker popover.
+    private static let knownModels: [String] = [
+        "gpt-4.1",
+        "gpt-4o",
+        "o1",
+        "o3",
+        "claude-3.5-sonnet",
+        "claude-3.7-sonnet"
+    ]
+
+    var body: some View {
+        HStack(spacing: 0) {
+            // Mode segment — click to cycle to next mode
+            Button {
+                let next = mode?.next ?? .interactive
+                terminalProxy.send(next.activateCommand)
+            } label: {
+                Text(mode?.displayName ?? "Mode")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(mode != nil ? .primary : .tertiary)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3)
+            }
+            .buttonStyle(.plain)
+            .help(mode.map { "Mode: \($0.displayName) — click to cycle" }
+                ?? "Agent mode unknown — click to set Interactive")
+
+            Divider()
+                .frame(height: 12)
+                .opacity(0.5)
+
+            // Model segment — click to pick a model
+            Button {
+                showModelPicker.toggle()
+            } label: {
+                Text(model ?? "Model")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(model != nil ? .primary : .tertiary)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3)
+            }
+            .buttonStyle(.plain)
+            .help(model.map { "Model: \($0) — click to switch" }
+                ?? "Model unknown — click to select")
+            .popover(isPresented: $showModelPicker, arrowEdge: .bottom) {
+                modelPickerPopover
+            }
+        }
+        .background(
+            RoundedRectangle(cornerRadius: 4)
+                .fill(Color.secondary.opacity(0.08))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 4)
+                        .strokeBorder(Color.secondary.opacity(0.18), lineWidth: 0.5)
+                )
+        )
+    }
+
+    private var modelPickerPopover: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Select Model")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+
+            Divider()
+
+            ForEach(Self.knownModels, id: \.self) { name in
+                Button {
+                    terminalProxy.send("/model \(name)\n")
+                    showModelPicker = false
+                } label: {
+                    HStack {
+                        Text(name)
+                            .font(.system(size: 12, design: .monospaced))
+                            .foregroundStyle(.primary)
+                        Spacer()
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(Color.accentColor)
+                            .opacity(name == model ? 1 : 0)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+
+            Divider()
+
+            // Footer hint
+            Text("Custom: /model <name>")
+                .font(.system(size: 10))
+                .foregroundStyle(.tertiary)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+        }
+        .frame(width: 220)
     }
 }
 
