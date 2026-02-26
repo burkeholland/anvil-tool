@@ -265,6 +265,8 @@ struct ContentView: View {
             }
         }
         .onChange(of: terminalProxy.promptSentCount) { _, _ in
+            // Record the current change set as the task-start baseline for scoped review.
+            changesModel.recordTaskStart()
             // Auto-dismiss the task-complete banner when the user starts a new prompt.
             if showTaskBanner {
                 withAnimation(.easeInOut(duration: 0.25)) {
