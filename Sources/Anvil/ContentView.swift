@@ -53,6 +53,7 @@ struct ContentView: View {
     @State private var showMergeConflict = false
     @StateObject private var mergeConflictModel = MergeConflictModel()
     @StateObject private var promptHistoryStore = PromptHistoryStore()
+    @StateObject private var promptMarkerStore = PromptMarkerStore()
     @StateObject private var sessionHealthMonitor = SessionHealthMonitor()
     @StateObject private var diffAnnotationStore = DiffAnnotationStore()
     @State private var showPromptHistory = false
@@ -61,7 +62,7 @@ struct ContentView: View {
     /// during burst file writes.
     @StateObject private var followAgent = FollowAgentController()
 
-    var body: some View {
+    private var overlayStack: some View {
         ZStack {
             Group {
                 if workingDirectory.directoryURL != nil {
@@ -122,6 +123,10 @@ struct ContentView: View {
             .opacity(0)
             .accessibilityHidden(true)
         }
+    }
+
+    private var bodyBase: some View {
+        overlayStack
         .modifier(FocusedSceneModifier(
             showSidebar: $showSidebar,
             sidebarTab: $sidebarTab,
@@ -207,6 +212,10 @@ struct ContentView: View {
                 }
             } : nil
         ))
+    }
+
+    var body: some View {
+        bodyBase
         .onChange(of: workingDirectory.directoryURL) { _, newURL in
             showTaskBanner = false
             showBranchGuardBanner = false
@@ -217,6 +226,7 @@ struct ContentView: View {
             filePreview.rootDirectory = newURL
             terminalTabs.reset()
             sessionHealthMonitor.reset()
+            promptMarkerStore.clear()
             promptHistoryStore.configure(projectPath: newURL?.standardizedFileURL.path)
             if let url = newURL {
                 recentProjects.recordOpen(url)
@@ -343,6 +353,7 @@ struct ContentView: View {
             notificationManager.connect(to: activityModel)
             terminalProxy.historyStore = promptHistoryStore
             terminalProxy.sessionMonitor = sessionHealthMonitor
+            terminalProxy.markerStore = promptMarkerStore
             promptHistoryStore.configure(projectPath: workingDirectory.directoryURL?.standardizedFileURL.path)
             if let url = workingDirectory.directoryURL {
                 recentProjects.recordOpen(url)
@@ -466,6 +477,33 @@ struct ContentView: View {
         )
     }
 
+    /// Returns an EmbeddedTerminalView configured for the given tab, with the
+    /// active/inactive styling applied.  Extracted as a helper to keep `projectView`
+    /// under the Swift type-checker complexity limit.
+    private func makeTabTerminalView(for tab: TerminalTab) -> some View {
+        EmbeddedTerminalView(
+            workingDirectory: workingDirectory,
+            launchCopilotOverride: tab.launchCopilot,
+            isActiveTab: tab.id == terminalTabs.activeTabID,
+            onTitleChange: { title in
+                terminalTabs.updateTitle(for: tab.id, to: title)
+            },
+            onOpenFile: { url, line in
+                filePreview.select(url, line: line)
+            },
+            onOutputFilePath: { url in
+                guard autoFollow else { return }
+                followAgent.reportChange(url)
+            },
+            onAgentWaitingForInput: { waiting in
+                terminalTabs.setWaitingForInput(waiting, tabID: tab.id)
+            },
+            markerStore: promptMarkerStore
+        )
+        .opacity(tab.id == terminalTabs.activeTabID ? 1 : 0)
+        .allowsHitTesting(tab.id == terminalTabs.activeTabID)
+    }
+
     private var projectView: some View {
         ZStack {
             HStack(spacing: 0) {
@@ -556,26 +594,7 @@ struct ContentView: View {
                         if terminalTabs.isSplit, let splitTab = terminalTabs.splitTab {
                             let primaryPane = ZStack {
                                 ForEach(terminalTabs.tabs) { tab in
-                                    EmbeddedTerminalView(
-                                        workingDirectory: workingDirectory,
-                                        launchCopilotOverride: tab.launchCopilot,
-                                        isActiveTab: tab.id == terminalTabs.activeTabID,
-                                        onTitleChange: { title in
-                                            terminalTabs.updateTitle(for: tab.id, to: title)
-                                        },
-                                        onOpenFile: { url, line in
-                                            filePreview.select(url, line: line)
-                                        },
-                                        onOutputFilePath: { url in
-                                            guard autoFollow else { return }
-                                            followAgent.reportChange(url)
-                                        },
-                                        onAgentWaitingForInput: { waiting in
-                                            terminalTabs.setWaitingForInput(waiting, tabID: tab.id)
-                                        }
-                                    )
-                                    .opacity(tab.id == terminalTabs.activeTabID ? 1 : 0)
-                                    .allowsHitTesting(tab.id == terminalTabs.activeTabID)
+                                    makeTabTerminalView(for: tab)
                                 }
                             }
 
@@ -646,26 +665,7 @@ struct ContentView: View {
                         } else {
                             ZStack {
                                 ForEach(terminalTabs.tabs) { tab in
-                                    EmbeddedTerminalView(
-                                        workingDirectory: workingDirectory,
-                                        launchCopilotOverride: tab.launchCopilot,
-                                        isActiveTab: tab.id == terminalTabs.activeTabID,
-                                        onTitleChange: { title in
-                                            terminalTabs.updateTitle(for: tab.id, to: title)
-                                        },
-                                        onOpenFile: { url, line in
-                                            filePreview.select(url, line: line)
-                                        },
-                                        onOutputFilePath: { url in
-                                            guard autoFollow else { return }
-                                            followAgent.reportChange(url)
-                                        },
-                                        onAgentWaitingForInput: { waiting in
-                                            terminalTabs.setWaitingForInput(waiting, tabID: tab.id)
-                                        }
-                                    )
-                                    .opacity(tab.id == terminalTabs.activeTabID ? 1 : 0)
-                                    .allowsHitTesting(tab.id == terminalTabs.activeTabID)
+                                    makeTabTerminalView(for: tab)
                                 }
 
                                 // Drop overlay for file → terminal @ mentions

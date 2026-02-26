@@ -21,6 +21,14 @@ final class TerminalInputProxy: ObservableObject {
     /// Optional session health monitor updated on each prompt turn.
     var sessionMonitor: SessionHealthMonitor?
 
+    /// Optional store for session-scoped prompt timeline markers.
+    var markerStore: PromptMarkerStore?
+
+    /// Tracks the highest `buffer.yDisp` value seen since the terminal was last reset.
+    /// Approximates the current maximum scrollback depth so the timeline overlay can
+    /// position markers proportionally and restore scroll positions.
+    @Published private(set) var estimatedMaxScrollback: Int = 0
+
     private var currentFindTerm: String = ""
     private var currentFindOptions: SearchOptions = SearchOptions()
 
@@ -31,7 +39,9 @@ final class TerminalInputProxy: ObservableObject {
     /// Records the prompt in history and sends it followed by a newline to the active terminal.
     /// Also increments promptSentCount so observers can auto-dismiss contextual banners.
     func sendPrompt(_ text: String) {
+        let anchorYDisp = terminalView?.terminal.buffer.yDisp ?? 0
         historyStore?.add(text)
+        markerStore?.addMarker(text: text, anchorYDisp: anchorYDisp)
         sessionMonitor?.recordTurn()
         send(text + "\n")
         promptSentCount += 1
@@ -82,6 +92,23 @@ final class TerminalInputProxy: ObservableObject {
             let lang = language ?? ""
             send("\(sanitizedPath) \(lineRange):\n```\(lang)\n\(String(sanitizedCode))\n```\n")
         }
+    }
+
+    /// Called from the terminal's `rangeChanged` delegate to keep scroll metrics current.
+    /// Updates `estimatedMaxScrollback` using the current `buffer.yDisp`, which equals
+    /// the maximum scrollback depth when the terminal is pinned to the bottom.
+    func updateScrollMetrics(terminalView tv: LocalProcessTerminalView) {
+        let yDisp = tv.terminal.buffer.yDisp
+        if yDisp > estimatedMaxScrollback {
+            estimatedMaxScrollback = yDisp
+        }
+    }
+
+    /// Scrolls the terminal to the position recorded in the given marker.
+    func scrollToMarker(_ marker: PromptMarker) {
+        guard let tv = terminalView, estimatedMaxScrollback > 0 else { return }
+        let fraction = Double(marker.anchorYDisp) / Double(estimatedMaxScrollback)
+        tv.scroll(toPosition: min(max(fraction, 0), 1))
     }
 
     /// Shows the floating find bar overlay (⌘F).
