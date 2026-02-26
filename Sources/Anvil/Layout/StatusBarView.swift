@@ -131,9 +131,9 @@ struct StatusBarView: View {
                 .padding(.horizontal, 10)
             }
         }
-        .font(.system(size: 11, design: .monospaced))
+        .font(.system(size: 12, design: .monospaced))
         .foregroundStyle(.secondary)
-        .frame(height: 22)
+        .frame(height: 26)
         .frame(maxWidth: .infinity)
         .background(Color(nsColor: .windowBackgroundColor))
         .overlay(alignment: .top) { Divider() }
