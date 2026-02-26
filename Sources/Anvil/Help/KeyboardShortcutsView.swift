@@ -44,6 +44,7 @@ struct KeyboardShortcutsView: View {
                             ("⌘⇧J", "Reveal in File Tree"),
                             ("⌘⌃T", "Go to Test / Implementation"),
                             ("⌘B", "Toggle Sidebar"),
+                            ("⌘\\", "Toggle Split Preview"),
                             ("Space", "Quick Look Diff (File Tree)"),
                         ])
 

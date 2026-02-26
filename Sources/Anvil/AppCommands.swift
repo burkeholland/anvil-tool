@@ -179,6 +179,10 @@ struct ToggleDiffViewModeKey: FocusedValueKey {
     typealias Value = () -> Void
 }
 
+struct ToggleSplitPreviewKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
 extension FocusedValues {
     var sidebarVisible: Binding<Bool>? {
         get { self[SidebarVisibleKey.self] }
@@ -399,6 +403,11 @@ extension FocusedValues {
         get { self[ToggleDiffViewModeKey.self] }
         set { self[ToggleDiffViewModeKey.self] = newValue }
     }
+
+    var toggleSplitPreview: (() -> Void)? {
+        get { self[ToggleSplitPreviewKey.self] }
+        set { self[ToggleSplitPreviewKey.self] = newValue }
+    }
 }
 
 // MARK: - View Menu Commands
@@ -444,6 +453,7 @@ struct ViewCommands: Commands {
     @FocusedValue(\.showPromptHistory) var showPromptHistory
     @FocusedValue(\.goToTestFile) var goToTestFile
     @FocusedValue(\.toggleDiffViewMode) var toggleDiffViewMode
+    @FocusedValue(\.toggleSplitPreview) var toggleSplitPreview
     @AppStorage("autoLaunchCopilot") private var autoLaunchCopilot = true
     @AppStorage("notificationsEnabled") private var notificationsEnabled = true
 
@@ -565,6 +575,14 @@ struct ViewCommands: Commands {
             }
             .keyboardShortcut("4", modifiers: .command)
             .disabled(sidebarTab == nil)
+
+            Divider()
+
+            Button("Split Preview") {
+                toggleSplitPreview?()
+            }
+            .keyboardShortcut("\\", modifiers: .command)
+            .disabled(toggleSplitPreview == nil)
 
             Divider()
 
