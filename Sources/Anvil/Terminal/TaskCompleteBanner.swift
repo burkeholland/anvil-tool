@@ -7,6 +7,8 @@ struct TaskCompleteBanner: View {
     let totalAdditions: Int
     let totalDeletions: Int
     let buildStatus: BuildVerifier.Status
+    /// Number of changed files that match sensitive patterns (CI/CD, secrets, etc.).
+    var sensitiveFileCount: Int = 0
     /// Structured diagnostics parsed from the failed build output.
     var buildDiagnostics: [BuildDiagnostic] = []
     /// Called when the user taps a diagnostic row to navigate to the error location.
@@ -64,6 +66,21 @@ struct TaskCompleteBanner: View {
 
                 // Test status badge
                 testStatusBadge
+
+                // Sensitive file warning badge
+                if sensitiveFileCount > 0 {
+                    HStack(spacing: 4) {
+                        Text("⚠️")
+                            .font(.system(size: 11))
+                        Text("\(sensitiveFileCount) sensitive file\(sensitiveFileCount == 1 ? "" : "s")")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.orange)
+                    }
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
+                    .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 4))
+                    .help("One or more changed files require careful review (CI/CD, secrets, dependencies, etc.)")
+                }
 
                 Spacer()
 
