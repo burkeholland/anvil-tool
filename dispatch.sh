@@ -793,6 +793,16 @@ phase_triage() {
 phase_plan() {
   log "📝 Phase 3: PLAN — deciding what to build next..."
 
+  # Prioritize curated issues (e.g. UX audit) over AI-generated ones.
+  # If open dispatch-managed issues with the "ux" label exist, skip AI planning.
+  local curated_count
+  curated_count="$(gh issue list --repo "$REPO" --label "$LABEL,ux" --state open \
+    --json number -q 'length' 2>/dev/null)" || curated_count=0
+  if [ "${curated_count:-0}" -gt 0 ]; then
+    log "   $curated_count curated UX issues remain. Skipping AI planning."
+    return 0
+  fi
+
   # Count open unassigned issues
   local unassigned_count
   unassigned_count="$(gh issue list --repo "$REPO" --label "$LABEL" --author "$ISSUE_AUTHOR" --state open \
