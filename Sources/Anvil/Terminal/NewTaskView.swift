@@ -34,7 +34,7 @@ struct NewTaskView: View {
             HStack {
                 Image(systemName: "arrow.triangle.branch")
                     .font(.system(size: 13))
-                    .foregroundStyle(.accentColor)
+                    .foregroundStyle(Color.accentColor)
                 Text("New Task")
                     .font(.system(size: 14, weight: .semibold))
                 Spacer()

@@ -2093,6 +2093,10 @@ private struct FocusedSceneModifier: ViewModifier {
     var onShowPromptHistory: (() -> Void)?
     var onGoToTestFile: (() -> Void)?
     var onNewTask: (() -> Void)?
+
+    func body(content: Content) -> some View {
+        content
+            .modifier(FocusedSceneModifierA(
                 showSidebar: $showSidebar,
                 sidebarTab: $sidebarTab,
                 autoFollow: $autoFollow,
