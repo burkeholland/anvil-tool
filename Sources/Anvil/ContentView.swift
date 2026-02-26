@@ -415,6 +415,11 @@ struct ContentView: View {
                 openDirectory(url)
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: AppDelegate.focusTerminalTabNotification)) { notification in
+            if let tabID = notification.userInfo?["tabID"] as? UUID {
+                terminalTabs.selectTab(tabID)
+            }
+        }
         .sheet(isPresented: $showCloneSheet) {
             CloneRepositoryView(
                 onCloned: { url in openDirectory(url) },
@@ -512,6 +517,15 @@ struct ContentView: View {
         )
     }
 
+    /// Updates the "waiting for input" state for a tab and fires a macOS notification
+    /// when the agent transitions into the waiting state while Anvil is in the background.
+    private func handleAgentWaitingForInput(_ waiting: Bool, for tab: TerminalTab) {
+        terminalTabs.setWaitingForInput(waiting, tabID: tab.id)
+        if waiting {
+            notificationManager.notifyWaitingForInput(tabID: tab.id, tabTitle: tab.title)
+        }
+    }
+
     /// Returns an EmbeddedTerminalView configured for the given tab, with the
     /// active/inactive styling applied.  Extracted as a helper to keep `projectView`
     /// under the Swift type-checker complexity limit.
@@ -532,7 +546,7 @@ struct ContentView: View {
                 followAgent.reportChange(url)
             },
             onAgentWaitingForInput: { waiting in
-                terminalTabs.setWaitingForInput(waiting, tabID: tab.id)
+                handleAgentWaitingForInput(waiting, for: tab)
             },
             onAgentModeChanged: { mode in
                 if tab.id == terminalTabs.activeTabID {
@@ -695,7 +709,7 @@ struct ContentView: View {
                                         followAgent.reportChange(url)
                                     },
                                     onAgentWaitingForInput: { waiting in
-                                        terminalTabs.setWaitingForInput(waiting, tabID: splitTab.id)
+                                        handleAgentWaitingForInput(waiting, for: splitTab)
                                     }
                                 )
                                 .id(splitTab.id)
