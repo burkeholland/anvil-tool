@@ -684,7 +684,7 @@ struct ContentView: View {
                                 )
                             }
 
-                            FilePreviewView(model: filePreview, changesModel: changesModel)
+                            FilePreviewView(model: filePreview, changesModel: changesModel, buildDiagnostics: buildVerifier.diagnostics)
                         }
                     }
                     .frame(width: max(previewWidth, 0))

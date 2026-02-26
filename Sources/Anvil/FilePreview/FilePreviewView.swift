@@ -5,6 +5,9 @@ import Highlightr
 struct FilePreviewView: View {
     @ObservedObject var model: FilePreviewModel
     var changesModel: ChangesModel?
+    /// All build diagnostics from the most recent failed build.  Automatically
+    /// cleared when the build passes (via BuildVerifier).
+    var buildDiagnostics: [BuildDiagnostic] = []
     @EnvironmentObject var terminalProxy: TerminalInputProxy
     @State private var showGoToLine = false
     @State private var goToLineText = ""
@@ -12,6 +15,38 @@ struct FilePreviewView: View {
     /// Gutter changes for the current file, cached for navigation.
     private var currentGutterChanges: [Int: GutterChangeKind] {
         model.fileDiff.map { DiffParser.gutterChanges(from: $0) } ?? [:]
+    }
+
+    /// Build diagnostics filtered to only those belonging to the currently previewed file,
+    /// keyed by 1-based line number (last diagnostic wins when multiple land on the same line).
+    var diagnosticsForCurrentFile: [Int: BuildDiagnostic] {
+        guard let url = model.selectedURL else { return [:] }
+        return Self.filterDiagnostics(buildDiagnostics, for: url, relativePath: model.relativePath)
+    }
+
+    /// Filters `diagnostics` to those whose file path matches `fileURL` / `relativePath`,
+    /// returning a dictionary keyed by 1-based line number.
+    static func filterDiagnostics(
+        _ diagnostics: [BuildDiagnostic],
+        for fileURL: URL,
+        relativePath: String
+    ) -> [Int: BuildDiagnostic] {
+        let absPath = fileURL.standardizedFileURL.path
+        var result: [Int: BuildDiagnostic] = [:]
+        for d in diagnostics {
+            let fp = d.filePath
+            let matches: Bool
+            if (fp as NSString).isAbsolutePath {
+                matches = URL(fileURLWithPath: fp).standardizedFileURL.path == absPath
+            } else {
+                // Relative path: exact match or suffix match against the absolute path
+                matches = fp == relativePath || absPath.hasSuffix("/" + fp)
+            }
+            if matches {
+                result[d.line] = d
+            }
+        }
+        return result
     }
 
     /// Document symbols parsed from the current file.
@@ -339,7 +374,8 @@ struct FilePreviewView: View {
                                 endLine: endLine,
                                 code: code
                             )
-                        }
+                        },
+                        diagnosticAnnotations: diagnosticsForCurrentFile
                     )
                 } else {
                     Spacer()
@@ -824,6 +860,9 @@ struct HighlightedTextView: NSViewRepresentable {
     /// Called when the user triggers "Send to Terminal". Receives the selected code (or empty
     /// string when nothing is selected), plus the 1-based start and end line numbers.
     var onSendToTerminal: ((String, Int, Int) -> Void)?
+    /// Build diagnostic annotations for the current file, keyed by 1-based line number.
+    /// When non-empty, gutter dots are drawn (red for errors, yellow for warnings, blue for notes).
+    var diagnosticAnnotations: [Int: BuildDiagnostic] = [:]
 
     func makeNSView(context: Context) -> NSScrollView {
         let scrollView = NSScrollView()
@@ -877,6 +916,7 @@ struct HighlightedTextView: NSViewRepresentable {
         rulerView.gutterChanges = gutterChanges
         rulerView.blameLines = blameLines
         rulerView.onBlameClick = onBlameClick
+        rulerView.diagnosticAnnotations = diagnosticAnnotations
 
         let coordinator = context.coordinator
         textView.onSendToTerminal = { [weak coordinator] in
@@ -891,6 +931,7 @@ struct HighlightedTextView: NSViewRepresentable {
         context.coordinator.rulerView?.gutterChanges = gutterChanges
         context.coordinator.rulerView?.blameLines = blameLines
         context.coordinator.rulerView?.onBlameClick = onBlameClick
+        context.coordinator.rulerView?.diagnosticAnnotations = diagnosticAnnotations
         context.coordinator.fileDiff = fileDiff
         context.coordinator.onRevertHunk = onRevertHunk
         context.coordinator.onSendToTerminalAction = onSendToTerminal
@@ -1148,6 +1189,16 @@ final class LineNumberRulerView: NSRulerView {
     /// Called when the user clicks on a blame annotation. Receives the full commit SHA.
     var onBlameClick: ((String) -> Void)?
 
+    /// Build diagnostic annotations for this file, keyed by 1-based line number.
+    /// A colored dot is drawn in the gutter for each annotated line, and a tooltip shows
+    /// the diagnostic message.
+    var diagnosticAnnotations: [Int: BuildDiagnostic] = [:] {
+        didSet {
+            needsDisplay = true
+            rebuildDiagnosticTooltips()
+        }
+    }
+
     init(textView: NSTextView) {
         self.targetTextView = textView
         super.init(scrollView: textView.enclosingScrollView!, orientation: .verticalRuler)
@@ -1178,12 +1229,25 @@ final class LineNumberRulerView: NSRulerView {
     @objc private func textDidChange(_ notification: Notification) {
         updateThickness()
         needsDisplay = true
+        rebuildDiagnosticTooltips()
     }
 
     /// Called by the coordinator after setting new content programmatically.
     func refreshAfterContentChange() {
         updateThickness()
         needsDisplay = true
+    }
+
+    /// Rebuilds per-line tooltip rects for all diagnostic annotations.
+    /// Called whenever the diagnostic set changes or the view scrolls.
+    private func rebuildDiagnosticTooltips() {
+        removeAllToolTips()
+        guard !diagnosticAnnotations.isEmpty else { return }
+        for (lineNum, diagnostic) in diagnosticAnnotations {
+            guard let rect = lineRect(forLine: lineNum) else { continue }
+            let tipRect = NSRect(x: 0, y: rect.minY, width: ruleThickness, height: max(rect.height, 1))
+            addToolTip(tipRect, owner: diagnostic.message as NSString, userData: nil)
+        }
     }
 
     private func updateThickness() {
@@ -1426,6 +1490,21 @@ final class LineNumberRulerView: NSRulerView {
                         deletionPath.close()
                         deletionPath.fill()
                     }
+                }
+
+                // Draw build diagnostic dot (red = error, yellow = warning, blue = note)
+                if let diagnostic = diagnosticAnnotations[lineNumber] {
+                    let dotColor: NSColor
+                    switch diagnostic.severity {
+                    case .error:   dotColor = .systemRed
+                    case .warning: dotColor = NSColor(red: 1.0, green: 0.75, blue: 0.0, alpha: 1.0)
+                    case .note:    dotColor = .systemBlue
+                    }
+                    dotColor.setFill()
+                    let dotDiameter: CGFloat = 5
+                    let dotX = bounds.maxX - dotDiameter - 3
+                    let dotY = drawY + (lineRect.height - dotDiameter) / 2
+                    NSBezierPath(ovalIn: NSRect(x: dotX, y: dotY, width: dotDiameter, height: dotDiameter)).fill()
                 }
             }
 
