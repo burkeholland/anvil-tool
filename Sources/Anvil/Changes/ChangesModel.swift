@@ -222,14 +222,39 @@ final class ChangesModel: ObservableObject {
         !stagedFiles.isEmpty && !commitMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !isCommitting
     }
 
+    // MARK: - Commit Message Style
+
+    /// Defines the formatting style for auto-generated commit messages.
+    enum CommitMessageStyle: String, CaseIterable, Identifiable {
+        case conventional = "conventional"
+        case descriptive  = "descriptive"
+        case bulletList   = "bulletList"
+
+        var id: String { rawValue }
+
+        var label: String {
+            switch self {
+            case .conventional: return "Conventional"
+            case .descriptive:  return "Descriptive"
+            case .bulletList:   return "Bullet List"
+            }
+        }
+    }
+
     // MARK: - Commit Message Generation
 
-    /// Generates a conventional commit message from the current changes.
+    /// Generates a commit message from the current changes.
     /// - Parameters:
+    ///   - style: The formatting style. When `nil` (default), uses `.conventional` if `sessionStats`
+    ///     are active, otherwise `.descriptive` — preserving existing auto-fill behaviour.
     ///   - allFiles: When `true`, uses all changed files (for Stage All & Commit).
     ///     When `false` (default), uses staged files if any are staged, otherwise all changed files.
     ///   - sessionStats: Optional activity-feed session stats used to infer the conventional commit type.
-    func generateCommitMessage(allFiles: Bool = false, sessionStats: ActivityFeedModel.SessionStats? = nil) -> String {
+    func generateCommitMessage(
+        style: CommitMessageStyle? = nil,
+        allFiles: Bool = false,
+        sessionStats: ActivityFeedModel.SessionStats? = nil
+    ) -> String {
         let files: [ChangedFile]
         if allFiles {
             files = changedFiles
@@ -243,11 +268,20 @@ final class ChangesModel: ObservableObject {
         let deleted = files.filter { $0.status == .deleted }
         let renamed = files.filter { $0.status == .renamed }
 
-        // Build subject line using conventional commit format when session stats are available
+        // Resolve effective style: explicit > auto-detect from sessionStats
+        let effectiveStyle = style ?? (sessionStats?.isActive == true ? .conventional : .descriptive)
+
+        // Bullet-list: subject + per-file descriptions via DiffChangeDescriber
+        if effectiveStyle == .bulletList {
+            return buildBulletListMessage(files: files, added: added, modified: modified, deleted: deleted)
+        }
+
+        // Build subject line
         let subject: String
-        if let stats = sessionStats, stats.isActive {
+        if effectiveStyle == .conventional {
             subject = buildConventionalSubject(
-                files: files, added: added, modified: modified, deleted: deleted, sessionStats: stats
+                files: files, added: added, modified: modified, deleted: deleted,
+                sessionStats: sessionStats?.isActive == true ? sessionStats : nil
             )
         } else {
             subject = buildSubject(added: added, modified: modified, deleted: deleted, renamed: renamed)
@@ -283,6 +317,53 @@ final class ChangesModel: ObservableObject {
         }
 
         return subject + bodyLines.joined(separator: "\n")
+    }
+
+    /// Builds a bullet-list commit message using `DiffChangeDescriber` for per-file descriptions.
+    private func buildBulletListMessage(
+        files: [ChangedFile],
+        added: [ChangedFile],
+        modified: [ChangedFile],
+        deleted: [ChangedFile]
+    ) -> String {
+        // Subject: concise summary of the dominant operation
+        let subject: String
+        if files.count == 1, let file = files.first {
+            let verb: String
+            switch file.status {
+            case .added, .untracked: verb = "Add"
+            case .deleted:           verb = "Remove"
+            case .renamed:           verb = "Rename"
+            default:                 verb = "Update"
+            }
+            subject = "\(verb) \(file.fileName)"
+        } else {
+            var parts: [String] = []
+            if !added.isEmpty    { parts.append("\(added.count) added") }
+            if !modified.isEmpty { parts.append("\(modified.count) modified") }
+            if !deleted.isEmpty  { parts.append("\(deleted.count) deleted") }
+            let fileWord = files.count == 1 ? "file" : "files"
+            subject = "Update \(files.count) \(fileWord)" + (parts.isEmpty ? "" : " — \(parts.joined(separator: ", "))")
+        }
+
+        guard files.count > 1 else { return subject }
+
+        // Body: one bullet per file, annotated with DiffChangeDescriber when possible
+        var lines: [String] = [subject, ""]
+        for file in files {
+            let ext = (file.relativePath as NSString).pathExtension.lowercased()
+            var row = "- \(file.relativePath)"
+            if let diff = file.diff,
+               let desc = DiffChangeDescriber.describe(diff: diff, fileExtension: ext) {
+                row += ": \(desc)"
+            } else {
+                let stats = fileStatsLabel(file)
+                if !stats.isEmpty { row += " \(stats)" }
+            }
+            lines.append(row)
+        }
+
+        return lines.joined(separator: "\n")
     }
 
     /// Extracts up to three top-level symbol names (functions, types, etc.) from
@@ -324,19 +405,24 @@ final class ChangesModel: ObservableObject {
         }
     }
 
-    /// Builds a conventional commit subject line (`type(scope): description`) using activity stats.
+    /// Builds a conventional commit subject line (`type(scope): description`).
+    /// When `sessionStats` is provided its diff totals are used to improve type inference.
     private func buildConventionalSubject(
         files: [ChangedFile],
         added: [ChangedFile],
         modified: [ChangedFile],
         deleted: [ChangedFile],
-        sessionStats: ActivityFeedModel.SessionStats
+        sessionStats: ActivityFeedModel.SessionStats? = nil
     ) -> String {
         // Infer type from the dominant operation and diff stats
         let commitType: String
+        let (fallbackAdditions, fallbackDeletions) = files.compactMap(\.diff)
+            .reduce((0, 0)) { ($0.0 + $1.additionCount, $0.1 + $1.deletionCount) }
+        let totalAdditions = sessionStats?.totalAdditions ?? fallbackAdditions
+        let totalDeletions = sessionStats?.totalDeletions ?? fallbackDeletions
         if !added.isEmpty && added.count >= modified.count {
             commitType = "feat"
-        } else if sessionStats.totalDeletions > sessionStats.totalAdditions && !deleted.isEmpty {
+        } else if totalDeletions > totalAdditions && !deleted.isEmpty {
             commitType = "fix"
         } else if !modified.isEmpty && added.isEmpty {
             commitType = "refactor"

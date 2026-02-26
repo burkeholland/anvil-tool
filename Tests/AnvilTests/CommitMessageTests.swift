@@ -150,4 +150,66 @@ final class CommitMessageTests: XCTestCase {
         // Since both files share the same directory, body should use the flat-list format
         XCTAssertTrue(message.contains("- Auth/LoginModel.swift"), "Expected flat-list entry. Got: \(message)")
     }
+
+    // MARK: - Style tests
+
+    func testConventionalStyleProducesTypePrefix() {
+        let model = ChangesModel()
+        model.setChangedFilesForTesting([
+            makeFile(path: "NewFeature.swift", status: .added, additions: 20),
+        ])
+
+        let message = model.generateCommitMessage(style: .conventional)
+        // Conventional format requires `type: description`
+        XCTAssertTrue(message.contains(":"), "Expected conventional type prefix. Got: \(message)")
+        XCTAssertTrue(message.hasPrefix("feat"), "Expected 'feat' prefix for added file. Got: \(message)")
+    }
+
+    func testDescriptiveStyleProducesNaturalLanguageSubject() {
+        let model = ChangesModel()
+        model.setChangedFilesForTesting([
+            makeFile(path: "LoginView.swift", status: .modified, additions: 5, deletions: 2),
+        ])
+
+        let message = model.generateCommitMessage(style: .descriptive)
+        XCTAssertTrue(message.hasPrefix("Update LoginView.swift"), "Expected descriptive subject. Got: \(message)")
+        // Should not contain conventional 'type:' prefix
+        XCTAssertFalse(message.hasPrefix("refactor:") || message.hasPrefix("feat:") || message.hasPrefix("fix:"),
+                       "Descriptive style should not use conventional prefix. Got: \(message)")
+    }
+
+    func testBulletListStyleProducesBullets() {
+        let model = ChangesModel()
+        model.setChangedFilesForTesting([
+            makeFile(path: "Sources/A.swift", status: .modified, additions: 5, deletions: 2),
+            makeFile(path: "Sources/B.swift", status: .added, additions: 10),
+        ])
+
+        let message = model.generateCommitMessage(style: .bulletList)
+        // Should include bullet-list lines
+        XCTAssertTrue(message.contains("- Sources/A.swift"), "Expected bullet for A.swift. Got: \(message)")
+        XCTAssertTrue(message.contains("- Sources/B.swift"), "Expected bullet for B.swift. Got: \(message)")
+    }
+
+    func testBulletListSingleFileNoBody() {
+        let model = ChangesModel()
+        model.setChangedFilesForTesting([
+            makeFile(path: "Config.swift", status: .deleted, deletions: 8),
+        ])
+
+        let message = model.generateCommitMessage(style: .bulletList)
+        XCTAssertTrue(message.hasPrefix("Remove Config.swift"), "Expected remove verb. Got: \(message)")
+        // Single file should not produce bullets
+        XCTAssertFalse(message.contains("- Config.swift"), "Single file should not have bullet body. Got: \(message)")
+    }
+
+    func testConventionalStyleRefactorForModifiedOnly() {
+        let model = ChangesModel()
+        model.setChangedFilesForTesting([
+            makeFile(path: "Utils.swift", status: .modified, additions: 3, deletions: 3),
+        ])
+
+        let message = model.generateCommitMessage(style: .conventional)
+        XCTAssertTrue(message.hasPrefix("refactor"), "Expected 'refactor' for modify-only changes. Got: \(message)")
+    }
 }
