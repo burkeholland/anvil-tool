@@ -180,14 +180,35 @@ final class AgentNotificationManager {
         )
     }
 
+    // MARK: - Waiting-for-Input Notification
+
+    /// Key stored in `UNNotificationContent.userInfo` when a notification is associated
+    /// with a specific terminal tab.  The value is the tab's UUID string.
+    static let tabIDUserInfoKey = "dev.anvil.tabID"
+
+    /// Sends a notification telling the user that the agent is waiting for their
+    /// input in the named terminal tab.  Suppressed when Anvil is already active.
+    func notifyWaitingForInput(tabID: UUID, tabTitle: String) {
+        guard enabled, !NSApp.isActive else { return }
+        deliver(
+            title: "Agent needs input",
+            body: "Waiting for your response in \"\(tabTitle)\"",
+            identifier: "waiting-input-\(tabID.uuidString)",
+            tabID: tabID
+        )
+    }
+
     // MARK: - Notification Delivery
 
     /// Delivers a notification immediately (used for git commits).
-    private func deliver(title: String, body: String, identifier: String) {
+    private func deliver(title: String, body: String, identifier: String, tabID: UUID? = nil) {
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
         content.sound = .default
+        if let tabID {
+            content.userInfo = [Self.tabIDUserInfoKey: tabID.uuidString]
+        }
 
         let request = UNNotificationRequest(
             identifier: identifier,

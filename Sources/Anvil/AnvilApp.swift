@@ -58,7 +58,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 // MARK: - UNUserNotificationCenterDelegate
 
 extension AppDelegate: UNUserNotificationCenterDelegate {
+    /// Posted on `NotificationCenter.default` when the user clicks a notification
+    /// that is associated with a specific terminal tab.  The `userInfo` dictionary
+    /// contains `"tabID"` (a `UUID`).
+    static let focusTerminalTabNotification = Notification.Name("dev.anvil.focusTerminalTab")
+
     /// Bring Anvil to the foreground when the user clicks a notification.
+    /// If the notification carries a tab ID, also post `focusTerminalTabNotification`
+    /// so ContentView can switch to the relevant terminal tab.
     func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse,
@@ -66,6 +73,15 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
     ) {
         NSApp.activate(ignoringOtherApps: true)
         NSApp.windows.first?.makeKeyAndOrderFront(nil)
+        let userInfo = response.notification.request.content.userInfo
+        if let tabIDString = userInfo[AgentNotificationManager.tabIDUserInfoKey] as? String,
+           let tabID = UUID(uuidString: tabIDString) {
+            NotificationCenter.default.post(
+                name: Self.focusTerminalTabNotification,
+                object: nil,
+                userInfo: ["tabID": tabID]
+            )
+        }
         completionHandler()
     }
 
