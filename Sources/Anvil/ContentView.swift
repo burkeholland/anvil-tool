@@ -63,6 +63,7 @@ struct ContentView: View {
     @StateObject private var promptMarkerStore = PromptMarkerStore()
     @StateObject private var sessionHealthMonitor = SessionHealthMonitor()
     @StateObject private var diffAnnotationStore = DiffAnnotationStore()
+    @StateObject private var contextStore = ContextStore()
     @State private var showPromptHistory = false
     @State private var reviewDwellTask: Task<Void, Never>? = nil
     /// Debounces auto-follow navigation to avoid thrashing the preview pane
@@ -242,6 +243,7 @@ struct ContentView: View {
             sessionHealthMonitor.reset()
             promptMarkerStore.clear()
             fileTreeModel.clearAgentReferences()
+            contextStore.clear()
             promptHistoryStore.configure(projectPath: newURL?.standardizedFileURL.path)
             if let url = newURL {
                 recentProjects.recordOpen(url)
@@ -375,6 +377,7 @@ struct ContentView: View {
             terminalProxy.historyStore = promptHistoryStore
             terminalProxy.sessionMonitor = sessionHealthMonitor
             terminalProxy.markerStore = promptMarkerStore
+            terminalProxy.contextStore = contextStore
             promptHistoryStore.configure(projectPath: workingDirectory.directoryURL?.standardizedFileURL.path)
             if let url = workingDirectory.directoryURL {
                 recentProjects.recordOpen(url)
@@ -548,6 +551,7 @@ struct ContentView: View {
                         searchModel: searchModel,
                         fileTreeModel: fileTreeModel,
                         commitHistoryModel: commitHistoryModel,
+                        contextStore: contextStore,
                         activeTab: $sidebarTab,
                         onReviewAll: { showDiffSummary = true },
                         onBranchDiff: {
@@ -1926,6 +1930,7 @@ struct SidebarView: View {
     @ObservedObject var searchModel: SearchModel
     @ObservedObject var fileTreeModel: FileTreeModel
     @ObservedObject var commitHistoryModel: CommitHistoryModel
+    @ObservedObject var contextStore: ContextStore
     @Binding var activeTab: SidebarTab
     var onReviewAll: (() -> Void)?
     var onBranchDiff: (() -> Void)?
@@ -1993,7 +1998,7 @@ struct SidebarView: View {
             switch activeTab {
             case .files:
                 if let rootURL = model.directoryURL {
-                    FileTreeView(rootURL: rootURL, filePreview: filePreview, model: fileTreeModel, activityModel: activityModel)
+                    FileTreeView(rootURL: rootURL, filePreview: filePreview, model: fileTreeModel, activityModel: activityModel, contextStore: contextStore)
                         .id(rootURL)
                 } else {
                     VStack(spacing: 12) {

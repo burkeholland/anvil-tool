@@ -6,6 +6,7 @@ struct FileTreeView: View {
     @ObservedObject var filePreview: FilePreviewModel
     @ObservedObject var model: FileTreeModel
     @ObservedObject var activityModel: ActivityFeedModel
+    @ObservedObject var contextStore: ContextStore
     @EnvironmentObject var terminalProxy: TerminalInputProxy
 
     // File operation dialog state
@@ -203,6 +204,8 @@ struct FileTreeView: View {
                     }
                 }
             }
+
+            ContextPanelView(contextStore: contextStore, rootURL: rootURL)
         }
         .onAppear { model.start(rootURL: rootURL) }
         .onChange(of: model.gitStatuses) { _, _ in
@@ -329,14 +332,20 @@ struct FileTreeView: View {
         }
 
         if !isDirectory {
+            let relPath = relativePath(of: url)
+            let isPinned = contextStore.contains(relativePath: relPath)
             Button {
-                terminalProxy.addToContext(relativePath: relativePath(of: url))
+                if isPinned {
+                    terminalProxy.removeFromContext(relativePath: relPath)
+                } else {
+                    terminalProxy.addToContext(relativePath: relPath)
+                }
             } label: {
-                Label("Add to Copilot Context", systemImage: "scope")
+                Label(isPinned ? "Remove from Agent Context" : "Pin to Agent Context", systemImage: "paperclip")
             }
 
             Button {
-                terminalProxy.mentionFile(relativePath: relativePath(of: url))
+                terminalProxy.mentionFile(relativePath: relPath)
             } label: {
                 Label("Mention in Terminal", systemImage: "terminal")
             }
