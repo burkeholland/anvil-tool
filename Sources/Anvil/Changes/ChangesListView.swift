@@ -752,7 +752,16 @@ struct ChangesListView: View {
             showDirectoryLabel: showDirectoryLabel,
             onToggleReview: { model.toggleReviewed(file) },
             onOpenFile: { filePreview.select(file.url) },
-            onDiscard: { fileToDiscard = file }
+            onDiscard: { fileToDiscard = file },
+            onStageHunk: file.diff.map { diff in
+                { hunk in model.stageHunk(patch: DiffParser.reconstructPatch(fileDiff: diff, hunk: hunk)) }
+            },
+            onUnstageHunk: file.diff.map { diff in
+                { hunk in model.unstageHunk(patch: DiffParser.reconstructPatch(fileDiff: diff, hunk: hunk)) }
+            },
+            onDiscardHunk: file.diff.map { diff in
+                { hunk in model.discardHunk(patch: DiffParser.reconstructPatch(fileDiff: diff, hunk: hunk)) }
+            }
         )
         .contentShape(Rectangle())
         .onTapGesture {
@@ -1640,6 +1649,9 @@ struct ChangedFileRow: View {
     var onToggleReview: (() -> Void)? = nil
     var onOpenFile: (() -> Void)? = nil
     var onDiscard: (() -> Void)? = nil
+    var onStageHunk: ((DiffHunk) -> Void)? = nil
+    var onUnstageHunk: ((DiffHunk) -> Void)? = nil
+    var onDiscardHunk: ((DiffHunk) -> Void)? = nil
 
     @State private var isHovering = false
     @State private var dismissTask: DispatchWorkItem?
@@ -1773,7 +1785,14 @@ struct ChangedFileRow: View {
             set: { if !$0 { isHovering = false } }
         ), arrowEdge: .trailing) {
             if let diff = file.diff {
-                DiffPreviewPopover(diff: diff, onOpenFull: onOpenFile)
+                DiffPreviewPopover(
+                    diff: diff,
+                    stagedDiff: file.stagedDiff,
+                    onStageHunk: onStageHunk,
+                    onUnstageHunk: onUnstageHunk,
+                    onDiscardHunk: onDiscardHunk,
+                    onOpenFull: onOpenFile
+                )
             }
         }
     }
