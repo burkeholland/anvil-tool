@@ -171,6 +171,10 @@ struct ShowPromptHistoryKey: FocusedValueKey {
     typealias Value = () -> Void
 }
 
+struct GoToTestFileKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
 extension FocusedValues {
     var sidebarVisible: Binding<Bool>? {
         get { self[SidebarVisibleKey.self] }
@@ -381,6 +385,11 @@ extension FocusedValues {
         get { self[ShowPromptHistoryKey.self] }
         set { self[ShowPromptHistoryKey.self] = newValue }
     }
+
+    var goToTestFile: (() -> Void)? {
+        get { self[GoToTestFileKey.self] }
+        set { self[GoToTestFileKey.self] = newValue }
+    }
 }
 
 // MARK: - View Menu Commands
@@ -424,6 +433,7 @@ struct ViewCommands: Commands {
     @FocusedValue(\.nextPreviewTab) var nextPreviewTab
     @FocusedValue(\.previousPreviewTab) var previousPreviewTab
     @FocusedValue(\.showPromptHistory) var showPromptHistory
+    @FocusedValue(\.goToTestFile) var goToTestFile
     @AppStorage("autoLaunchCopilot") private var autoLaunchCopilot = true
     @AppStorage("notificationsEnabled") private var notificationsEnabled = true
 
@@ -478,6 +488,12 @@ struct ViewCommands: Commands {
             }
             .keyboardShortcut("j", modifiers: [.command, .shift])
             .disabled(revealInTree == nil)
+
+            Button("Go to Test File") {
+                goToTestFile?()
+            }
+            .keyboardShortcut("t", modifiers: [.command, .control])
+            .disabled(goToTestFile == nil)
 
             Button("Mention File in Terminal…") {
                 mentionInTerminal?()

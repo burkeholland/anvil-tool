@@ -42,6 +42,7 @@ struct KeyboardShortcutsView: View {
                             ("⌘⇧F", "Find in Project"),
                             ("⌘F", "Find in Terminal"),
                             ("⌘⇧J", "Reveal in File Tree"),
+                            ("⌘⌃T", "Go to Test / Implementation"),
                             ("⌘B", "Toggle Sidebar"),
                         ])
 
