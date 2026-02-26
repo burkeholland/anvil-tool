@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Bottom status bar showing git branch, selected file info, and changes summary.
+/// Bottom status bar showing selected file info and changes summary.
 struct StatusBarView: View {
     @ObservedObject var workingDirectory: WorkingDirectoryModel
     @ObservedObject var filePreview: FilePreviewModel
@@ -8,84 +8,7 @@ struct StatusBarView: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            // Left: Git branch
-            if let branch = workingDirectory.gitBranch {
-                HStack(spacing: 5) {
-                    Image(systemName: "arrow.triangle.branch")
-                        .font(.system(size: 10))
-                    Text(branch)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-
-                    // Ahead/behind indicators
-                    if workingDirectory.hasUpstream || workingDirectory.hasRemotes {
-                        if workingDirectory.aheadCount > 0 {
-                            HStack(spacing: 1) {
-                                Image(systemName: "arrow.up")
-                                    .font(.system(size: 8, weight: .bold))
-                                Text("\(workingDirectory.aheadCount)")
-                            }
-                            .foregroundStyle(.orange)
-                            .help("\(workingDirectory.aheadCount) commit\(workingDirectory.aheadCount == 1 ? "" : "s") ahead of remote")
-                        }
-                        if workingDirectory.behindCount > 0 {
-                            HStack(spacing: 1) {
-                                Image(systemName: "arrow.down")
-                                    .font(.system(size: 8, weight: .bold))
-                                Text("\(workingDirectory.behindCount)")
-                            }
-                            .foregroundStyle(.blue)
-                            .help("\(workingDirectory.behindCount) commit\(workingDirectory.behindCount == 1 ? "" : "s") behind remote")
-                        }
-                        if workingDirectory.aheadCount == 0 && workingDirectory.behindCount == 0 && workingDirectory.hasUpstream {
-                            Image(systemName: "checkmark.circle.fill")
-                                .font(.system(size: 9))
-                                .foregroundStyle(.green.opacity(0.6))
-                                .help("In sync with remote")
-                        }
-                    }
-
-                    // PR indicator
-                    if let prURL = workingDirectory.openPRURL, let url = URL(string: prURL) {
-                        Button {
-                            NSWorkspace.shared.open(url)
-                        } label: {
-                            HStack(spacing: 2) {
-                                Image(systemName: "arrow.triangle.pull")
-                                    .font(.system(size: 8, weight: .bold))
-                                Text("PR")
-                            }
-                            .foregroundStyle(.purple)
-                        }
-                        .buttonStyle(.plain)
-                        .help(workingDirectory.openPRTitle.map { "Pull Request: \($0)" } ?? "Open Pull Request")
-                    }
-
-                    // Sync button
-                    if workingDirectory.hasRemotes {
-                        syncButton
-                    }
-
-                    // Open in GitHub button
-                    if let dirURL = workingDirectory.directoryURL {
-                        Button {
-                            GitHubURLBuilder.openRepo(rootURL: dirURL)
-                        } label: {
-                            Image(systemName: "arrow.up.right.square")
-                                .font(.system(size: 10))
-                                .foregroundStyle(.secondary)
-                        }
-                        .buttonStyle(.plain)
-                        .help("Open Repository in GitHub")
-                    }
-                }
-                .padding(.horizontal, 10)
-                .help("Current branch: \(branch)")
-
-                StatusBarDivider()
-            }
-
-            // Center: Selected file info
+            // Left: Selected file info
             if filePreview.selectedURL != nil {
                 HStack(spacing: 5) {
                     Image(systemName: "doc")
@@ -168,49 +91,6 @@ struct StatusBarView: View {
         .animation(.easeInOut(duration: 0.2), value: workingDirectory.lastSyncError != nil)
     }
 
-    @ViewBuilder
-    private var syncButton: some View {
-        if workingDirectory.isPushing || workingDirectory.isPulling {
-            ProgressView()
-                .controlSize(.mini)
-                .scaleEffect(0.7)
-        } else {
-            Menu {
-                if workingDirectory.aheadCount > 0 || !workingDirectory.hasUpstream {
-                    Button {
-                        workingDirectory.push()
-                    } label: {
-                        Label(
-                            workingDirectory.hasUpstream
-                                ? "Push \(workingDirectory.aheadCount) Commit\(workingDirectory.aheadCount == 1 ? "" : "s")"
-                                : "Push & Set Upstream",
-                            systemImage: "arrow.up"
-                        )
-                    }
-                }
-                if workingDirectory.behindCount > 0 {
-                    Button {
-                        workingDirectory.pull()
-                    } label: {
-                        Label("Pull \(workingDirectory.behindCount) Commit\(workingDirectory.behindCount == 1 ? "" : "s")", systemImage: "arrow.down")
-                    }
-                }
-                Divider()
-                Button {
-                    workingDirectory.fetch()
-                } label: {
-                    Label("Fetch", systemImage: "arrow.clockwise")
-                }
-            } label: {
-                Image(systemName: "arrow.triangle.2.circlepath")
-                    .font(.system(size: 9))
-                    .foregroundStyle(.secondary)
-            }
-            .menuStyle(.borderlessButton)
-            .frame(width: 16)
-            .help("Sync with remote")
-        }
-    }
 }
 
 /// Thin vertical separator for status bar items.
