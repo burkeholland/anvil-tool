@@ -9,6 +9,8 @@ struct BranchDiffView: View {
     var onDismiss: (() -> Void)?
     /// Called with `(filePath, lineNumber)` when the user taps "Show in Preview" on a hunk.
     var onShowInPreview: ((String, Int) -> Void)?
+    /// Called when the user requests to revert a single hunk to the working tree.
+    var onRevertHunk: ((FileDiff, DiffHunk) -> Void)? = nil
     @State private var collapsedFiles: Set<String> = []
     @AppStorage("diffViewMode") private var diffMode: String = DiffViewMode.unified.rawValue
     @AppStorage("diffContextExpanded") private var contextExpanded = false
@@ -338,6 +340,9 @@ struct BranchDiffView: View {
                                 DiffHunkView(
                                     hunk: hunk,
                                     syntaxHighlights: highlights,
+                                    onDiscard: onRevertHunk.map { handler in
+                                        { handler(diff, hunk) }
+                                    },
                                     onRequestFix: { prompt in
                                         terminalProxy.sendPrompt(prompt)
                                     },
