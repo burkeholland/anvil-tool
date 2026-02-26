@@ -1742,6 +1742,10 @@ struct ToolbarView: View {
 
     var body: some View {
         HStack(spacing: Spacing.md) {
+            Button {
+                showSidebar.toggle()
+            } label: {
+                Image(systemName: "sidebar.leading")
             }
             .buttonStyle(.borderless)
             .help("Toggle Sidebar (⌘B)")
