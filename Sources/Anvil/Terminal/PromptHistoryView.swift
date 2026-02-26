@@ -170,7 +170,7 @@ private struct PromptEntryRow: View {
                     } label: {
                         Image(systemName: "arrow.uturn.forward")
                             .font(.system(size: 10))
-                            .foregroundStyle(.accentColor)
+                            .foregroundStyle(Color.accentColor)
                             .frame(width: 22, height: 22)
                             .contentShape(Rectangle())
                     }
