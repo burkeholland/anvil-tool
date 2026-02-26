@@ -245,9 +245,27 @@ enum DiffParser {
         }
     }
 
-    /// Computes character-level diff between two strings by finding the common
-    /// prefix and suffix, marking the middle as the changed region.
+    /// Computes word-level diff between two strings using a Longest Common Subsequence
+    /// algorithm on whitespace-split tokens. Changed tokens are returned as character
+    /// ranges within the original strings, with adjacent changed tokens merged into a
+    /// single range. Falls back to character-level prefix/suffix diff when the two
+    /// strings share no tokens in common (e.g. single-token lines that differ entirely).
     static func computeCharDiff(old: String, new: String) -> ([Range<Int>], [Range<Int>]) {
+        let oldTokens = tokenize(old)
+        let newTokens = tokenize(new)
+
+        let lcsIndices = lcsTokenIndices(old: oldTokens.map(\.text), new: newTokens.map(\.text))
+        if !lcsIndices.isEmpty {
+            let oldMatched = Set(lcsIndices.map(\.0))
+            let newMatched = Set(lcsIndices.map(\.1))
+            return (
+                charRanges(for: oldTokens, excluding: oldMatched),
+                charRanges(for: newTokens, excluding: newMatched)
+            )
+        }
+
+        // No tokens in common — fall back to character-level prefix/suffix diff so that
+        // single-token changes like "foo()" → "foo(bar)" still get a useful highlight.
         let oldChars = Array(old)
         let newChars = Array(new)
 
@@ -264,23 +282,104 @@ enum DiffParser {
             suffixLen += 1
         }
 
-        let oldChangeStart = prefixLen
-        let oldChangeEnd = oldChars.count - suffixLen
-        let newChangeStart = prefixLen
-        let newChangeEnd = newChars.count - suffixLen
-
-        // Only highlight if the change is partial (not the entire line)
         guard prefixLen > 0 || suffixLen > 0 else { return ([], []) }
+
+        let oldChangeStart = prefixLen
+        let oldChangeEnd   = oldChars.count - suffixLen
+        let newChangeStart = prefixLen
+        let newChangeEnd   = newChars.count - suffixLen
 
         var oldRanges: [Range<Int>] = []
         var newRanges: [Range<Int>] = []
-        if oldChangeEnd > oldChangeStart {
-            oldRanges.append(oldChangeStart..<oldChangeEnd)
-        }
-        if newChangeEnd > newChangeStart {
-            newRanges.append(newChangeStart..<newChangeEnd)
-        }
+        if oldChangeEnd > oldChangeStart { oldRanges.append(oldChangeStart..<oldChangeEnd) }
+        if newChangeEnd > newChangeStart { newRanges.append(newChangeStart..<newChangeEnd) }
         return (oldRanges, newRanges)
+    }
+
+    // MARK: - Word-level diff helpers
+
+    /// A whitespace-delimited token together with its character range in the source string.
+    struct WordToken {
+        let text: String
+        let range: Range<Int>
+    }
+
+    /// Splits `s` into non-whitespace tokens, recording each token's character range.
+    static func tokenize(_ s: String) -> [WordToken] {
+        var tokens: [WordToken] = []
+        var charOffset = 0
+        var idx = s.startIndex
+
+        while idx < s.endIndex {
+            // Skip whitespace
+            while idx < s.endIndex && s[idx].isWhitespace {
+                s.formIndex(after: &idx)
+                charOffset += 1
+            }
+            guard idx < s.endIndex else { break }
+
+            let tokenStart = charOffset
+            let startIdx = idx
+            while idx < s.endIndex && !s[idx].isWhitespace {
+                s.formIndex(after: &idx)
+                charOffset += 1
+            }
+            tokens.append(WordToken(text: String(s[startIdx..<idx]), range: tokenStart..<charOffset))
+        }
+        return tokens
+    }
+
+    /// Returns `(oldIndex, newIndex)` pairs that form the LCS of two token arrays.
+    static func lcsTokenIndices(old: [String], new: [String]) -> [(Int, Int)] {
+        let m = old.count, n = new.count
+        guard m > 0, n > 0 else { return [] }
+
+        // Build DP table
+        var dp = [[Int]](repeating: [Int](repeating: 0, count: n + 1), count: m + 1)
+        for i in 1...m {
+            for j in 1...n {
+                if old[i - 1] == new[j - 1] {
+                    dp[i][j] = dp[i - 1][j - 1] + 1
+                } else {
+                    dp[i][j] = max(dp[i - 1][j], dp[i][j - 1])
+                }
+            }
+        }
+
+        // Backtrace to recover matching index pairs
+        var result: [(Int, Int)] = []
+        var i = m, j = n
+        while i > 0 && j > 0 {
+            if old[i - 1] == new[j - 1] {
+                result.append((i - 1, j - 1))
+                i -= 1
+                j -= 1
+            } else if dp[i - 1][j] >= dp[i][j - 1] {
+                i -= 1
+            } else {
+                j -= 1
+            }
+        }
+        return result.reversed()
+    }
+
+    /// Merges contiguous unmatched tokens into consolidated character ranges.
+    static func charRanges(for tokens: [WordToken], excluding matched: Set<Int>) -> [Range<Int>] {
+        var ranges: [Range<Int>] = []
+        var runStart: Int? = nil
+        var runEnd = 0
+
+        for (i, token) in tokens.enumerated() {
+            if !matched.contains(i) {
+                if runStart == nil { runStart = token.range.lowerBound }
+                runEnd = token.range.upperBound
+            } else if let start = runStart {
+                ranges.append(start..<runEnd)
+                runStart = nil
+            }
+        }
+        if let start = runStart { ranges.append(start..<runEnd) }
+        return ranges
     }
 
     // MARK: - Gutter Change Region Lookup
