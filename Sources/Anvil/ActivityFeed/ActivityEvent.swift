@@ -33,6 +33,12 @@ struct ActivityEvent: Identifiable {
         (path as NSString).lastPathComponent
     }
 
+    /// The best short name for display: the filename when a path is present,
+    /// otherwise falls back to the event's label (e.g. a commit message).
+    var displayName: String {
+        path.isEmpty ? label : fileName
+    }
+
     var directoryPath: String {
         let dir = (path as NSString).deletingLastPathComponent
         return dir.isEmpty ? "" : dir
