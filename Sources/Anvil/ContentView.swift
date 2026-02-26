@@ -1840,15 +1840,9 @@ struct ToolbarView: View {
             Button {
                 showProjectSwitcher.toggle()
             } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: "arrow.triangle.swap")
-                        .font(.system(size: 10))
-                    Text("Switch")
-                        .font(.system(size: 12))
-                }
+                Image(systemName: "arrow.triangle.swap")
             }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
+            .buttonStyle(.borderless)
             .help("Switch Project")
             .popover(isPresented: $showProjectSwitcher, arrowEdge: .bottom) {
                 ProjectSwitcherView(
