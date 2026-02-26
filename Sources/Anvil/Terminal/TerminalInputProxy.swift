@@ -38,6 +38,25 @@ final class TerminalInputProxy: ObservableObject {
         send("@\(String(sanitized)) ")
     }
 
+    /// Sends a formatted code snippet to the terminal with file path and line range context.
+    /// Strips control characters (except newlines) from the code to prevent terminal injection.
+    /// When `code` is empty, sends only the file path and line range.
+    func sendCodeSnippet(relativePath: String, language: String?, startLine: Int, endLine: Int, code: String) {
+        let sanitizedPath = relativePath.unicodeScalars
+            .filter { $0.value >= 0x20 && $0 != "\u{7F}" }
+            .map { Character($0) }
+        let lineRange = startLine == endLine ? "line \(startLine)" : "lines \(startLine)-\(endLine)"
+        if code.isEmpty {
+            send("\(String(sanitizedPath)) \(lineRange)\n")
+        } else {
+            let sanitizedCode = code.unicodeScalars
+                .filter { $0.value == 0x0A || ($0.value >= 0x20 && $0 != "\u{7F}") }
+                .map { Character($0) }
+            let lang = language ?? ""
+            send("\(String(sanitizedPath)) \(lineRange):\n```\(lang)\n\(String(sanitizedCode))\n```\n")
+        }
+    }
+
     /// Shows the floating find bar overlay (⌘F).
     func showFindBar() {
         isShowingFindBar = true
