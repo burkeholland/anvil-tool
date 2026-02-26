@@ -20,6 +20,13 @@ struct DiffSummaryView: View {
         changesModel.changedFiles.filter { $0.diff != nil }
     }
 
+    /// Total risk flags detected across all hunks in all changed files.
+    private var totalRiskFlagCount: Int {
+        filesWithDiffs.reduce(0) { total, file in
+            guard let diff = file.diff else { return total }
+            return total + diff.hunks.reduce(0) { $0 + DiffRiskScanner.scan($1).count }
+        }
+    }
     var body: some View {
         contentWithFocusedValues
             .focusedValue(\.stageFocusedHunk, changesModel.focusedHunk != nil ? { changesModel.stageFocusedHunk() } : nil)
@@ -162,6 +169,17 @@ struct DiffSummaryView: View {
                     Text("(\(changesModel.reviewedCount)/\(changesModel.changedFiles.count) reviewed)")
                         .font(.system(size: 10))
                         .foregroundStyle(changesModel.reviewedCount == changesModel.changedFiles.count ? .green : .blue.opacity(0.7))
+                }
+
+                if totalRiskFlagCount > 0 {
+                    HStack(spacing: 3) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 10))
+                        Text("\(totalRiskFlagCount) risk\(totalRiskFlagCount == 1 ? "" : "s")")
+                            .font(.system(size: 10, weight: .medium))
+                    }
+                    .foregroundStyle(.orange)
+                    .help("Risk flags detected in diff hunks — look for ⚠ icons in the hunk headers")
                 }
 
                 Spacer()

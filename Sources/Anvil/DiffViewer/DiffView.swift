@@ -195,6 +195,11 @@ struct DiffHunkView: View {
         onStage != nil || onUnstage != nil || onDiscard != nil || onRequestFix != nil || onShowInPreview != nil
     }
 
+    /// Risk flags detected by scanning this hunk's lines.
+    private var riskFlags: [DiffRiskFlag] {
+        DiffRiskScanner.scan(hunk)
+    }
+
     var body: some View {
         let sections = makeHunkSections(hunk.lines)
         VStack(alignment: .leading, spacing: 0) {
@@ -245,11 +250,29 @@ struct DiffHunkView: View {
                 existingAnnotation: annotation(for: line)
             )
             .overlay(alignment: .trailing) {
-                hunkActions
-                    .opacity(isHovered ? 1 : 0)
+                HStack(spacing: 4) {
+                    if !riskFlags.isEmpty {
+                        riskBadge
+                    }
+                    hunkActions
+                        .opacity(isHovered ? 1 : 0)
+                }
             }
             .onHover { hovering in
                 isHovered = hovering
+            }
+        } else if line.kind == .hunkHeader && !riskFlags.isEmpty {
+            DiffLineView(
+                line: line,
+                syntaxHighlight: syntaxHighlights[line.id],
+                hunkStagedTint: isStaged ? stagedHeaderTint : nil,
+                filePath: filePath,
+                onAddAnnotation: onAddAnnotation,
+                onRemoveAnnotation: removeHandler(for: line),
+                existingAnnotation: annotation(for: line)
+            )
+            .overlay(alignment: .trailing) {
+                riskBadge
             }
         } else {
             DiffLineView(
@@ -374,6 +397,27 @@ struct DiffHunkView: View {
             RoundedRectangle(cornerRadius: 4)
                 .fill(.ultraThinMaterial)
         )
+        .padding(.trailing, 8)
+    }
+
+    /// A small warning badge showing the number of risk flags for this hunk.
+    /// Appears permanently on the hunk header and shows a tooltip on hover.
+    @ViewBuilder
+    private var riskBadge: some View {
+        let tooltip = riskFlags.map(\.description).joined(separator: "\n")
+        HStack(spacing: 3) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 10))
+                .foregroundStyle(.orange)
+            Text("\(riskFlags.count)")
+                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                .foregroundStyle(.orange)
+        }
+        .padding(.horizontal, 5)
+        .padding(.vertical, 2)
+        .background(RoundedRectangle(cornerRadius: 4).fill(Color.orange.opacity(0.15)))
+        .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(Color.orange.opacity(0.35), lineWidth: 0.5))
+        .help(tooltip)
         .padding(.trailing, 8)
     }
 }
