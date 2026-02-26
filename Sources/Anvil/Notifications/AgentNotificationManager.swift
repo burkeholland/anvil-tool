@@ -192,7 +192,7 @@ final class AgentNotificationManager {
         guard enabled, !NSApp.isActive else { return }
         deliver(
             title: "Agent needs input",
-            body: "Waiting for your response in "\(tabTitle)"",
+            body: "Waiting for your response in \"\(tabTitle)\"",
             identifier: "waiting-input-\(tabID.uuidString)",
             tabID: tabID
         )
