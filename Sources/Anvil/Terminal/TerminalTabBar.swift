@@ -31,44 +31,6 @@ struct TerminalTabBar: View {
 
             Spacer()
 
-            // Split pane buttons
-            if model.isSplit {
-                Button {
-                    onCloseSplit()
-                } label: {
-                    Image(systemName: "rectangle")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 28, height: 28)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .help("Close Split")
-            } else {
-                Menu {
-                    Button {
-                        onSplitHorizontally()
-                    } label: {
-                        Label("Split Right", systemImage: "rectangle.split.2x1")
-                    }
-
-                    Button {
-                        onSplitVertically()
-                    } label: {
-                        Label("Split Down", systemImage: "rectangle.split.1x2")
-                    }
-                } label: {
-                    Image(systemName: "rectangle.split.2x1")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 28, height: 28)
-                        .contentShape(Rectangle())
-                }
-                .menuStyle(.borderlessButton)
-                .frame(width: 28)
-                .help("Split Terminal")
-            }
-
             Menu {
                 Button {
                     onNewCopilotTab()
@@ -80,6 +42,28 @@ struct TerminalTabBar: View {
                     onNewShellTab()
                 } label: {
                     Label("New Shell Tab", systemImage: "terminal")
+                }
+
+                Divider()
+
+                Button {
+                    onSplitHorizontally()
+                } label: {
+                    Label("Split Right", systemImage: "rectangle.split.2x1")
+                }
+
+                Button {
+                    onSplitVertically()
+                } label: {
+                    Label("Split Down", systemImage: "rectangle.split.1x2")
+                }
+
+                if model.isSplit {
+                    Button {
+                        onCloseSplit()
+                    } label: {
+                        Label("Close Split", systemImage: "rectangle")
+                    }
                 }
             } label: {
                 Image(systemName: "plus")
