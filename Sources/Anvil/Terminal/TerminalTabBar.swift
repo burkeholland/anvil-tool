@@ -93,7 +93,7 @@ struct TerminalTabBar: View {
             .help("New Terminal Tab")
             .padding(.trailing, 6)
         }
-        .frame(height: 30)
+        .frame(height: 36)
         .background(Color(nsColor: NSColor(red: 0.08, green: 0.08, blue: 0.10, alpha: 1.0)))
         .overlay(alignment: .bottom) {
             Divider().opacity(0.3)
@@ -120,7 +120,7 @@ private struct TerminalTabItem: View {
                 .foregroundStyle(tab.launchCopilot && isActive ? .purple : .secondary)
 
             Text(tab.title)
-                .font(.system(size: 11))
+                .font(.system(size: 12))
                 .lineLimit(1)
                 .foregroundStyle(isActive ? .primary : .secondary)
 
@@ -142,9 +142,9 @@ private struct TerminalTabItem: View {
                     onClose()
                 } label: {
                     Image(systemName: "xmark")
-                        .font(.system(size: 8, weight: .semibold))
+                        .font(.system(size: 9, weight: .semibold))
                         .foregroundStyle(.tertiary)
-                        .frame(width: 14, height: 14)
+                        .frame(width: 16, height: 16)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -152,10 +152,10 @@ private struct TerminalTabItem: View {
             }
         }
         .padding(.horizontal, 10)
-        .padding(.vertical, 6)
+        .padding(.vertical, 8)
         .background(
             isActive
-                ? Color(nsColor: NSColor(red: 0.1, green: 0.1, blue: 0.12, alpha: 1.0))
+                ? Color.primary.opacity(0.08)
                 : Color.clear
         )
         .overlay(alignment: .bottom) {
