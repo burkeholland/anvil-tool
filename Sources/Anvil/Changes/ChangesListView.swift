@@ -39,12 +39,14 @@ struct ChangesListView: View {
         case directory = "directory"
         case changeType = "changeType"
         case fileKind = "fileKind"
+        case semantic = "semantic"
 
         var label: String {
             switch self {
             case .directory:  return "Directory"
             case .changeType: return "Type"
             case .fileKind:   return "Kind"
+            case .semantic:   return "Semantic"
             }
         }
     }
@@ -999,6 +1001,37 @@ struct ChangesListView: View {
                         }
                     }
                     if !collapsedGroups.contains(group.label) {
+                        ForEach(group.files) { file in
+                            fileRow(file: file, isStaged: isStaged,
+                                    testCoverage: coverageMap[file.url] ?? .notApplicable)
+                                .padding(.leading, 12)
+                        }
+                    }
+                }
+            } else {
+                ForEach(files) { file in
+                    fileRow(file: file, isStaged: isStaged,
+                            testCoverage: coverageMap[file.url] ?? .notApplicable)
+                }
+            }
+
+        case .semantic:
+            let actFeed = activityFeedModel?.groups ?? []
+            let groups = SemanticGrouper.group(files: files, activityGroups: actFeed)
+            if groups.count > 1 {
+                ForEach(groups) { group in
+                    GenericGroupHeader(
+                        label: group.label,
+                        systemImage: group.systemImage,
+                        color: .accentColor,
+                        count: group.files.count,
+                        isCollapsed: collapsedGroups.contains(group.id)
+                    ) {
+                        withAnimation(.easeInOut(duration: 0.15)) {
+                            collapsedGroups = collapsedGroups.symmetricDifference([group.id])
+                        }
+                    }
+                    if !collapsedGroups.contains(group.id) {
                         ForEach(group.files) { file in
                             fileRow(file: file, isStaged: isStaged,
                                     testCoverage: coverageMap[file.url] ?? .notApplicable)
