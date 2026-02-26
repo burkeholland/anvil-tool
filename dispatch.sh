@@ -318,28 +318,25 @@ capture_app_screenshot() {
 
   # Launch in background (no focus steal)
   open -g "$APP_BUNDLE"
-  sleep 6
+  sleep 3
 
   # Activate, resize, and use ⌘N keystroke to switch tab (forces sidebar open)
   osascript -e "
     tell application \"Anvil\" to activate
-    delay 2
+    delay 1
     tell application \"System Events\"
       tell process \"Anvil\"
         try
           set frontmost to true
-          -- Resize window to a good screenshot size
           tell window 1
             set position to {100, 100}
             set size to {1400, 900}
           end tell
-          -- Send ⌘${shortcut} to switch sidebar tab (also forces sidebar visible)
           keystroke \"${shortcut}\" using command down
         end try
       end tell
     end tell
-    -- Give file tree time to enumerate and render
-    delay 5
+    delay 3
   " 2>/dev/null || true
 
   # Find the content window (largest by area, skip menu bar items)
