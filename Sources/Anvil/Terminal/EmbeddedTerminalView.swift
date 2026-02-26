@@ -111,11 +111,9 @@ struct EmbeddedTerminalView: View {
                 defer { group.leave() }
                 guard let data = item as? Data,
                       let url = URL(dataRepresentation: data, relativeTo: nil) else { return }
-                let raw = Self.projectRelativePath(for: url, rootURL: rootURL)
-                let sanitized = String(raw.unicodeScalars
-                    .filter { $0.value >= 0x20 && $0 != "\u{7F}" }
-                    .map { Character($0) })
-                let escaped = Self.shellEscapePath(sanitized)
+                let raw = TerminalDropHelper.projectRelativePath(for: url, rootURL: rootURL)
+                let sanitized = TerminalDropHelper.sanitizePath(raw)
+                let escaped = TerminalDropHelper.shellEscapePath(sanitized)
                 lock.lock()
                 results[index] = escaped
                 lock.unlock()
@@ -127,29 +125,6 @@ struct EmbeddedTerminalView: View {
             guard !text.isEmpty else { return }
             terminalProxy.send(text)
         }
-    }
-
-    private static func projectRelativePath(for url: URL, rootURL: URL?) -> String {
-        guard let rootURL = rootURL else { return url.path }
-        let rootPath = rootURL.standardizedFileURL.path
-        let filePath = url.standardizedFileURL.path
-        let rootPrefix = rootPath.hasSuffix("/") ? rootPath : rootPath + "/"
-        if filePath.hasPrefix(rootPrefix) {
-            return String(filePath.dropFirst(rootPrefix.count))
-        }
-        return url.path
-    }
-
-    private static let shellSpecialChars: Set<Character> = [
-        " ", "\t", "\n", "!", "\"", "#", "$", "&", "'",
-        "(", ")", "*", ",", ";", "<", "=", ">", "?",
-        "[", "\\", "]", "^", "`", "{", "|", "}", "~"
-    ]
-
-    private static func shellEscapePath(_ path: String) -> String {
-        guard path.contains(where: { shellSpecialChars.contains($0) }) else { return path }
-        let escaped = path.replacingOccurrences(of: "'", with: "'\\''")
-        return "'\(escaped)'"
     }
 
     private var copilotNotFoundBanner: some View {
