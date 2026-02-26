@@ -19,6 +19,38 @@ struct ChangesListView: View {
     @State private var showOnlyUnreviewed = false
     @State private var collapsedDirectories: Set<String> = []
 
+    private enum ChangeScope: String, CaseIterable {
+        case all = "All Changes"
+        case lastTask = "Last Task"
+    }
+    @State private var changeScope: ChangeScope = .all
+
+    // MARK: - Scope-filtered file lists
+
+    private var displayedFiles: [ChangedFile] {
+        changeScope == .lastTask ? model.lastTaskChangedFiles : model.changedFiles
+    }
+
+    private var displayedStagedFiles: [ChangedFile] {
+        displayedFiles.filter { $0.staging == .staged || $0.staging == .partial }
+    }
+
+    private var displayedUnstagedFiles: [ChangedFile] {
+        displayedFiles.filter { $0.staging == .unstaged || $0.staging == .partial }
+    }
+
+    private var displayedTotalAdditions: Int {
+        displayedFiles.compactMap(\.diff).reduce(0) { $0 + $1.additionCount }
+    }
+
+    private var displayedTotalDeletions: Int {
+        displayedFiles.compactMap(\.diff).reduce(0) { $0 + $1.deletionCount }
+    }
+
+    private var displayedSensitiveFiles: [ChangedFile] {
+        displayedFiles.filter { SensitiveFileClassifier.isSensitive($0.relativePath) }
+    }
+
     var body: some View {
         if model.isLoading && model.changedFiles.isEmpty && model.recentCommits.isEmpty {
             loadingView
@@ -173,14 +205,27 @@ struct ChangesListView: View {
         }
     }
 
-    /// Files from the current change set that match sensitive patterns.
-    private var sensitiveChangedFiles: [ChangedFile] {
-        model.changedFiles.filter { SensitiveFileClassifier.isSensitive($0.relativePath) }
+    /// A segmented toggle shown when a task-start baseline has been recorded,
+    /// letting the user switch between all uncommitted changes and last-task changes.
+    @ViewBuilder
+    private var changeScopeSection: some View {
+        if model.hasTaskStart && !model.changedFiles.isEmpty {
+            Section {
+                Picker("Changes scope", selection: $changeScope) {
+                    ForEach(ChangeScope.allCases, id: \.self) { scope in
+                        Text(scope.rawValue).tag(scope)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .padding(.vertical, 2)
+            }
+        }
     }
 
     @ViewBuilder
     private var sensitiveFilesSection: some View {
-        let files = sensitiveChangedFiles
+        let files = displayedSensitiveFiles
         if !files.isEmpty {
             Section {
                 ForEach(files) { file in
@@ -210,9 +255,9 @@ struct ChangesListView: View {
 
     @ViewBuilder
     private var stagedSection: some View {
-        if !model.stagedFiles.isEmpty {
+        if !displayedStagedFiles.isEmpty {
             Section {
-                let files = showOnlyUnreviewed ? model.stagedFiles.filter { !model.isReviewed($0) } : model.stagedFiles
+                let files = showOnlyUnreviewed ? displayedStagedFiles.filter { !model.isReviewed($0) } : displayedStagedFiles
                 groupedFileRows(files: files, isStaged: true)
             } header: {
                 HStack(spacing: 8) {
@@ -234,24 +279,33 @@ struct ChangesListView: View {
 
     @ViewBuilder
     private var unstagedSection: some View {
-        if !model.unstagedFiles.isEmpty {
+        if !displayedUnstagedFiles.isEmpty {
             Section {
-                let files = showOnlyUnreviewed ? model.unstagedFiles.filter { !model.isReviewed($0) } : model.unstagedFiles
+                let files = showOnlyUnreviewed ? displayedUnstagedFiles.filter { !model.isReviewed($0) } : displayedUnstagedFiles
                 groupedFileRows(files: files, isStaged: false)
             } header: {
                 unstagedSectionHeader
             }
-        } else if model.stagedFiles.isEmpty && !model.isLoading {
+        } else if displayedStagedFiles.isEmpty && !model.isLoading {
             Section {
                 HStack {
                     Spacer()
                     VStack(spacing: 4) {
-                        Image(systemName: "checkmark.circle")
-                            .font(.system(size: 16))
-                            .foregroundStyle(.green.opacity(0.6))
-                        Text("Working tree clean")
-                            .font(.caption)
-                            .foregroundStyle(.tertiary)
+                        if changeScope == .lastTask && !model.changedFiles.isEmpty {
+                            Image(systemName: "clock.arrow.circlepath")
+                                .font(.system(size: 16))
+                                .foregroundStyle(.secondary.opacity(0.6))
+                            Text("No changes from last task")
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                        } else {
+                            Image(systemName: "checkmark.circle")
+                                .font(.system(size: 16))
+                                .foregroundStyle(.green.opacity(0.6))
+                            Text("Working tree clean")
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                        }
                     }
                     .padding(.vertical, 8)
                     Spacer()
@@ -272,13 +326,13 @@ struct ChangesListView: View {
                 .foregroundStyle(.secondary)
                 .textCase(nil)
             Spacer()
-            if model.totalAdditions > 0 {
-                Text("+\(model.totalAdditions)")
+            if displayedTotalAdditions > 0 {
+                Text("+\(displayedTotalAdditions)")
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.green)
             }
-            if model.totalDeletions > 0 {
-                Text("-\(model.totalDeletions)")
+            if displayedTotalDeletions > 0 {
+                Text("-\(displayedTotalDeletions)")
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.red)
             }
@@ -378,6 +432,7 @@ struct ChangesListView: View {
         ScrollViewReader { proxy in
             List {
                 changesTopSections
+                changeScopeSection
                 conflictsSection
                 sensitiveFilesSection
                 stagedSection

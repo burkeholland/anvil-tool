@@ -44,6 +44,28 @@ final class ChangesModel: ObservableObject {
     /// The patch that was last discarded via "Discard Hunk", kept for a few seconds so the user can undo.
     @Published var lastDiscardedHunkPatch: String?
 
+    // MARK: - Task Scope Tracking
+
+    /// Relative paths of files that were already changed when the most recent task was started.
+    /// Used to filter the Changes panel to only files modified during the last task.
+    @Published private(set) var taskStartFiles: Set<String> = []
+    /// True once `recordTaskStart()` has been called at least once for the current project.
+    @Published private(set) var hasTaskStart: Bool = false
+
+    /// Files changed since the most recent task start.
+    /// Returns all changed files when no task start has been recorded.
+    var lastTaskChangedFiles: [ChangedFile] {
+        guard hasTaskStart else { return changedFiles }
+        return changedFiles.filter { !taskStartFiles.contains($0.relativePath) }
+    }
+
+    /// Records the current set of changed file paths as the task-start baseline.
+    /// Call this when the user sends a new prompt to the agent.
+    func recordTaskStart() {
+        taskStartFiles = Set(changedFiles.map(\.relativePath))
+        hasTaskStart = true
+    }
+
     // MARK: - Review Tracking
 
     /// Relative paths the user has marked as reviewed in this session.
@@ -440,6 +462,8 @@ final class ChangesModel: ObservableObject {
         reviewedFingerprints = [:]
         focusedFileIndex = nil
         focusedHunkIndex = nil
+        taskStartFiles = []
+        hasTaskStart = false
     }
 
     func refresh() {
