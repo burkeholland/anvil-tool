@@ -364,6 +364,12 @@ struct ContentView: View {
                 }
                 filePreview.select(url, line: diagnostic.line)
             },
+            onFixDiagnostic: { diagnostic in
+                let location = "\(diagnostic.filePath):\(diagnostic.line)"
+                let prompt = "Fix this build error: \(diagnostic.message)\n\nFile: \(location)"
+                terminalProxy.sendPrompt(prompt)
+                showTaskBanner = false
+            },
             testStatus: testRunner.status,
             onRunTests: workingDirectory.directoryURL != nil ? {
                 if let url = workingDirectory.directoryURL {
@@ -372,7 +378,12 @@ struct ContentView: View {
             } : nil,
             onFixTestFailure: { output in
                 let prompt = "The test suite failed. Please fix the failing tests.\n\nTest output:\n\(output)"
-                terminalProxy.send(prompt + "\n")
+                terminalProxy.sendPrompt(prompt)
+                showTaskBanner = false
+            },
+            onFixTestCase: { testName in
+                let prompt = "Fix this failing test: \(testName)"
+                terminalProxy.sendPrompt(prompt)
                 showTaskBanner = false
             },
             gitBranch: workingDirectory.gitBranch,
