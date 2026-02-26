@@ -1586,8 +1586,11 @@ struct CommitRow: View {
 
                         HStack(spacing: 6) {
                             Text(commit.shortSHA)
-                                .font(.system(size: 10, design: .monospaced))
-                                .foregroundStyle(.purple.opacity(0.8))
+                                .font(.system(size: 9, weight: .medium, design: .monospaced))
+                                .foregroundStyle(.secondary)
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 2)
+                                .background(Capsule().fill(Color.secondary.opacity(0.1)))
 
                             Text(commit.author)
                                 .font(.system(size: 10))
