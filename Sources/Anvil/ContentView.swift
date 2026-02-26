@@ -219,6 +219,13 @@ struct ContentView: View {
                 if let url = workingDirectory.directoryURL {
                     buildVerifier.run(at: url)
                 }
+                // Auto-select the first unreviewed changed file to kick off review workflow.
+                if autoFollow, let first = changesModel.changedFiles.first(where: { !changesModel.isReviewed($0) }) {
+                    filePreview.select(first.url)
+                    sidebarTab = .changes
+                    showSidebar = true
+                    fileTreeModel.revealFile(url: first.url)
+                }
             } else if isActive {
                 withAnimation(.easeInOut(duration: 0.25)) {
                     showTaskBanner = false
