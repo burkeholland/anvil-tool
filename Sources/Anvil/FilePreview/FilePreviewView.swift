@@ -449,15 +449,8 @@ struct FilePreviewView: View {
                                 showSelectionMenu = !code.isEmpty
                             }
                         },
-                        onAskAboutSelection: { [model, terminalProxy] intent, code, start, end in
-                            terminalProxy.composeCodeQuestion(
-                                intent: intent,
-                                relativePath: model.relativePath,
-                                language: model.highlightLanguage,
-                                startLine: start,
-                                endLine: end,
-                                code: code
-                            )
+                        onAskAboutSelection: { intent, code, start, end in
+                            sendCodeQuestion(intent: intent, code: code, startLine: start, endLine: end)
                         },
                         diagnosticAnnotations: diagnosticsForCurrentFile,
                         isEditable: model.isEditing,
@@ -546,14 +539,12 @@ struct FilePreviewView: View {
                 // Selection action menu overlay
                 if showSelectionMenu && model.activeTab == .source {
                     VStack {
-                        SelectionActionMenu { [model, terminalProxy] intent in
-                            terminalProxy.composeCodeQuestion(
+                        SelectionActionMenu { intent in
+                            sendCodeQuestion(
                                 intent: intent,
-                                relativePath: model.relativePath,
-                                language: model.highlightLanguage,
+                                code: selectionText,
                                 startLine: selectionStartLine,
-                                endLine: selectionEndLine,
-                                code: selectionText
+                                endLine: selectionEndLine
                             )
                             withAnimation(.easeOut(duration: 0.12)) {
                                 showSelectionMenu = false
@@ -619,6 +610,19 @@ struct FilePreviewView: View {
                 .lineLimit(1)
                 .truncationMode(.head)
         }
+    }
+
+    /// Composes and inserts a contextual question prompt into the terminal for the given selection.
+    /// Shared by both the floating menu and the ⌘⇧E / context menu code paths.
+    private func sendCodeQuestion(intent: String, code: String, startLine: Int, endLine: Int) {
+        terminalProxy.composeCodeQuestion(
+            intent: intent,
+            relativePath: model.relativePath,
+            language: model.highlightLanguage,
+            startLine: startLine,
+            endLine: endLine,
+            code: code
+        )
     }
 }
 
@@ -1215,6 +1219,9 @@ struct HighlightedTextView: NSViewRepresentable {
         /// Called when text selection changes. Receives code, startLine, endLine.
         /// Called with empty string and zeroed lines when the selection is cleared.
         var onSelectionChangeAction: ((String, Int, Int) -> Void)?
+        /// Called when the user triggers an ask-about-selection action (⌘⇧E, context menu, or
+        /// floating menu). Receives intent, code, startLine, endLine.
+        var onAskAboutSelectionAction: ((String, String, Int, Int) -> Void)?
         /// Called whenever the user edits text. Receives the full current text.
         var onContentChangeAction: ((String) -> Void)?
         /// Called when the user triggers ⌘S.
@@ -1225,6 +1232,8 @@ struct HighlightedTextView: NSViewRepresentable {
         private var lastContent: String?
         private var lastLanguage: String?
         private var activePopover: NSPopover?
+        /// Debounce task for selection-change reporting.
+        private var selectionDebounceTask: DispatchWorkItem?
 
         override init() {
             super.init()
@@ -1240,14 +1249,14 @@ struct HighlightedTextView: NSViewRepresentable {
         }
 
         func textViewDidChangeSelection(_ notification: Notification) {
-            // Debounce to avoid firing on every drag step
-            NSObject.cancelPreviousPerformRequests(withTarget: self,
-                                                   selector: #selector(reportCurrentSelection),
-                                                   object: nil)
-            perform(#selector(reportCurrentSelection), with: nil, afterDelay: 0.05)
+            // Debounce using DispatchWorkItem to avoid firing on every drag step
+            selectionDebounceTask?.cancel()
+            let task = DispatchWorkItem { [weak self] in self?.reportCurrentSelection() }
+            selectionDebounceTask = task
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: task)
         }
 
-        @objc private func reportCurrentSelection() {
+        private func reportCurrentSelection() {
             guard let textView = textView,
                   let action = onSelectionChangeAction else { return }
             let sel = textView.selectedRange()
@@ -1259,7 +1268,7 @@ struct HighlightedTextView: NSViewRepresentable {
             let code = nsString.substring(with: sel)
             let startLine = nsString.substring(to: sel.location).components(separatedBy: "\n").count
             let endCharIndex = max(0, NSMaxRange(sel) - 1)
-            let endLine = nsString.substring(to: min(endCharIndex, max(0, nsString.length - 1)))
+            let endLine = nsString.substring(to: min(endCharIndex, nsString.length))
                 .components(separatedBy: "\n").count
             action(code, startLine, endLine)
         }
@@ -1277,7 +1286,7 @@ struct HighlightedTextView: NSViewRepresentable {
                 code = nsString.substring(with: sel)
                 startLine = nsString.substring(to: sel.location).components(separatedBy: "\n").count
                 let endCharIndex = max(0, NSMaxRange(sel) - 1)
-                endLine = nsString.substring(to: min(endCharIndex, max(0, nsString.length - 1)))
+                endLine = nsString.substring(to: min(endCharIndex, nsString.length))
                     .components(separatedBy: "\n").count
             } else {
                 startLine = visibleTopLine()
@@ -1286,10 +1295,6 @@ struct HighlightedTextView: NSViewRepresentable {
             }
             onAskAboutSelectionAction?(intent, code, startLine, endLine)
         }
-
-        /// Called when the user triggers an ask-about-selection action (⌘⇧E, context menu, or
-        /// floating menu). Receives intent, code, startLine, endLine.
-        var onAskAboutSelectionAction: ((String, String, Int, Int) -> Void)?
 
         func applyHighlighting(content: String, language: String?) {
             guard let textView = textView else { return }

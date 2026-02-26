@@ -85,7 +85,7 @@ final class TerminalInputProxy: ObservableObject {
         let sanitizedPath = sanitizePath(relativePath)
         let lineRange = startLine == endLine ? "line \(startLine)" : "lines \(startLine)-\(endLine)"
         let sanitizedCode = code.unicodeScalars
-            .filter { $0.value == 0x0A || ($0.value >= 0x20 && $0 != "\u{7F}") }
+            .filter { $0.value == 0x0A || ($0.value >= 0x20 && $0.value != 0x7F) }
             .map { Character($0) }
         let lang = language ?? ""
         let prompt: String
