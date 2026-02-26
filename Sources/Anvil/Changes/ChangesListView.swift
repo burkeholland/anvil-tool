@@ -7,6 +7,7 @@ struct ChangesListView: View {
     @ObservedObject var model: ChangesModel
     @ObservedObject var filePreview: FilePreviewModel
     @ObservedObject var workingDirectory: WorkingDirectoryModel
+    var activityFeedModel: ActivityFeedModel? = nil
     var onReviewAll: (() -> Void)?
     var onBranchDiff: (() -> Void)?
     var onCreatePR: (() -> Void)?
@@ -46,7 +47,8 @@ struct ChangesListView: View {
             Section {
                 CommitFormView(
                     model: model,
-                    onPush: workingDirectory.hasRemotes ? { workingDirectory.push() } : nil
+                    onPush: workingDirectory.hasRemotes ? { workingDirectory.push() } : nil,
+                    activityFeedModel: activityFeedModel
                 )
             }
             if let onReviewAll, model.changedFiles.count > 0 {
@@ -733,6 +735,8 @@ struct CommitFormView: View {
     @ObservedObject var model: ChangesModel
     /// Called after a successful commit to trigger a push. When nil, push options are hidden.
     var onPush: (() -> Void)?
+    /// Activity feed model used to auto-generate a conventional commit message.
+    var activityFeedModel: ActivityFeedModel? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -767,7 +771,9 @@ struct CommitFormView: View {
             )
             .overlay(alignment: .bottomTrailing) {
                 Button {
-                    model.commitMessage = model.generateCommitMessage()
+                    model.commitMessage = model.generateCommitMessage(
+                        sessionStats: activityFeedModel?.sessionStats
+                    )
                 } label: {
                     Image(systemName: "sparkles")
                         .font(.system(size: 10))
@@ -778,6 +784,14 @@ struct CommitFormView: View {
                 .buttonStyle(.borderless)
                 .help("Generate commit message from changes")
                 .padding(4)
+            }
+            .onAppear {
+                autoFillIfNeeded()
+            }
+            .onChange(of: model.stagedFiles.count) { oldCount, newCount in
+                if oldCount == 0 && newCount > 0 {
+                    autoFillIfNeeded()
+                }
             }
 
             HStack(spacing: 8) {
@@ -842,6 +856,13 @@ struct CommitFormView: View {
             }
         }
         .padding(.vertical, 4)
+    }
+
+    private func autoFillIfNeeded() {
+        guard model.commitMessage.isEmpty, !model.stagedFiles.isEmpty else { return }
+        model.commitMessage = model.generateCommitMessage(
+            sessionStats: activityFeedModel?.sessionStats
+        )
     }
 }
 

@@ -1732,7 +1732,7 @@ struct SidebarView: View {
                 }
 
             case .changes:
-                ChangesListView(model: changesModel, filePreview: filePreview, workingDirectory: model, onReviewAll: onReviewAll, onBranchDiff: onBranchDiff, onCreatePR: onCreatePR, onResolveConflicts: onResolveConflicts)
+                ChangesListView(model: changesModel, filePreview: filePreview, workingDirectory: model, activityFeedModel: activityModel, onReviewAll: onReviewAll, onBranchDiff: onBranchDiff, onCreatePR: onCreatePR, onResolveConflicts: onResolveConflicts)
 
             case .activity:
                 ActivityFeedView(model: activityModel, filePreview: filePreview, rootURL: model.directoryURL)
