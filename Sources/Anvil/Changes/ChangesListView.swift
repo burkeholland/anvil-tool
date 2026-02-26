@@ -17,6 +17,7 @@ struct ChangesListView: View {
     @State private var showUndoCommitConfirm = false
     @State private var stashToDrop: StashEntry?
     @State private var showOnlyUnreviewed = false
+    @State private var collapsedDirectories: Set<String> = []
 
     var body: some View {
         if model.isLoading && model.changedFiles.isEmpty && model.recentCommits.isEmpty {
@@ -177,29 +178,7 @@ struct ChangesListView: View {
         if !model.stagedFiles.isEmpty {
             Section {
                 let files = showOnlyUnreviewed ? model.stagedFiles.filter { !model.isReviewed($0) } : model.stagedFiles
-                ForEach(files) { file in
-                    let fileIdx = model.changedFiles.firstIndex(where: { $0.id == file.id })
-                    ChangedFileRow(
-                        file: file,
-                        isSelected: filePreview.selectedURL == file.url,
-                        isStaged: true,
-                        isReviewed: model.isReviewed(file),
-                        isFocused: fileIdx == model.focusedFileIndex,
-                        onToggleReview: { model.toggleReviewed(file) },
-                        onOpenFile: { filePreview.select(file.url) },
-                        onDiscard: { fileToDiscard = file }
-                    )
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        filePreview.select(file.url)
-                        if let idx = fileIdx {
-                            model.focusedFileIndex = idx
-                            model.focusedHunkIndex = nil
-                        }
-                    }
-                    .contextMenu { changedFileContextMenu(file: file, isStaged: true) }
-                    .draggable(file.url)
-                }
+                groupedFileRows(files: files, isStaged: true)
             } header: {
                 HStack(spacing: 8) {
                     Text("Staged Changes")
@@ -223,29 +202,7 @@ struct ChangesListView: View {
         if !model.unstagedFiles.isEmpty {
             Section {
                 let files = showOnlyUnreviewed ? model.unstagedFiles.filter { !model.isReviewed($0) } : model.unstagedFiles
-                ForEach(files) { file in
-                    let fileIdx = model.changedFiles.firstIndex(where: { $0.id == file.id })
-                    ChangedFileRow(
-                        file: file,
-                        isSelected: filePreview.selectedURL == file.url,
-                        isStaged: false,
-                        isReviewed: model.isReviewed(file),
-                        isFocused: fileIdx == model.focusedFileIndex,
-                        onToggleReview: { model.toggleReviewed(file) },
-                        onOpenFile: { filePreview.select(file.url) },
-                        onDiscard: { fileToDiscard = file }
-                    )
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        filePreview.select(file.url)
-                        if let idx = fileIdx {
-                            model.focusedFileIndex = idx
-                            model.focusedHunkIndex = nil
-                        }
-                    }
-                    .contextMenu { changedFileContextMenu(file: file, isStaged: false) }
-                    .draggable(file.url)
-                }
+                groupedFileRows(files: files, isStaged: false)
             } header: {
                 unstagedSectionHeader
             }
@@ -462,6 +419,76 @@ struct ChangesListView: View {
             .animation(.easeInOut(duration: 0.2), value: model.lastDiscardStashRef != nil)
             .animation(.easeInOut(duration: 0.2), value: model.lastUndoneCommitSHA != nil)
             .animation(.easeInOut(duration: 0.2), value: model.lastStashError != nil)
+    }
+
+    // MARK: - Directory Grouping Helpers
+
+    /// Groups files by directory, preserving the relative order directories appear in the list.
+    private func directoryGroups(from files: [ChangedFile]) -> [(dir: String, files: [ChangedFile])] {
+        var seen = Set<String>()
+        var orderedDirs: [String] = []
+        for file in files {
+            if seen.insert(file.directoryPath).inserted {
+                orderedDirs.append(file.directoryPath)
+            }
+        }
+        return orderedDirs.map { dir in (dir, files.filter { $0.directoryPath == dir }) }
+    }
+
+    /// Renders a single changed-file row with tap, context menu, and drag support.
+    @ViewBuilder
+    private func fileRow(file: ChangedFile, isStaged: Bool, showDirectoryLabel: Bool = true) -> some View {
+        let fileIdx = model.changedFiles.firstIndex(where: { $0.id == file.id })
+        ChangedFileRow(
+            file: file,
+            isSelected: filePreview.selectedURL == file.url,
+            isStaged: isStaged,
+            isReviewed: model.isReviewed(file),
+            isFocused: fileIdx == model.focusedFileIndex,
+            showDirectoryLabel: showDirectoryLabel,
+            onToggleReview: { model.toggleReviewed(file) },
+            onOpenFile: { filePreview.select(file.url) },
+            onDiscard: { fileToDiscard = file }
+        )
+        .contentShape(Rectangle())
+        .onTapGesture {
+            filePreview.select(file.url)
+            if let idx = fileIdx {
+                model.focusedFileIndex = idx
+                model.focusedHunkIndex = nil
+            }
+        }
+        .contextMenu { changedFileContextMenu(file: file, isStaged: isStaged) }
+        .draggable(file.url)
+    }
+
+    /// Renders files either grouped by directory (when ≥2 directories) or as a flat list.
+    @ViewBuilder
+    private func groupedFileRows(files: [ChangedFile], isStaged: Bool) -> some View {
+        let groups = directoryGroups(from: files)
+        if groups.count > 1 {
+            ForEach(groups, id: \.dir) { group in
+                DirectoryGroupHeader(
+                    directory: group.dir,
+                    files: group.files,
+                    isCollapsed: collapsedDirectories.contains(group.dir)
+                ) {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        collapsedDirectories = collapsedDirectories.symmetricDifference([group.dir])
+                    }
+                }
+                if !collapsedDirectories.contains(group.dir) {
+                    ForEach(group.files) { file in
+                        fileRow(file: file, isStaged: isStaged, showDirectoryLabel: false)
+                            .padding(.leading, 12)
+                    }
+                }
+            }
+        } else {
+            ForEach(files) { file in
+                fileRow(file: file, isStaged: isStaged)
+            }
+        }
     }
 
     @ViewBuilder
@@ -1197,6 +1224,7 @@ struct ChangedFileRow: View {
     var isStaged: Bool = false
     var isReviewed: Bool = false
     var isFocused: Bool = false
+    var showDirectoryLabel: Bool = true
     var onToggleReview: (() -> Void)? = nil
     var onOpenFile: (() -> Void)? = nil
     var onDiscard: (() -> Void)? = nil
@@ -1224,7 +1252,7 @@ struct ChangedFileRow: View {
                     .truncationMode(.middle)
                     .foregroundStyle(isReviewed ? .secondary : .primary)
 
-                if !file.directoryPath.isEmpty {
+                if showDirectoryLabel && !file.directoryPath.isEmpty {
                     Text(file.directoryPath)
                         .font(.caption)
                         .foregroundStyle(.tertiary)
@@ -1326,6 +1354,66 @@ struct ChangedFileRow: View {
         case .renamed:    return "R"
         case .conflicted: return "!"
         }
+    }
+}
+
+// MARK: - Directory Group Header
+
+/// A collapsible directory header row shown in the Changes panel when files span multiple directories.
+struct DirectoryGroupHeader: View {
+    let directory: String
+    let files: [ChangedFile]
+    let isCollapsed: Bool
+    let onToggle: () -> Void
+
+    private var displayName: String {
+        directory.isEmpty ? "(root)" : directory
+    }
+
+    private var totalAdditions: Int {
+        files.compactMap(\.diff).reduce(0) { $0 + $1.additionCount }
+    }
+
+    private var totalDeletions: Int {
+        files.compactMap(\.diff).reduce(0) { $0 + $1.deletionCount }
+    }
+
+    var body: some View {
+        Button(action: onToggle) {
+            HStack(spacing: 5) {
+                Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(.tertiary)
+                    .frame(width: 10)
+
+                Image(systemName: "folder")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+
+                Text(displayName)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.head)
+
+                Spacer()
+
+                HStack(spacing: 3) {
+                    if totalAdditions > 0 {
+                        Text("+\(totalAdditions)")
+                            .font(.system(size: 10).monospacedDigit())
+                            .foregroundStyle(.green)
+                    }
+                    if totalDeletions > 0 {
+                        Text("-\(totalDeletions)")
+                            .font(.system(size: 10).monospacedDigit())
+                            .foregroundStyle(.red)
+                    }
+                }
+            }
+            .padding(.vertical, 2)
+        }
+        .buttonStyle(.plain)
     }
 }
 
