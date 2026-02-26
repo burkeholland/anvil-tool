@@ -198,6 +198,12 @@ struct ContentView: View {
             } : nil,
             onShowPromptHistory: workingDirectory.directoryURL != nil ? {
                 showPromptHistory = true
+            } : nil,
+            onGoToTestFile: filePreview.testFileCounterpart != nil ? {
+                [weak filePreview] in
+                if let counterpart = filePreview?.testFileCounterpart {
+                    filePreview?.select(counterpart)
+                }
             } : nil
         ))
         .onChange(of: workingDirectory.directoryURL) { _, newURL in
@@ -2015,6 +2021,7 @@ private struct FocusedSceneModifier: ViewModifier {
     var onNextPreviewTab: (() -> Void)?
     var onPreviousPreviewTab: (() -> Void)?
     var onShowPromptHistory: (() -> Void)?
+    var onGoToTestFile: (() -> Void)?
 
     func body(content: Content) -> some View {
         content
@@ -2059,7 +2066,8 @@ private struct FocusedSceneModifier: ViewModifier {
             .modifier(FocusedSceneModifierD(
                 onNextPreviewTab: onNextPreviewTab,
                 onPreviousPreviewTab: onPreviousPreviewTab,
-                onShowPromptHistory: onShowPromptHistory
+                onShowPromptHistory: onShowPromptHistory,
+                onGoToTestFile: onGoToTestFile
             ))
     }
 }
@@ -2158,12 +2166,14 @@ private struct FocusedSceneModifierD: ViewModifier {
     var onNextPreviewTab: (() -> Void)?
     var onPreviousPreviewTab: (() -> Void)?
     var onShowPromptHistory: (() -> Void)?
+    var onGoToTestFile: (() -> Void)?
 
     func body(content: Content) -> some View {
         content
             .focusedSceneValue(\.nextPreviewTab, onNextPreviewTab)
             .focusedSceneValue(\.previousPreviewTab, onPreviousPreviewTab)
             .focusedSceneValue(\.showPromptHistory, onShowPromptHistory)
+            .focusedSceneValue(\.goToTestFile, onGoToTestFile)
     }
 }
 
