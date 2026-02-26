@@ -53,6 +53,7 @@ struct ContentView: View {
     @StateObject private var mergeConflictModel = MergeConflictModel()
     @StateObject private var promptHistoryStore = PromptHistoryStore()
     @State private var showPromptHistory = false
+    @State private var reviewDwellTask: Task<Void, Never>? = nil
 
     var body: some View {
         ZStack {
@@ -215,6 +216,21 @@ struct ContentView: View {
             // Keep tree expanded to the selected file regardless of how it was opened
             if let url = newURL {
                 fileTreeModel.revealFile(url: url)
+            }
+            // Auto-mark as reviewed after dwell time (2 s) when viewing a changed file
+            reviewDwellTask?.cancel()
+            if let url = newURL,
+               let file = changesModel.changedFiles.first(where: { $0.url == url }),
+               !changesModel.isReviewed(file) {
+                let dwellURL = url
+                reviewDwellTask = Task {
+                    try? await Task.sleep(nanoseconds: 2_000_000_000)
+                    guard !Task.isCancelled, filePreview.selectedURL == dwellURL else { return }
+                    if let current = changesModel.changedFiles.first(where: { $0.url == dwellURL }),
+                       !changesModel.isReviewed(current) {
+                        changesModel.toggleReviewed(current)
+                    }
+                }
             }
         }
         .onChange(of: activityModel.isAgentActive) { wasActive, isActive in

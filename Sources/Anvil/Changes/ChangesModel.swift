@@ -247,6 +247,11 @@ final class ChangesModel: ObservableObject {
         changedFiles.filter { reviewedPaths.contains($0.relativePath) }.count
     }
 
+    /// Number of staged files that have not yet been marked reviewed.
+    var unreviewedStagedCount: Int {
+        stagedFiles.filter { !reviewedPaths.contains($0.relativePath) }.count
+    }
+
     func isReviewed(_ file: ChangedFile) -> Bool {
         reviewedPaths.contains(file.relativePath)
     }

@@ -823,6 +823,17 @@ struct CommitFormView: View {
                 .frame(width: 20)
             }
 
+            if model.unreviewedStagedCount > 0 {
+                HStack(spacing: 4) {
+                    Image(systemName: "eye.trianglebadge.exclamationmark")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.orange)
+                    Text("\(model.unreviewedStagedCount) staged file\(model.unreviewedStagedCount == 1 ? "" : "s") not yet reviewed")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.orange.opacity(0.9))
+                }
+            }
+
             if let error = model.lastCommitError {
                 Text(error)
                     .font(.system(size: 10))
