@@ -61,7 +61,7 @@ struct ContentView: View {
     /// during burst file writes.
     @StateObject private var followAgent = FollowAgentController()
 
-    var body: some View {
+    private var bodyBase: some View {
         ZStack {
             Group {
                 if workingDirectory.directoryURL != nil {
@@ -207,6 +207,10 @@ struct ContentView: View {
                 }
             } : nil
         ))
+    }
+
+    var body: some View {
+        bodyBase
         .onChange(of: workingDirectory.directoryURL) { _, newURL in
             showTaskBanner = false
             showBranchGuardBanner = false
