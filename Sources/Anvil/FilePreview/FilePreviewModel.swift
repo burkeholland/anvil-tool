@@ -38,6 +38,10 @@ final class FilePreviewModel: ObservableObject {
     @Published var showBlame = false
     /// Monotonic counter to discard stale async blame results.
     private var blameGeneration: UInt64 = 0
+    /// When true, the source view auto-scrolls to changed lines on every file-system update.
+    @Published var isWatching = false
+    /// The file content as of the last watch refresh, used to find the first changed line.
+    private var watchPreviousContent: String?
 
     /// Recently viewed file URLs in most-recent-first order, capped at 20.
     @Published private(set) var recentlyViewedURLs: [URL] = []
@@ -192,6 +196,8 @@ final class FilePreviewModel: ObservableObject {
         commitDiffContext = nil
         showSymbolOutline = false
         showBlame = false
+        isWatching = false
+        watchPreviousContent = nil
         if persist { saveOpenTabs() }
     }
 
@@ -226,6 +232,15 @@ final class FilePreviewModel: ObservableObject {
                 DispatchQueue.main.async {
                     guard self?.selectedURL == url else { return }
                     if content != self?.fileContent {
+                        // Auto-scroll to first changed line when watching
+                        if self?.isWatching == true, let previous = self?.watchPreviousContent {
+                            if let changedLine = self?.firstChangedLine(old: previous, new: content) {
+                                self?.activeTab = .source
+                                self?.scrollToLine = changedLine
+                                self?.lastNavigatedLine = changedLine
+                            }
+                        }
+                        self?.watchPreviousContent = content
                         self?.fileContent = content
                         self?.lineCount = content?.components(separatedBy: "\n").count ?? 0
                     }
@@ -325,6 +340,8 @@ final class FilePreviewModel: ObservableObject {
                     self?.imageSize = nil
                     self?.imageFileSize = nil
                     self?.isLoading = false
+                    // Reset watch baseline for the newly loaded file
+                    self?.watchPreviousContent = content
                     // Navigate to pending line (from search click), overriding tab auto-switch
                     if let line = self?.pendingScrollLine {
                         self?.pendingScrollLine = nil
@@ -388,6 +405,23 @@ final class FilePreviewModel: ObservableObject {
     func clearBlame() {
         blameGeneration &+= 1
         blameLines = []
+    }
+
+    /// Returns the first 1-based line number where old and new content differ.
+    private func firstChangedLine(old: String?, new: String?) -> Int? {
+        guard let new = new, !new.isEmpty else { return nil }
+        let oldLines = (old ?? "").components(separatedBy: "\n")
+        let newLines = new.components(separatedBy: "\n")
+        for (i, newLine) in newLines.enumerated() {
+            if i >= oldLines.count || newLine != oldLines[i] {
+                return i + 1
+            }
+        }
+        // Lines were only removed from the end — scroll to the new last line
+        if oldLines.count > newLines.count {
+            return newLines.count
+        }
+        return nil
     }
 
     private static let extensionToLanguage: [String: String] = [

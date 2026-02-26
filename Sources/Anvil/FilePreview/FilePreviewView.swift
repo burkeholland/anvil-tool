@@ -177,6 +177,18 @@ struct FilePreviewView: View {
                     .help(model.showBlame ? "Hide Blame Annotations" : "Show Blame Annotations")
                 }
 
+                // Watch file toggle (live tail mode)
+                Button {
+                    model.isWatching.toggle()
+                } label: {
+                    Image(systemName: model.isWatching ? "pin.fill" : "pin")
+                        .font(.system(size: 11))
+                        .foregroundStyle(model.isWatching ? Color.accentColor : Color.secondary)
+                }
+                .buttonStyle(.borderless)
+                .help(model.isWatching ? "Stop Watching File" : "Watch File – auto-scroll to changes")
+                .disabled(model.selectedURL == nil)
+
                 // @Mention in terminal
                 Button {
                     terminalProxy.mentionFile(relativePath: model.relativePath)
