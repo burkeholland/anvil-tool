@@ -1658,6 +1658,11 @@ struct ChangedFileRow: View {
 
     private var priority: ReviewPriority { ReviewPriorityScorer.score(file) }
 
+    private var changeDescription: String? {
+        guard let diff = file.diff else { return nil }
+        return DiffChangeDescriber.describe(diff: diff, fileExtension: file.url.pathExtension)
+    }
+
     var body: some View {
         HStack(spacing: 6) {
             // Status badge
@@ -1684,6 +1689,14 @@ struct ChangedFileRow: View {
                             .font(.system(size: 11))
                             .help("Sensitive file — requires careful review before committing")
                     }
+                }
+
+                if let description = changeDescription {
+                    Text(description)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
                 }
 
                 if showDirectoryLabel && !file.directoryPath.isEmpty {
