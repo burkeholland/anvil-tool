@@ -1,6 +1,20 @@
 import SwiftUI
 import AppKit
 
+/// Category used by the summary bar to filter the visible file list.
+private enum CategoryFilter: Equatable {
+    case new, modified, deleted
+
+    /// Returns true when the file's status belongs to this category.
+    func matches(_ file: ChangedFile) -> Bool {
+        switch self {
+        case .new:      return file.status == .added || file.status == .untracked
+        case .modified: return file.status == .modified || file.status == .renamed
+        case .deleted:  return file.status == .deleted
+        }
+    }
+}
+
 /// Shows all git-changed files in a list with status indicators and diff stats,
 /// plus staging controls, a commit form, and recent commit history.
 struct ChangesListView: View {
@@ -23,6 +37,7 @@ struct ChangesListView: View {
     @State private var collapsedGroups: Set<String> = []
     @State private var showCopiedConfirmation = false
     @State private var copiedDismissTask: DispatchWorkItem?
+    @State private var categoryFilter: CategoryFilter? = nil
 
     private enum ChangeScope: String, CaseIterable {
         case all = "All Changes"
@@ -71,12 +86,18 @@ struct ChangesListView: View {
         changeScope == .lastTask ? model.lastTaskChangedFiles : model.changedFiles
     }
 
+    /// Files filtered by both the active scope and the active category filter.
+    private var categoryFilteredDisplayedFiles: [ChangedFile] {
+        guard let filter = categoryFilter else { return displayedFiles }
+        return displayedFiles.filter { filter.matches($0) }
+    }
+
     private var displayedStagedFiles: [ChangedFile] {
-        displayedFiles.filter { $0.staging == .staged || $0.staging == .partial }
+        categoryFilteredDisplayedFiles.filter { $0.staging == .staged || $0.staging == .partial }
     }
 
     private var displayedUnstagedFiles: [ChangedFile] {
-        displayedFiles.filter { $0.staging == .unstaged || $0.staging == .partial }
+        categoryFilteredDisplayedFiles.filter { $0.staging == .unstaged || $0.staging == .partial }
     }
 
     private var displayedTotalAdditions: Int {
@@ -88,7 +109,7 @@ struct ChangesListView: View {
     }
 
     private var displayedSensitiveFiles: [ChangedFile] {
-        displayedFiles.filter { SensitiveFileClassifier.isSensitive($0.relativePath) }
+        categoryFilteredDisplayedFiles.filter { SensitiveFileClassifier.isSensitive($0.relativePath) }
     }
 
     var body: some View {
@@ -621,47 +642,59 @@ struct ChangesListView: View {
     }
 
     private var contentList: some View {
-        listWithAlerts
-            .overlay(alignment: .bottom) {
-                VStack(spacing: 0) {
-                    if model.lastStashError != nil {
-                        StashErrorBanner(model: model)
-                            .transition(.move(edge: .bottom).combined(with: .opacity))
-                    }
-                    if model.lastUndoneCommitSHA != nil {
-                        UndoCommitBanner(model: model)
-                            .transition(.move(edge: .bottom).combined(with: .opacity))
-                    }
-                    if model.lastDiscardStashRef != nil {
-                        DiscardRecoveryBanner(model: model)
-                            .transition(.move(edge: .bottom).combined(with: .opacity))
-                    }
-                    if model.lastDiscardedHunkPatch != nil {
-                        DiscardHunkRecoveryBanner(model: model)
-                            .transition(.move(edge: .bottom).combined(with: .opacity))
-                    }
-                    if model.activeDiscardBannerEntry != nil {
-                        DiscardFileRecoveryBanner(model: model)
-                            .transition(.move(edge: .bottom).combined(with: .opacity))
+        VStack(spacing: 0) {
+            if !displayedFiles.isEmpty {
+                ChangesSummaryBar(
+                    files: displayedFiles,
+                    additions: displayedTotalAdditions,
+                    deletions: displayedTotalDeletions,
+                    categoryFilter: $categoryFilter
+                )
+                Divider()
+            }
+            listWithAlerts
+                .overlay(alignment: .bottom) {
+                    VStack(spacing: 0) {
+                        if model.lastStashError != nil {
+                            StashErrorBanner(model: model)
+                                .transition(.move(edge: .bottom).combined(with: .opacity))
+                        }
+                        if model.lastUndoneCommitSHA != nil {
+                            UndoCommitBanner(model: model)
+                                .transition(.move(edge: .bottom).combined(with: .opacity))
+                        }
+                        if model.lastDiscardStashRef != nil {
+                            DiscardRecoveryBanner(model: model)
+                                .transition(.move(edge: .bottom).combined(with: .opacity))
+                        }
+                        if model.lastDiscardedHunkPatch != nil {
+                            DiscardHunkRecoveryBanner(model: model)
+                                .transition(.move(edge: .bottom).combined(with: .opacity))
+                        }
+                        if model.activeDiscardBannerEntry != nil {
+                            DiscardFileRecoveryBanner(model: model)
+                                .transition(.move(edge: .bottom).combined(with: .opacity))
+                        }
                     }
                 }
-            }
-            .overlay(alignment: .center) {
-                if showCopiedConfirmation {
-                    Text("Summary copied to clipboard")
-                        .font(.system(size: 12, weight: .medium))
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 7)
-                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
-                        .transition(.opacity.combined(with: .scale(scale: 0.95)))
+                .overlay(alignment: .center) {
+                    if showCopiedConfirmation {
+                        Text("Summary copied to clipboard")
+                            .font(.system(size: 12, weight: .medium))
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 7)
+                            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+                            .transition(.opacity.combined(with: .scale(scale: 0.95)))
+                    }
                 }
-            }
-            .animation(.easeInOut(duration: 0.2), value: model.lastDiscardStashRef != nil)
-            .animation(.easeInOut(duration: 0.2), value: model.lastUndoneCommitSHA != nil)
-            .animation(.easeInOut(duration: 0.2), value: model.lastStashError != nil)
-            .animation(.easeInOut(duration: 0.2), value: model.lastDiscardedHunkPatch != nil)
-            .animation(.easeInOut(duration: 0.2), value: model.activeDiscardBannerEntry != nil)
-            .animation(.easeInOut(duration: 0.2), value: showCopiedConfirmation)
+                .animation(.easeInOut(duration: 0.2), value: model.lastDiscardStashRef != nil)
+                .animation(.easeInOut(duration: 0.2), value: model.lastUndoneCommitSHA != nil)
+                .animation(.easeInOut(duration: 0.2), value: model.lastStashError != nil)
+                .animation(.easeInOut(duration: 0.2), value: model.lastDiscardedHunkPatch != nil)
+                .animation(.easeInOut(duration: 0.2), value: model.activeDiscardBannerEntry != nil)
+                .animation(.easeInOut(duration: 0.2), value: showCopiedConfirmation)
+        }
+        .animation(.easeInOut(duration: 0.2), value: displayedFiles.isEmpty)
     }
 
     private func copySummaryToClipboard() {
@@ -1053,6 +1086,119 @@ struct ReviewProgressBar: View {
             .frame(height: 3)
         }
         .padding(.vertical, 2)
+    }
+}
+
+// MARK: - Changes Summary Bar
+
+/// A compact, always-visible bar shown above the file list that aggregates change stats
+/// and lets the user tap a segment to filter the list by category.
+private struct ChangesSummaryBar: View {
+    let files: [ChangedFile]
+    let additions: Int
+    let deletions: Int
+    @Binding var categoryFilter: CategoryFilter?
+
+    private var newCount: Int {
+        files.filter { CategoryFilter.new.matches($0) }.count
+    }
+    private var modifiedCount: Int {
+        files.filter { CategoryFilter.modified.matches($0) }.count
+    }
+    private var deletedCount: Int {
+        files.filter { CategoryFilter.deleted.matches($0) }.count
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 0) {
+                filterChip(
+                    label: "\(files.count) file\(files.count == 1 ? "" : "s")",
+                    filter: nil,
+                    color: .secondary
+                )
+                if additions > 0 || deletions > 0 {
+                    Text(" · ").font(.system(size: 10)).foregroundStyle(.tertiary)
+                    if additions > 0 {
+                        Text("+\(additions)")
+                            .font(.system(size: 10).monospacedDigit())
+                            .foregroundStyle(.green)
+                    }
+                    if additions > 0 && deletions > 0 {
+                        Text(" / ").font(.system(size: 10)).foregroundStyle(.tertiary)
+                    }
+                    if deletions > 0 {
+                        Text("−\(deletions)")
+                            .font(.system(size: 10).monospacedDigit())
+                            .foregroundStyle(.red)
+                    }
+                }
+                if newCount > 0 {
+                    Text(" · ").font(.system(size: 10)).foregroundStyle(.tertiary)
+                    filterChip(label: "\(newCount) new", filter: .new, color: .green)
+                }
+                if modifiedCount > 0 {
+                    Text(" · ").font(.system(size: 10)).foregroundStyle(.tertiary)
+                    filterChip(label: "\(modifiedCount) modified", filter: .modified, color: .orange)
+                }
+                if deletedCount > 0 {
+                    Text(" · ").font(.system(size: 10)).foregroundStyle(.tertiary)
+                    filterChip(label: "\(deletedCount) deleted", filter: .deleted, color: .red)
+                }
+                Spacer()
+                if categoryFilter != nil {
+                    Button("Clear") { categoryFilter = nil }
+                        .buttonStyle(.plain)
+                        .font(.system(size: 10))
+                        .foregroundStyle(.blue)
+                }
+            }
+
+            if additions > 0 || deletions > 0 {
+                let total = Double(additions + deletions)
+                GeometryReader { geo in
+                    HStack(spacing: 1) {
+                        if additions > 0 {
+                            RoundedRectangle(cornerRadius: 1.5)
+                                .fill(Color.green.opacity(0.65))
+                                .frame(width: max(1, geo.size.width * Double(additions) / total))
+                        }
+                        if deletions > 0 {
+                            RoundedRectangle(cornerRadius: 1.5)
+                                .fill(Color.red.opacity(0.65))
+                                .frame(width: max(1, geo.size.width * Double(deletions) / total))
+                        }
+                    }
+                }
+                .frame(height: 3)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
+        .background(Color(nsColor: .windowBackgroundColor).opacity(0.6))
+    }
+
+    @ViewBuilder
+    private func filterChip(label: String, filter: CategoryFilter?, color: Color) -> some View {
+        let isActive = filter != nil && categoryFilter == filter
+        Button {
+            if let filter {
+                categoryFilter = (categoryFilter == filter) ? nil : filter
+            } else {
+                categoryFilter = nil
+            }
+        } label: {
+            Text(label)
+                .font(.system(size: 10, weight: isActive ? .semibold : .regular))
+                .foregroundStyle(isActive ? color : (filter == nil ? .secondary : color.opacity(0.85)))
+                .padding(.horizontal, isActive ? 4 : 0)
+                .padding(.vertical, isActive ? 1 : 0)
+                .background(
+                    isActive ? color.opacity(0.15) : Color.clear,
+                    in: RoundedRectangle(cornerRadius: 3)
+                )
+        }
+        .buttonStyle(.plain)
     }
 }
 
