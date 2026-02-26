@@ -1509,6 +1509,10 @@ struct SidebarView: View {
     var onCreatePR: (() -> Void)?
     var onResolveConflicts: ((URL) -> Void)?
 
+    @State private var changesUnread: Int = 0
+    @State private var activityUnread: Int = 0
+    @State private var filesUnread: Int = 0
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // Tab bar
@@ -1516,7 +1520,8 @@ struct SidebarView: View {
                 SidebarTabButton(
                     title: "Files",
                     systemImage: "folder",
-                    isActive: activeTab == .files
+                    isActive: activeTab == .files,
+                    badge: filesUnread > 0 ? filesUnread : nil
                 ) {
                     activeTab = .files
                 }
@@ -1525,7 +1530,7 @@ struct SidebarView: View {
                     title: "Changes",
                     systemImage: "arrow.triangle.2.circlepath",
                     isActive: activeTab == .changes,
-                    badge: changesModel.changedFiles.isEmpty ? nil : changesModel.changedFiles.count
+                    badge: changesUnread > 0 ? changesUnread : nil
                 ) {
                     activeTab = .changes
                 }
@@ -1534,7 +1539,7 @@ struct SidebarView: View {
                     title: "Activity",
                     systemImage: "clock",
                     isActive: activeTab == .activity,
-                    badge: activityModel.events.isEmpty ? nil : activityModel.events.count
+                    badge: activityUnread > 0 ? activityUnread : nil
                 ) {
                     activeTab = .activity
                 }
@@ -1618,6 +1623,29 @@ struct SidebarView: View {
             }
         }
         .background(Color(nsColor: .controlBackgroundColor))
+        .onChange(of: changesModel.changedFiles.count) { oldCount, newCount in
+            if activeTab != .changes && newCount > oldCount {
+                changesUnread += newCount - oldCount
+            }
+        }
+        .onChange(of: activityModel.events.count) { oldCount, newCount in
+            if activeTab != .activity && newCount > oldCount {
+                activityUnread += newCount - oldCount
+            }
+        }
+        .onChange(of: fileTreeModel.changedFileCount) { oldCount, newCount in
+            if activeTab != .files && newCount > oldCount {
+                filesUnread += newCount - oldCount
+            }
+        }
+        .onChange(of: activeTab) { _, newTab in
+            switch newTab {
+            case .files: filesUnread = 0
+            case .changes: changesUnread = 0
+            case .activity: activityUnread = 0
+            default: break
+            }
+        }
     }
 }
 
