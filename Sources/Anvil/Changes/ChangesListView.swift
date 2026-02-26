@@ -892,6 +892,7 @@ struct ChangesListView: View {
                          testCoverage: TestCoverageChecker.TestCoverage = .notApplicable,
                          brokenReferences: [BrokenReferenceScanner.Finding] = []) -> some View {
         let fileIdx = model.changedFiles.firstIndex(where: { $0.id == file.id })
+        let dependentPaths = model.dependentsMap[file.url.standardizedFileURL.path] ?? []
         ChangedFileRow(
             file: file,
             isSelected: filePreview.selectedURL == file.url,
@@ -902,6 +903,7 @@ struct ChangesListView: View {
             showDirectoryLabel: showDirectoryLabel,
             testCoverage: testCoverage,
             brokenReferences: brokenReferences,
+            dependentPaths: dependentPaths,
             onToggleReview: { model.toggleReviewed(file) },
             onOpenFile: { filePreview.select(file.url) },
             onDiscard: { fileToDiscard = file },
@@ -2025,6 +2027,7 @@ struct ChangedFileRow: View {
     var showDirectoryLabel: Bool = true
     var testCoverage: TestCoverageChecker.TestCoverage = .notApplicable
     var brokenReferences: [BrokenReferenceScanner.Finding] = []
+    var dependentPaths: [String] = []
     var onToggleReview: (() -> Void)? = nil
     var onOpenFile: (() -> Void)? = nil
     var onDiscard: (() -> Void)? = nil
@@ -2035,6 +2038,7 @@ struct ChangedFileRow: View {
 
     @State private var isHovering = false
     @State private var dismissTask: DispatchWorkItem?
+    @State private var showDependentsPopover = false
 
     private var priority: ReviewPriority { ReviewPriorityScorer.score(file) }
 
@@ -2112,6 +2116,25 @@ struct ChangedFileRow: View {
             }
 
             Spacer()
+
+            // Dependency impact badge
+            if !dependentPaths.isEmpty {
+                Button {
+                    showDependentsPopover.toggle()
+                } label: {
+                    Text("\(dependentPaths.count) \(dependentPaths.count == 1 ? "dependent" : "dependents")")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 2)
+                        .background(Capsule().fill(Color.orange.opacity(0.85)))
+                }
+                .buttonStyle(.plain)
+                .help("Imported by \(dependentPaths.count) other file\(dependentPaths.count == 1 ? "" : "s") — click to see them")
+                .popover(isPresented: $showDependentsPopover, arrowEdge: .trailing) {
+                    DependentsPopover(paths: dependentPaths)
+                }
+            }
 
             // Diff stats
             if let diff = file.diff {
@@ -2210,7 +2233,7 @@ struct ChangedFileRow: View {
         }
         .onDisappear { dismissTask?.cancel() }
         .popover(isPresented: Binding(
-            get: { isHovering && file.diff != nil },
+            get: { isHovering && file.diff != nil && !showDependentsPopover },
             set: { if !$0 { isHovering = false } }
         ), arrowEdge: .trailing) {
             if let diff = file.diff {
@@ -2235,6 +2258,31 @@ struct ChangedFileRow: View {
         case .renamed:    return "R"
         case .conflicted: return "!"
         }
+    }
+}
+
+// MARK: - Dependents Popover
+
+/// A small popover listing all project files that import the changed file.
+private struct DependentsPopover: View {
+    let paths: [String]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("\(paths.count) dependent file\(paths.count == 1 ? "" : "s")")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.secondary)
+            Divider()
+            ForEach(paths.sorted(), id: \.self) { path in
+                Text((path as NSString).lastPathComponent)
+                    .font(.system(size: 11, design: .monospaced))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .help(path)
+            }
+        }
+        .padding(12)
+        .frame(minWidth: 200, maxWidth: 320)
     }
 }
 

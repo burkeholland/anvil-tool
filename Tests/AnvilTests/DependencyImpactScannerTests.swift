@@ -227,6 +227,126 @@ final class DependencyImpactScannerTests: XCTestCase {
         XCTAssertFalse(DependencyImpactScanner.containsImport(content: content, stem: "important"))
     }
 
+    }
+
+    // MARK: - scanDependentsMap tests
+
+    func testScanDependentsMapEmptyModifiedPaths() {
+        let rootURL = URL(fileURLWithPath: "/tmp")
+        let result = DependencyImpactScanner.scanDependentsMap(modifiedPaths: [], rootURL: rootURL)
+        XCTAssertTrue(result.isEmpty)
+    }
+
+    func testScanDependentsMapSingleDependent() throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let modified = dir.appendingPathComponent("UserModel.swift")
+        try "struct UserModel {}".write(to: modified, atomically: true, encoding: .utf8)
+
+        let importer = dir.appendingPathComponent("UserView.swift")
+        try "import UserModel\nstruct UserView {}".write(to: importer, atomically: true, encoding: .utf8)
+
+        let unrelated = dir.appendingPathComponent("Other.swift")
+        try "struct Other {}".write(to: unrelated, atomically: true, encoding: .utf8)
+
+        let result = DependencyImpactScanner.scanDependentsMap(
+            modifiedPaths: [modified.standardizedFileURL.path],
+            rootURL: dir
+        )
+
+        let dependents = result[modified.standardizedFileURL.path] ?? []
+        XCTAssertEqual(dependents, [importer.standardizedFileURL.path])
+        // Modified file itself must not appear as a dependent
+        XCTAssertFalse(dependents.contains(modified.standardizedFileURL.path))
+        XCTAssertFalse(dependents.contains(unrelated.standardizedFileURL.path))
+    }
+
+    func testScanDependentsMapMultipleImporters() throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let modified = dir.appendingPathComponent("Util.swift")
+        try "struct Util {}".write(to: modified, atomically: true, encoding: .utf8)
+
+        let importerA = dir.appendingPathComponent("ViewA.swift")
+        try "import Util\nstruct ViewA {}".write(to: importerA, atomically: true, encoding: .utf8)
+
+        let importerB = dir.appendingPathComponent("ViewB.swift")
+        try "import Util\nstruct ViewB {}".write(to: importerB, atomically: true, encoding: .utf8)
+
+        let result = DependencyImpactScanner.scanDependentsMap(
+            modifiedPaths: [modified.standardizedFileURL.path],
+            rootURL: dir
+        )
+
+        let dependents = Set(result[modified.standardizedFileURL.path] ?? [])
+        XCTAssertEqual(dependents, [importerA.standardizedFileURL.path, importerB.standardizedFileURL.path])
+    }
+
+    func testScanDependentsMapMultipleModifiedFiles() throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let modA = dir.appendingPathComponent("Alpha.swift")
+        try "struct Alpha {}".write(to: modA, atomically: true, encoding: .utf8)
+
+        let modB = dir.appendingPathComponent("Beta.swift")
+        try "struct Beta {}".write(to: modB, atomically: true, encoding: .utf8)
+
+        let importerA = dir.appendingPathComponent("ViewA.swift")
+        try "import Alpha\nstruct ViewA {}".write(to: importerA, atomically: true, encoding: .utf8)
+
+        let importerBoth = dir.appendingPathComponent("ViewBoth.swift")
+        try "import Alpha\nimport Beta\nstruct ViewBoth {}".write(to: importerBoth, atomically: true, encoding: .utf8)
+
+        let result = DependencyImpactScanner.scanDependentsMap(
+            modifiedPaths: [modA.standardizedFileURL.path, modB.standardizedFileURL.path],
+            rootURL: dir
+        )
+
+        let alphaDepends = Set(result[modA.standardizedFileURL.path] ?? [])
+        XCTAssertTrue(alphaDepends.contains(importerA.standardizedFileURL.path))
+        XCTAssertTrue(alphaDepends.contains(importerBoth.standardizedFileURL.path))
+
+        let betaDepends = Set(result[modB.standardizedFileURL.path] ?? [])
+        XCTAssertTrue(betaDepends.contains(importerBoth.standardizedFileURL.path))
+        XCTAssertFalse(betaDepends.contains(importerA.standardizedFileURL.path))
+    }
+
+    func testScanDependentsMapNoDependents() throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let modified = dir.appendingPathComponent("Isolated.swift")
+        try "struct Isolated {}".write(to: modified, atomically: true, encoding: .utf8)
+
+        let unrelated = dir.appendingPathComponent("Other.swift")
+        try "struct Other {}".write(to: unrelated, atomically: true, encoding: .utf8)
+
+        let result = DependencyImpactScanner.scanDependentsMap(
+            modifiedPaths: [modified.standardizedFileURL.path],
+            rootURL: dir
+        )
+
+        XCTAssertNil(result[modified.standardizedFileURL.path])
+    }
+
+    func testScanDependentsMapReturnsEmptyForNonSourceModified() throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let modified = dir.appendingPathComponent("config.json")
+        try "{}".write(to: modified, atomically: true, encoding: .utf8)
+
+        let result = DependencyImpactScanner.scanDependentsMap(
+            modifiedPaths: [modified.standardizedFileURL.path],
+            rootURL: dir
+        )
+
+        XCTAssertTrue(result.isEmpty)
+    }
+
     // MARK: - Helpers
 
     private func makeTempDir() throws -> URL {
