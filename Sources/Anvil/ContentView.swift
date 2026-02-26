@@ -36,6 +36,7 @@ struct ContentView: View {
     @AppStorage("autoFollowChanges") private var autoFollow = true
     @AppStorage("terminalFontSize") private var terminalFontSize: Double = 14
     @StateObject private var buildVerifier = BuildVerifier()
+    @StateObject private var testRunner = TestRunner()
     @State private var isDroppingFileToTerminal = false
     @State private var showTaskBanner = false
     @State private var showKeyboardShortcuts = false
@@ -171,6 +172,7 @@ struct ContentView: View {
         .onChange(of: workingDirectory.directoryURL) { _, newURL in
             showTaskBanner = false
             buildVerifier.cancel()
+            testRunner.cancel()
             filePreview.close(persist: false)
             filePreview.rootDirectory = newURL
             terminalTabs.reset()
@@ -207,6 +209,13 @@ struct ContentView: View {
                     showTaskBanner = false
                 }
                 buildVerifier.cancel()
+                testRunner.cancel()
+            }
+        }
+        .onChange(of: buildVerifier.status) { _, newStatus in
+            // Auto-run tests once the build passes.
+            if case .passed = newStatus, let url = workingDirectory.directoryURL {
+                testRunner.run(at: url)
             }
         }
         .onAppear {
@@ -447,6 +456,17 @@ struct ContentView: View {
                                     return
                                 }
                                 filePreview.select(url, line: diagnostic.line)
+                            },
+                            testStatus: testRunner.status,
+                            onRunTests: workingDirectory.directoryURL != nil ? {
+                                if let url = workingDirectory.directoryURL {
+                                    testRunner.run(at: url)
+                                }
+                            } : nil,
+                            onFixTestFailure: { output in
+                                let prompt = "The test suite failed. Please fix the failing tests.\n\nTest output:\n\(output)"
+                                terminalProxy.send(prompt + "\n")
+                                showTaskBanner = false
                             },
                             onReviewAll: {
                                 showDiffSummary = true
