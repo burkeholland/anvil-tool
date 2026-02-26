@@ -29,6 +29,7 @@ struct ChangesListView: View {
     private enum ChangeScope: String, CaseIterable {
         case all = "All Changes"
         case lastTask = "Last Task"
+        case sinceSnapshot = "Since Snapshot"
     }
     @State private var changeScope: ChangeScope = .all
 
@@ -70,7 +71,11 @@ struct ChangesListView: View {
     // MARK: - Scope-filtered file lists
 
     private var displayedFiles: [ChangedFile] {
-        changeScope == .lastTask ? model.lastTaskChangedFiles : model.changedFiles
+        switch changeScope {
+        case .all:           return model.changedFiles
+        case .lastTask:      return model.lastTaskChangedFiles
+        case .sinceSnapshot: return model.snapshotDeltaFiles
+        }
     }
 
     private var displayedStagedFiles: [ChangedFile] {
@@ -174,6 +179,28 @@ struct ChangesListView: View {
                     .padding(.vertical, 2)
                 }
                 .buttonStyle(.plain)
+                Button {
+                    model.takeSnapshot()
+                    changeScope = .sinceSnapshot
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "camera.fill")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.teal)
+                        Text("Take Snapshot")
+                            .font(.system(size: 12, weight: .medium))
+                        Spacer()
+                        Text("checkpoint")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.tertiary)
+                    }
+                    .padding(.vertical, 2)
+                }
+                .buttonStyle(.plain)
+                .help("Capture the current diff state so you can see only new changes after the next agent run")
+                if model.snapshots.count > 1 {
+                    snapshotPickerRow
+                }
             }
         }
         if let onBranchDiff, workingDirectory.gitBranch != nil {
@@ -272,15 +299,16 @@ struct ChangesListView: View {
         }
     }
 
-    /// A segmented toggle shown when a task-start baseline has been recorded,
-    /// letting the user switch between all uncommitted changes and last-task changes.
+    /// A segmented toggle shown when a task-start baseline or snapshot is available,
+    /// letting the user switch between all uncommitted changes, last-task changes, and snapshot delta.
     @ViewBuilder
     private var changeScopeSection: some View {
-        if model.hasTaskStart && !model.changedFiles.isEmpty {
+        let available = availableScopes
+        if available.count > 1 && !model.changedFiles.isEmpty {
             Section {
                 Picker("Changes scope", selection: $changeScope) {
-                    ForEach(ChangeScope.allCases, id: \.self) { scope in
-                        Text(scope.rawValue).tag(scope)
+                    ForEach(available, id: \.self) { scope in
+                        Text(scopeShortLabel(scope)).tag(scope)
                     }
                 }
                 .pickerStyle(.segmented)
@@ -288,6 +316,42 @@ struct ChangesListView: View {
                 .padding(.vertical, 2)
             }
         }
+    }
+
+    /// The scope options that are currently meaningful to show.
+    private var availableScopes: [ChangeScope] {
+        var scopes: [ChangeScope] = [.all]
+        if model.hasTaskStart { scopes.append(.lastTask) }
+        if !model.snapshots.isEmpty { scopes.append(.sinceSnapshot) }
+        return scopes
+    }
+
+    private func scopeShortLabel(_ scope: ChangeScope) -> String {
+        switch scope {
+        case .all:           return "All"
+        case .lastTask:      return "Last Task"
+        case .sinceSnapshot: return "Snapshot"
+        }
+    }
+
+    /// Inline picker row for selecting which snapshot to compare against (shown only when >1 snapshot).
+    @ViewBuilder
+    private var snapshotPickerRow: some View {
+        HStack(spacing: 6) {
+            Text("Compare to:")
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
+            Spacer()
+            Picker("Snapshot", selection: $model.activeSnapshotID) {
+                ForEach(Array(model.snapshots.reversed())) { snap in
+                    Text(snap.label).tag(Optional(snap.id))
+                }
+            }
+            .labelsHidden()
+            .font(.system(size: 10))
+            .frame(maxWidth: 120)
+        }
+        .padding(.vertical, 1)
     }
 
     /// A summary row showing test coverage stats and a button to ask the agent for tests.
@@ -403,6 +467,13 @@ struct ChangesListView: View {
                                 .font(.system(size: 16))
                                 .foregroundStyle(.secondary.opacity(0.6))
                             Text("No changes from last task")
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                        } else if changeScope == .sinceSnapshot && !model.changedFiles.isEmpty {
+                            Image(systemName: "camera")
+                                .font(.system(size: 16))
+                                .foregroundStyle(.teal.opacity(0.6))
+                            Text("No new changes since snapshot")
                                 .font(.caption)
                                 .foregroundStyle(.tertiary)
                         } else {
