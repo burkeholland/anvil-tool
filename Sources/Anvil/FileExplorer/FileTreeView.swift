@@ -51,6 +51,21 @@ struct FileTreeView: View {
                 }
                 .buttonStyle(.plain)
                 .help(model.showChangedOnly ? "Show All Files" : "Show Changed Files Only")
+                Button {
+                    model.showAgentTouchedOnly.toggle()
+                } label: {
+                    HStack(spacing: 2) {
+                        Image(systemName: "eye")
+                            .font(.system(size: 11, weight: .medium))
+                        if model.showAgentTouchedOnly {
+                            Text("\(model.agentReferencedPaths.count)")
+                                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                        }
+                    }
+                    .foregroundStyle(model.showAgentTouchedOnly ? Color.blue : .secondary)
+                }
+                .buttonStyle(.plain)
+                .help(model.showAgentTouchedOnly ? "Show All Files" : "Show Agent-Referenced Files Only")
                 Menu {
                     Button {
                         operationTargetURL = rootURL
@@ -136,6 +151,25 @@ struct FileTreeView: View {
                     Spacer()
                 }
                 .frame(maxWidth: .infinity)
+            } else if model.showAgentTouchedOnly && model.entries.isEmpty {
+                VStack(spacing: 8) {
+                    Spacer()
+                    Image(systemName: "eye.slash")
+                        .font(.system(size: 24))
+                        .foregroundStyle(.tertiary)
+                    Text("No agent-referenced files")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Button {
+                        model.showAgentTouchedOnly = false
+                    } label: {
+                        Text("Show All Files")
+                            .font(.caption)
+                    }
+                    .buttonStyle(.link)
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity)
             } else {
                 ScrollViewReader { proxy in
                     List {
@@ -149,6 +183,7 @@ struct FileTreeView: View {
                                 diffStat: entry.isDirectory ? nil : model.diffStats[entry.url.path],
                                 pulseToken: activityModel.activePulses[entry.url.standardizedFileURL.path],
                                 impactInfo: entry.isDirectory ? nil : model.impactedFiles[entry.url.standardizedFileURL.path],
+                                agentTouched: entry.isDirectory ? false : model.agentReferencedPaths.contains(entry.url.standardizedFileURL.path),
                                 onToggle: { handleTap(entry) }
                             )
                             .id(entry.url)
@@ -446,6 +481,8 @@ struct FileRowView: View {
     /// Tooltip message set when this file imports a modified file.
     /// When non-nil, a small amber chain-link icon is shown in the row.
     var impactInfo: String? = nil
+    /// When true, a small eye icon indicates the agent referenced this file in terminal output.
+    var agentTouched: Bool = false
     let onToggle: () -> Void
 
     @State private var pulseOpacity: Double = 0
@@ -514,6 +551,13 @@ struct FileRowView: View {
                     .font(.system(size: 9, weight: .medium))
                     .foregroundStyle(.orange)
                     .help(info)
+            }
+
+            if agentTouched {
+                Image(systemName: "eye")
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(.blue.opacity(0.6))
+                    .help("Referenced by agent")
             }
         }
         .padding(.vertical, 1)
