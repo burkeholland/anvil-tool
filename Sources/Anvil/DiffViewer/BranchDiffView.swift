@@ -302,6 +302,12 @@ struct BranchDiffView: View {
                                 DiffHunkView(
                                     hunk: hunk,
                                     syntaxHighlights: highlights,
+                                    onRequestFix: {
+                                        requestFixContext = RequestFixContext(
+                                            filePath: file.path,
+                                            lineRange: hunk.newFileLineRange
+                                        )
+                                    },
                                     filePath: file.path,
                                     lineAnnotations: annotationStore.lineAnnotations(forFile: file.path),
                                     onAddAnnotation: { lineNum, comment in
@@ -309,12 +315,6 @@ struct BranchDiffView: View {
                                     },
                                     onRemoveAnnotation: { lineNum in
                                         annotationStore.remove(filePath: file.path, lineNumber: lineNum)
-                                    },
-                                    onRequestFix: {
-                                        requestFixContext = RequestFixContext(
-                                            filePath: file.path,
-                                            lineRange: hunk.newFileLineRange
-                                        )
                                     }
                                 )
                             }
