@@ -94,6 +94,31 @@ struct FilePreviewView: View {
 
             // Header bar
             HStack(spacing: 8) {
+                // Back / forward navigation buttons
+                Button {
+                    model.navigateBack()
+                } label: {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 11, weight: .semibold))
+                        .frame(width: 18, height: 16)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.borderless)
+                .disabled(!model.canGoBack)
+                .help(model.backDestinationName.map { "Back: \($0) (⌘[)" } ?? "No previous file")
+
+                Button {
+                    model.navigateForward()
+                } label: {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 11, weight: .semibold))
+                        .frame(width: 18, height: 16)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.borderless)
+                .disabled(!model.canGoForward)
+                .help(model.forwardDestinationName.map { "Forward: \($0) (⌘])" } ?? "No next file")
+
                 Image(systemName: iconForExtension(model.fileExtension))
                     .foregroundStyle(.secondary)
                     .font(.system(size: 12))

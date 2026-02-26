@@ -119,6 +119,14 @@ struct PreviousReviewFileKey: FocusedValueKey {
     typealias Value = () -> Void
 }
 
+struct NavigateBackKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
+struct NavigateForwardKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
 struct NextHunkKey: FocusedValueKey {
     typealias Value = () -> Void
 }
@@ -317,6 +325,16 @@ extension FocusedValues {
         set { self[PreviousReviewFileKey.self] = newValue }
     }
 
+    var navigateBack: (() -> Void)? {
+        get { self[NavigateBackKey.self] }
+        set { self[NavigateBackKey.self] = newValue }
+    }
+
+    var navigateForward: (() -> Void)? {
+        get { self[NavigateForwardKey.self] }
+        set { self[NavigateForwardKey.self] = newValue }
+    }
+
     var nextHunk: (() -> Void)? {
         get { self[NextHunkKey.self] }
         set { self[NextHunkKey.self] = newValue }
@@ -424,6 +442,8 @@ struct ViewCommands: Commands {
     @FocusedValue(\.nextPreviewTab) var nextPreviewTab
     @FocusedValue(\.previousPreviewTab) var previousPreviewTab
     @FocusedValue(\.showPromptHistory) var showPromptHistory
+    @FocusedValue(\.navigateBack) var navigateBack
+    @FocusedValue(\.navigateForward) var navigateForward
     @AppStorage("autoLaunchCopilot") private var autoLaunchCopilot = true
     @AppStorage("notificationsEnabled") private var notificationsEnabled = true
 
@@ -590,16 +610,30 @@ struct ViewCommands: Commands {
 
             Divider()
 
+            Button("Navigate Back") {
+                navigateBack?()
+            }
+            .keyboardShortcut("[", modifiers: .command)
+            .disabled(navigateBack == nil)
+
+            Button("Navigate Forward") {
+                navigateForward?()
+            }
+            .keyboardShortcut("]", modifiers: .command)
+            .disabled(navigateForward == nil)
+
+            Divider()
+
             Button("Next File in Review") {
                 nextReviewFile?()
             }
-            .keyboardShortcut("]", modifiers: .command)
+            .keyboardShortcut("]", modifiers: [.command, .option])
             .disabled(nextReviewFile == nil)
 
             Button("Previous File in Review") {
                 previousReviewFile?()
             }
-            .keyboardShortcut("[", modifiers: .command)
+            .keyboardShortcut("[", modifiers: [.command, .option])
             .disabled(previousReviewFile == nil)
 
             Button("Next Hunk") {

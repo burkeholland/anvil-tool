@@ -198,6 +198,12 @@ struct ContentView: View {
             } : nil,
             onShowPromptHistory: workingDirectory.directoryURL != nil ? {
                 showPromptHistory = true
+            } : nil,
+            onNavigateBack: filePreview.canGoBack ? { [weak filePreview] in
+                filePreview?.navigateBack()
+            } : nil,
+            onNavigateForward: filePreview.canGoForward ? { [weak filePreview] in
+                filePreview?.navigateForward()
             } : nil
         ))
         .onChange(of: workingDirectory.directoryURL) { _, newURL in
@@ -2015,6 +2021,8 @@ private struct FocusedSceneModifier: ViewModifier {
     var onNextPreviewTab: (() -> Void)?
     var onPreviousPreviewTab: (() -> Void)?
     var onShowPromptHistory: (() -> Void)?
+    var onNavigateBack: (() -> Void)?
+    var onNavigateForward: (() -> Void)?
 
     func body(content: Content) -> some View {
         content
@@ -2059,7 +2067,9 @@ private struct FocusedSceneModifier: ViewModifier {
             .modifier(FocusedSceneModifierD(
                 onNextPreviewTab: onNextPreviewTab,
                 onPreviousPreviewTab: onPreviousPreviewTab,
-                onShowPromptHistory: onShowPromptHistory
+                onShowPromptHistory: onShowPromptHistory,
+                onNavigateBack: onNavigateBack,
+                onNavigateForward: onNavigateForward
             ))
     }
 }
@@ -2158,12 +2168,16 @@ private struct FocusedSceneModifierD: ViewModifier {
     var onNextPreviewTab: (() -> Void)?
     var onPreviousPreviewTab: (() -> Void)?
     var onShowPromptHistory: (() -> Void)?
+    var onNavigateBack: (() -> Void)?
+    var onNavigateForward: (() -> Void)?
 
     func body(content: Content) -> some View {
         content
             .focusedSceneValue(\.nextPreviewTab, onNextPreviewTab)
             .focusedSceneValue(\.previousPreviewTab, onPreviousPreviewTab)
             .focusedSceneValue(\.showPromptHistory, onShowPromptHistory)
+            .focusedSceneValue(\.navigateBack, onNavigateBack)
+            .focusedSceneValue(\.navigateForward, onNavigateForward)
     }
 }
 

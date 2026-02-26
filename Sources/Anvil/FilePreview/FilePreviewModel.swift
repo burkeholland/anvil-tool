@@ -51,6 +51,26 @@ final class FilePreviewModel: ObservableObject {
     /// Recently viewed file URLs in most-recent-first order, capped at 20.
     @Published private(set) var recentlyViewedURLs: [URL] = []
 
+    // MARK: - Navigation History
+
+    /// Ordered list of files visited via `select()`, capped at `maxNavHistory`.
+    @Published private(set) var navStack: [URL] = []
+    /// Current position in `navStack`. -1 when the stack is empty.
+    @Published private(set) var navIndex: Int = -1
+    /// Maximum number of entries kept in the navigation history.
+    private static let maxNavHistory = 30
+    /// True while back/forward navigation is in progress; suppresses pushing to the stack.
+    private var isNavigatingHistory = false
+
+    /// Whether there is a previous file to navigate back to.
+    var canGoBack: Bool { navIndex > 0 }
+    /// Whether there is a next file to navigate forward to.
+    var canGoForward: Bool { navIndex < navStack.count - 1 }
+    /// Display name of the file that a back navigation would land on.
+    var backDestinationName: String? { canGoBack ? navStack[navIndex - 1].lastPathComponent : nil }
+    /// Display name of the file that a forward navigation would land on.
+    var forwardDestinationName: String? { canGoForward ? navStack[navIndex + 1].lastPathComponent : nil }
+
     /// The root directory for running git commands.
     var rootDirectory: URL? {
         didSet {
@@ -107,6 +127,10 @@ final class FilePreviewModel: ObservableObject {
         commitDiffContext = nil
         stashDiffContext = nil
         showSymbolOutline = false
+        // Track in navigation history (skip when driven by back/forward navigation)
+        if !isNavigatingHistory {
+            pushNavHistory(url.standardizedFileURL)
+        }
         // Track in recent files
         trackRecent(url)
         // Add to tabs if not already open
@@ -206,6 +230,42 @@ final class FilePreviewModel: ObservableObject {
         }
     }
 
+    /// Navigates to the previously visited file in the navigation history.
+    func navigateBack() {
+        guard canGoBack else { return }
+        navIndex -= 1
+        isNavigatingHistory = true
+        select(navStack[navIndex])
+        isNavigatingHistory = false
+    }
+
+    /// Navigates to the next file in the navigation history.
+    func navigateForward() {
+        guard canGoForward else { return }
+        navIndex += 1
+        isNavigatingHistory = true
+        select(navStack[navIndex])
+        isNavigatingHistory = false
+    }
+
+    /// Appends `url` to the navigation stack, truncating any forward history.
+    /// Consecutive visits to the same file are deduplicated.
+    private func pushNavHistory(_ url: URL) {
+        // Deduplicate consecutive entries
+        if navIndex >= 0 && navStack[navIndex] == url { return }
+        // Truncate forward history
+        if navIndex < navStack.count - 1 {
+            navStack = Array(navStack.prefix(navIndex + 1))
+        }
+        navStack.append(url)
+        navIndex = navStack.count - 1
+        // Cap at maximum
+        if navStack.count > Self.maxNavHistory {
+            navStack.removeFirst()
+            navIndex = navStack.count - 1
+        }
+    }
+
     /// Resets all preview state.
     /// - Parameter persist: When false, skip saving tabs (used during project switch
     ///   so the old project's persisted tabs aren't overwritten).
@@ -230,6 +290,8 @@ final class FilePreviewModel: ObservableObject {
         selectedHistoryCommitSHA = nil
         isWatching = false
         watchPreviousContent = nil
+        navStack = []
+        navIndex = -1
         if persist { saveOpenTabs() }
     }
 
@@ -769,5 +831,18 @@ final class FilePreviewModel: ObservableObject {
         selectedURL = restoredSelection
         lastNavigatedLine = 1
         loadFile(restoredSelection)
+    }
+
+    // MARK: - Testing Helpers
+
+    /// Directly pushes a URL onto the navigation stack. For unit tests only.
+    func pushNavHistoryForTesting(_ url: URL) {
+        pushNavHistory(url.standardizedFileURL)
+    }
+
+    /// Direct write access to `navIndex` for testing back/forward state. For unit tests only.
+    var navIndexForTesting: Int {
+        get { navIndex }
+        set { navIndex = newValue }
     }
 }
