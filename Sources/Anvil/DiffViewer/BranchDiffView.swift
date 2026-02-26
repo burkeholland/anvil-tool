@@ -9,6 +9,7 @@ struct BranchDiffView: View {
     @State private var collapsedFiles: Set<String> = []
     @AppStorage("diffViewMode") private var diffMode: String = DiffViewMode.unified.rawValue
     @State private var requestFixContext: RequestFixContext?
+    @StateObject private var annotationStore = DiffAnnotationStore()
     @EnvironmentObject var terminalProxy: TerminalInputProxy
 
     private var filesWithDiffs: [BranchDiffFile] {
@@ -51,6 +52,9 @@ struct BranchDiffView: View {
         }
         .background(Color(nsColor: .textBackgroundColor))
         .animation(.easeInOut(duration: 0.15), value: requestFixContext != nil)
+        .onChange(of: model.isLoading) { _, isLoading in
+            if !isLoading { annotationStore.clearAll() }
+        }
     }
 
     // MARK: - Header
@@ -106,6 +110,19 @@ struct BranchDiffView: View {
                     }
                     .pickerStyle(.segmented)
                     .frame(width: 180)
+
+                    if !annotationStore.isEmpty {
+                        Button {
+                            terminalProxy.send(annotationStore.buildPrompt())
+                        } label: {
+                            Label("Send Annotations", systemImage: "note.text")
+                                .font(.system(size: 11, weight: .medium))
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                        .tint(.yellow)
+                        .help("Send all \(annotationStore.annotations.count) annotation(s) to the Copilot terminal")
+                    }
 
                     Button {
                         if collapsedFiles.count == filesWithDiffs.count {
@@ -285,6 +302,14 @@ struct BranchDiffView: View {
                                 DiffHunkView(
                                     hunk: hunk,
                                     syntaxHighlights: highlights,
+                                    filePath: file.path,
+                                    lineAnnotations: annotationStore.lineAnnotations(forFile: file.path),
+                                    onAddAnnotation: { lineNum, comment in
+                                        annotationStore.add(filePath: file.path, lineNumber: lineNum, comment: comment)
+                                    },
+                                    onRemoveAnnotation: { lineNum in
+                                        annotationStore.remove(filePath: file.path, lineNumber: lineNum)
+                                    },
                                     onRequestFix: {
                                         requestFixContext = RequestFixContext(
                                             filePath: file.path,
