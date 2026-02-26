@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// A floating banner that appears when the Copilot agent goes idle after making
@@ -33,6 +34,9 @@ struct TaskCompleteBanner: View {
     var onNewTask: () -> Void
     var onDismiss: () -> Void
 
+    /// The task prompt that initiated this work session, used to populate the copy summary.
+    var taskPrompt: String? = nil
+
     /// Changed file entries to show in the collapsible file list.
     var changedFiles: [ChangedFile] = []
     /// Called when the user taps a file row to navigate to that file's diff.
@@ -41,6 +45,8 @@ struct TaskCompleteBanner: View {
     @State private var showBuildOutput = false
     @State private var showTestOutput = false
     @State private var showChangedFiles = false
+    @State private var showCopiedConfirmation = false
+    @State private var copiedDismissTask: DispatchWorkItem?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -140,6 +146,14 @@ struct TaskCompleteBanner: View {
                         style: .secondary
                     ) {
                         onStageAllAndCommit()
+                    }
+
+                    BannerPillButton(
+                        icon: "doc.on.clipboard",
+                        label: "Copy Summary",
+                        style: .secondary
+                    ) {
+                        copySummaryToClipboard()
                     }
                 }
 
@@ -287,6 +301,28 @@ struct TaskCompleteBanner: View {
         }
         .background(.ultraThinMaterial)
         .overlay(alignment: .top) { Divider() }
+        .overlay(alignment: .center) {
+            if showCopiedConfirmation {
+                Text("Summary copied to clipboard")
+                    .font(.system(size: 12, weight: .medium))
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 7)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+                    .transition(.opacity.combined(with: .scale(scale: 0.95)))
+            }
+        }
+        .animation(.easeInOut(duration: 0.2), value: showCopiedConfirmation)
+    }
+
+    private func copySummaryToClipboard() {
+        let summary = ChangeSummaryGenerator.generate(files: changedFiles, taskPrompt: taskPrompt)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(summary, forType: .string)
+        copiedDismissTask?.cancel()
+        showCopiedConfirmation = true
+        let task = DispatchWorkItem { showCopiedConfirmation = false }
+        copiedDismissTask = task
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2, execute: task)
     }
 
     /// Branch names that are considered "default" and should not trigger the Create PR suggestion.

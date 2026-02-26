@@ -12,6 +12,8 @@ struct ChangesListView: View {
     var onBranchDiff: (() -> Void)?
     var onCreatePR: (() -> Void)?
     var onResolveConflicts: ((URL) -> Void)?
+    /// The most recent task prompt, used to generate the copy summary.
+    var lastTaskPrompt: String? = nil
     @EnvironmentObject var terminalProxy: TerminalInputProxy
     @State private var fileToDiscard: ChangedFile?
     @State private var showDiscardAllConfirm = false
@@ -19,6 +21,8 @@ struct ChangesListView: View {
     @State private var stashToDrop: StashEntry?
     @State private var showOnlyUnreviewed = false
     @State private var collapsedGroups: Set<String> = []
+    @State private var showCopiedConfirmation = false
+    @State private var copiedDismissTask: DispatchWorkItem?
 
     private enum ChangeScope: String, CaseIterable {
         case all = "All Changes"
@@ -144,6 +148,25 @@ struct ChangesListView: View {
                         onClearAll: { model.clearAllReviewed() }
                     )
                 }
+            }
+            Section {
+                Button {
+                    copySummaryToClipboard()
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "doc.on.clipboard")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                        Text("Copy Summary")
+                            .font(.system(size: 12, weight: .medium))
+                        Spacer()
+                        Text("for PR description")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.tertiary)
+                    }
+                    .padding(.vertical, 2)
+                }
+                .buttonStyle(.plain)
             }
         }
         if let onBranchDiff, workingDirectory.gitBranch != nil {
@@ -607,10 +630,33 @@ struct ChangesListView: View {
                     }
                 }
             }
+            .overlay(alignment: .center) {
+                if showCopiedConfirmation {
+                    Text("Summary copied to clipboard")
+                        .font(.system(size: 12, weight: .medium))
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 7)
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+                        .transition(.opacity.combined(with: .scale(scale: 0.95)))
+                }
+            }
             .animation(.easeInOut(duration: 0.2), value: model.lastDiscardStashRef != nil)
             .animation(.easeInOut(duration: 0.2), value: model.lastUndoneCommitSHA != nil)
             .animation(.easeInOut(duration: 0.2), value: model.lastStashError != nil)
             .animation(.easeInOut(duration: 0.2), value: model.lastDiscardedHunkPatch != nil)
+            .animation(.easeInOut(duration: 0.2), value: showCopiedConfirmation)
+    }
+
+    private func copySummaryToClipboard() {
+        let files = displayedFiles
+        let summary = ChangeSummaryGenerator.generate(files: files, taskPrompt: lastTaskPrompt)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(summary, forType: .string)
+        copiedDismissTask?.cancel()
+        showCopiedConfirmation = true
+        let task = DispatchWorkItem { showCopiedConfirmation = false }
+        copiedDismissTask = task
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2, execute: task)
     }
 
     // MARK: - Grouping Helpers
