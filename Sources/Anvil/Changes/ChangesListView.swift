@@ -30,6 +30,8 @@ struct ChangesListView: View {
     var lastTaskPrompt: String? = nil
     @EnvironmentObject var terminalProxy: TerminalInputProxy
     @State private var fileToDiscard: ChangedFile?
+    @State private var fileToRedo: ChangedFile?
+    @State private var redoPromptText: String = ""
     @State private var showDiscardAllConfirm = false
     @State private var showUndoCommitConfirm = false
     @State private var stashToDrop: StashEntry?
@@ -112,6 +114,10 @@ struct ChangesListView: View {
         categoryFilteredDisplayedFiles.filter { SensitiveFileClassifier.isSensitive($0.relativePath) }
     }
 
+    private var testCoverageMap: [URL: TestCoverageChecker.TestCoverage] {
+        TestCoverageChecker.coverage(for: displayedFiles)
+    }
+
     var body: some View {
         if model.isLoading && model.changedFiles.isEmpty && model.recentCommits.isEmpty {
             loadingView
@@ -168,6 +174,7 @@ struct ChangesListView: View {
                         onMarkAll: { model.markAllReviewed() },
                         onClearAll: { model.clearAllReviewed() }
                     )
+                    testCoverageSummarySection
                 }
             }
             Section {
@@ -304,6 +311,24 @@ struct ChangesListView: View {
         }
     }
 
+    /// A summary row showing test coverage stats and a button to ask the agent for tests.
+    @ViewBuilder
+    private var testCoverageSummarySection: some View {
+        let covMap = testCoverageMap
+        let (covered, total) = TestCoverageChecker.stats(from: covMap)
+        if total > 0 {
+            TestCoverageSummaryRow(
+                covered: covered,
+                total: total,
+                onAskForTests: covered < total ? {
+                    let uncovered = displayedFiles.filter { covMap[$0.url] == .uncovered }
+                    let paths = uncovered.map { "@\($0.relativePath)" }.joined(separator: " ")
+                    terminalProxy.sendPrompt("Please add tests for: \(paths)")
+                } : nil
+            )
+        }
+    }
+
     /// A segmented toggle for choosing how the changed-file list is grouped.
     @ViewBuilder
     private var groupingModeSection: some View {
@@ -326,10 +351,12 @@ struct ChangesListView: View {
     private var sensitiveFilesSection: some View {
         let files = displayedSensitiveFiles
         if !files.isEmpty {
+            let covMap = testCoverageMap
             Section {
                 ForEach(files) { file in
                     let isStaged = file.staging == .staged || file.staging == .partial
-                    fileRow(file: file, isStaged: isStaged, isSensitive: true)
+                    fileRow(file: file, isStaged: isStaged, isSensitive: true,
+                            testCoverage: covMap[file.url] ?? .notApplicable)
                 }
             } header: {
                 HStack(spacing: 6) {
@@ -355,9 +382,10 @@ struct ChangesListView: View {
     @ViewBuilder
     private var stagedSection: some View {
         if !displayedStagedFiles.isEmpty {
+            let covMap = testCoverageMap
             Section {
                 let files = showOnlyUnreviewed ? displayedStagedFiles.filter { !model.isReviewed($0) } : displayedStagedFiles
-                groupedFileRows(files: ReviewPriorityScorer.sorted(files), isStaged: true)
+                groupedFileRows(files: ReviewPriorityScorer.sorted(files), isStaged: true, coverageMap: covMap)
             } header: {
                 HStack(spacing: 8) {
                     Text("Staged Changes")
@@ -379,9 +407,10 @@ struct ChangesListView: View {
     @ViewBuilder
     private var unstagedSection: some View {
         if !displayedUnstagedFiles.isEmpty {
+            let covMap = testCoverageMap
             Section {
                 let files = showOnlyUnreviewed ? displayedUnstagedFiles.filter { !model.isReviewed($0) } : displayedUnstagedFiles
-                groupedFileRows(files: ReviewPriorityScorer.sorted(files), isStaged: false)
+                groupedFileRows(files: ReviewPriorityScorer.sorted(files), isStaged: false, coverageMap: covMap)
             } header: {
                 unstagedSectionHeader
             }
@@ -639,6 +668,23 @@ struct ChangesListView: View {
                     Text("This will permanently delete stash@{\(stash.index)} (\(stash.cleanMessage)). This cannot be undone.")
                 }
             }
+            .sheet(isPresented: Binding(
+                get: { fileToRedo != nil },
+                set: { if !$0 { fileToRedo = nil } }
+            )) {
+                RedoWithFeedbackSheet(
+                    promptText: $redoPromptText,
+                    onSubmit: {
+                        if let file = fileToRedo {
+                            model.discardChanges(for: file)
+                            if filePreview.selectedURL == file.url { filePreview.refresh() }
+                            terminalProxy.sendPrompt(redoPromptText)
+                        }
+                        fileToRedo = nil
+                    },
+                    onCancel: { fileToRedo = nil }
+                )
+            }
     }
 
     private var contentList: some View {
@@ -695,6 +741,10 @@ struct ChangesListView: View {
                 .animation(.easeInOut(duration: 0.2), value: showCopiedConfirmation)
         }
         .animation(.easeInOut(duration: 0.2), value: displayedFiles.isEmpty)
+    }
+
+    private func redoPrompt(for file: ChangedFile) -> String {
+        "Please redo the changes to \(file.relativePath) — "
     }
 
     private func copySummaryToClipboard() {
@@ -790,7 +840,8 @@ struct ChangesListView: View {
 
     /// Renders a single changed-file row with tap, context menu, and drag support.
     @ViewBuilder
-    private func fileRow(file: ChangedFile, isStaged: Bool, showDirectoryLabel: Bool = true, isSensitive: Bool = false) -> some View {
+    private func fileRow(file: ChangedFile, isStaged: Bool, showDirectoryLabel: Bool = true, isSensitive: Bool = false,
+                         testCoverage: TestCoverageChecker.TestCoverage = .notApplicable) -> some View {
         let fileIdx = model.changedFiles.firstIndex(where: { $0.id == file.id })
         ChangedFileRow(
             file: file,
@@ -800,9 +851,14 @@ struct ChangesListView: View {
             isFocused: fileIdx == model.focusedFileIndex,
             isSensitive: isSensitive,
             showDirectoryLabel: showDirectoryLabel,
+            testCoverage: testCoverage,
             onToggleReview: { model.toggleReviewed(file) },
             onOpenFile: { filePreview.select(file.url) },
             onDiscard: { fileToDiscard = file },
+            onRedo: {
+                fileToRedo = file
+                redoPromptText = redoPrompt(for: file)
+            },
             onStageHunk: file.diff.map { diff in
                 { hunk in model.stageHunk(patch: DiffParser.reconstructPatch(fileDiff: diff, hunk: hunk)) }
             },
@@ -828,7 +884,8 @@ struct ChangesListView: View {
 
     /// Renders files grouped according to the current `groupingMode`.
     @ViewBuilder
-    private func groupedFileRows(files: [ChangedFile], isStaged: Bool) -> some View {
+    private func groupedFileRows(files: [ChangedFile], isStaged: Bool,
+                                 coverageMap: [URL: TestCoverageChecker.TestCoverage] = [:]) -> some View {
         switch groupingMode {
         case .directory:
             let groups = directoryGroups(from: files)
@@ -845,14 +902,16 @@ struct ChangesListView: View {
                     }
                     if !collapsedGroups.contains(group.dir) {
                         ForEach(group.files) { file in
-                            fileRow(file: file, isStaged: isStaged, showDirectoryLabel: false)
+                            fileRow(file: file, isStaged: isStaged, showDirectoryLabel: false,
+                                    testCoverage: coverageMap[file.url] ?? .notApplicable)
                                 .padding(.leading, 12)
                         }
                     }
                 }
             } else {
                 ForEach(files) { file in
-                    fileRow(file: file, isStaged: isStaged)
+                    fileRow(file: file, isStaged: isStaged,
+                            testCoverage: coverageMap[file.url] ?? .notApplicable)
                 }
             }
 
@@ -873,14 +932,16 @@ struct ChangesListView: View {
                     }
                     if !collapsedGroups.contains(group.label) {
                         ForEach(group.files) { file in
-                            fileRow(file: file, isStaged: isStaged)
+                            fileRow(file: file, isStaged: isStaged,
+                                    testCoverage: coverageMap[file.url] ?? .notApplicable)
                                 .padding(.leading, 12)
                         }
                     }
                 }
             } else {
                 ForEach(files) { file in
-                    fileRow(file: file, isStaged: isStaged)
+                    fileRow(file: file, isStaged: isStaged,
+                            testCoverage: coverageMap[file.url] ?? .notApplicable)
                 }
             }
 
@@ -901,14 +962,16 @@ struct ChangesListView: View {
                     }
                     if !collapsedGroups.contains(group.label) {
                         ForEach(group.files) { file in
-                            fileRow(file: file, isStaged: isStaged)
+                            fileRow(file: file, isStaged: isStaged,
+                                    testCoverage: coverageMap[file.url] ?? .notApplicable)
                                 .padding(.leading, 12)
                         }
                     }
                 }
             } else {
                 ForEach(files) { file in
-                    fileRow(file: file, isStaged: isStaged)
+                    fileRow(file: file, isStaged: isStaged,
+                            testCoverage: coverageMap[file.url] ?? .notApplicable)
                 }
             }
         }
@@ -1007,6 +1070,13 @@ struct ChangesListView: View {
             fileToDiscard = file
         } label: {
             Label("Discard Changes…", systemImage: "arrow.uturn.backward")
+        }
+
+        Button {
+            fileToRedo = file
+            redoPromptText = redoPrompt(for: file)
+        } label: {
+            Label("Redo with Feedback…", systemImage: "arrow.uturn.right")
         }
     }
 }
@@ -1199,6 +1269,51 @@ private struct ChangesSummaryBar: View {
                 )
         }
         .buttonStyle(.plain)
+    }
+}
+
+// MARK: - Test Coverage Summary
+
+/// A row showing how many implementation files in the current changeset have test coverage,
+/// with an optional one-click button to ask the agent to add missing tests.
+struct TestCoverageSummaryRow: View {
+    let covered: Int
+    let total: Int
+    var onAskForTests: (() -> Void)? = nil
+
+    private var isAllCovered: Bool { covered == total }
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: isAllCovered ? "checkmark.circle.fill" : "exclamationmark.circle")
+                .font(.system(size: 10))
+                .foregroundStyle(isAllCovered ? .teal : .orange)
+
+            Text(summaryText)
+                .font(.system(size: 11))
+                .foregroundStyle(isAllCovered ? .teal : .secondary)
+
+            Spacer()
+
+            if !isAllCovered, let onAskForTests {
+                Button(action: onAskForTests) {
+                    Text("Ask for tests")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.blue.opacity(0.8))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.vertical, 2)
+    }
+
+    private var summaryText: String {
+        let noun = total == 1 ? "file" : "files"
+        let verb = total == 1 ? "has" : "have"
+        if isAllCovered {
+            return "\(total) changed \(noun) \(verb) test coverage"
+        }
+        return "\(covered) of \(total) changed \(noun) \(verb) test coverage"
     }
 }
 
@@ -1818,9 +1933,11 @@ struct ChangedFileRow: View {
     var isFocused: Bool = false
     var isSensitive: Bool = false
     var showDirectoryLabel: Bool = true
+    var testCoverage: TestCoverageChecker.TestCoverage = .notApplicable
     var onToggleReview: (() -> Void)? = nil
     var onOpenFile: (() -> Void)? = nil
     var onDiscard: (() -> Void)? = nil
+    var onRedo: (() -> Void)? = nil
     var onStageHunk: ((DiffHunk) -> Void)? = nil
     var onUnstageHunk: ((DiffHunk) -> Void)? = nil
     var onDiscardHunk: ((DiffHunk) -> Void)? = nil
@@ -1860,6 +1977,21 @@ struct ChangedFileRow: View {
                         Text("⚠️")
                             .font(.system(size: 11))
                             .help("Sensitive file — requires careful review before committing")
+                    }
+
+                    if testCoverage == .uncovered {
+                        Text("no tests")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(.orange)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background(Capsule().fill(Color.orange.opacity(0.12)))
+                            .help("No test file changed for this implementation file")
+                    } else if testCoverage == .covered {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.teal.opacity(0.6))
+                            .help("Test file also modified in this changeset")
                     }
                 }
 
@@ -1925,6 +2057,19 @@ struct ChangedFileRow: View {
                 }
                 .buttonStyle(.borderless)
                 .help("Discard Changes…")
+            }
+
+            // Redo button (arrow.uturn.right, shown on hover)
+            if let onRedo, isHovering {
+                Button {
+                    onRedo()
+                } label: {
+                    Image(systemName: "arrow.uturn.right")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.blue.opacity(0.8))
+                }
+                .buttonStyle(.borderless)
+                .help("Redo with Feedback…")
             }
 
             // Staging indicator
@@ -2348,5 +2493,46 @@ struct PRStatusRow: View {
             .controlSize(.mini)
         }
         .padding(.vertical, 2)
+    }
+}
+
+// MARK: - Redo With Feedback Sheet
+
+/// A sheet that presents a pre-filled, editable prompt asking Copilot to redo
+/// the changes to a specific file. On submit the prompt is sent to the terminal.
+struct RedoWithFeedbackSheet: View {
+    @Binding var promptText: String
+    var onSubmit: () -> Void
+    var onCancel: () -> Void
+
+    @FocusState private var isTextFieldFocused: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Redo with Feedback")
+                .font(.headline)
+
+            Text("Describe what went wrong so Copilot can try again. The file's changes will be discarded before the prompt is sent.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            TextField("Prompt", text: $promptText, axis: .vertical)
+                .textFieldStyle(.roundedBorder)
+                .lineLimit(4...8)
+                .focused($isTextFieldFocused)
+                .onSubmit { onSubmit() }
+
+            HStack {
+                Spacer()
+                Button("Cancel", role: .cancel) { onCancel() }
+                    .keyboardShortcut(.cancelAction)
+                Button("Send") { onSubmit() }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(promptText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+        }
+        .padding(20)
+        .frame(minWidth: 420, maxWidth: 520)
+        .onAppear { isTextFieldFocused = true }
     }
 }
