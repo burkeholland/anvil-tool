@@ -2,18 +2,11 @@
 
 A native macOS app that wraps the GitHub Copilot CLI in a beautiful, full-featured IDE experience.
 
-> **Last updated**: 2026-02-27 18:29 UTC
+> **Last updated**: 2026-02-27 21:38 UTC
 
-## Screenshots
+## Screenshot
 
-### File Explorer
-![File Explorer](docs/screenshot.png)
-
-### Changes View
-![Changes](docs/screenshot-changes.png)
-
-### Commit History
-![Commit History](docs/screenshot-history.png)
+![Anvil](docs/screenshot.png)
 
 ## Features
 
