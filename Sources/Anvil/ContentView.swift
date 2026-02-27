@@ -388,7 +388,7 @@ struct ContentView: View {
                         }
                         .padding(.leading, 10)
                         .frame(height: 26)
-                        .background(Color(nsColor: NSColor(red: 0.08, green: 0.08, blue: 0.10, alpha: 1.0)))
+                        .background(Color(nsColor: .windowBackgroundColor))
                         .overlay(alignment: .bottom) { Divider().opacity(0.3) }
 
                         EmbeddedTerminalView(
