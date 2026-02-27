@@ -71,8 +71,9 @@ private struct SessionRowView: View {
                 // Summary line
                 Text(item.summary)
                     .font(.subheadline)
+                    .italic(item.isFallbackSummary)
                     .lineLimit(2)
-                    .foregroundStyle(isActive ? Color.accentColor : .primary)
+                    .foregroundStyle(summaryColor)
 
                 HStack(spacing: Spacing.xs) {
                     // Relative timestamp
@@ -114,6 +115,11 @@ private struct SessionRowView: View {
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .abbreviated
         return formatter.localizedString(for: date, relativeTo: Date())
+    }
+
+    private var summaryColor: Color {
+        if isActive { return Color.accentColor }
+        return item.isFallbackSummary ? .secondary : .primary
     }
 }
 
