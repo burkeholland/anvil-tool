@@ -13,6 +13,9 @@ struct TerminalTab: Identifiable, Equatable {
     let launchCopilot: Bool
     /// The original title assigned at creation, used as fallback when terminal title is empty.
     let defaultTitle: String
+    /// A short summary describing the session's purpose, sourced from workspace.yaml.
+    /// Shown as the primary label in the tab bar instead of the shell process title.
+    var sessionSummary: String? = nil
 
     static func == (lhs: TerminalTab, rhs: TerminalTab) -> Bool {
         lhs.id == rhs.id
@@ -147,6 +150,14 @@ final class TerminalTabsModel: ObservableObject {
         if splitTab?.title != displayTitle {
             splitTab?.title = displayTitle
         }
+    }
+
+    /// Set the session summary for a tab. The summary is shown as the primary
+    /// label in the tab bar in place of the shell process title.
+    func setSessionSummary(_ summary: String?, for id: UUID) {
+        guard let index = tabs.firstIndex(where: { $0.id == id }) else { return }
+        let trimmed = summary.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        tabs[index].sessionSummary = (trimmed?.isEmpty == false) ? trimmed : nil
     }
 
     /// Update the title of a tab from terminal OSC title sequences.
