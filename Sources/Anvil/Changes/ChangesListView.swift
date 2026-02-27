@@ -601,7 +601,7 @@ struct ChangesListView: View {
             Button { showFilterOptions.toggle() } label: {
                 Image(systemName: isFilterActive ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
                     .font(.system(size: 10))
-                    .foregroundStyle(isFilterActive ? .accentColor : .secondary)
+                    .foregroundStyle(isFilterActive ? Color.accentColor : Color.secondary)
             }
             .buttonStyle(.plain)
             .help("Filter and group options")
