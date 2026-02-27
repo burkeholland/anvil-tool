@@ -523,7 +523,7 @@ struct FileRowView: View {
                 .font(.system(size: 13))
 
             Text(entry.name)
-                .font(.system(.body, design: .default))
+                .font(.system(size: 12))
                 .lineLimit(1)
                 .truncationMode(.middle)
 

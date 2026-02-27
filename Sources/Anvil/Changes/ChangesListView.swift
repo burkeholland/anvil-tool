@@ -2218,7 +2218,7 @@ struct ChangedFileRow: View {
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 4) {
                     Text(file.fileName)
-                        .font(.system(.body, design: .default))
+                        .font(.system(size: 12))
                         .lineLimit(1)
                         .truncationMode(.middle)
                         .foregroundStyle((isReviewed || isNeedsWork) ? .secondary : .primary)
