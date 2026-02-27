@@ -1,65 +1,27 @@
 import SwiftUI
 
-/// Bottom status bar showing selected file info and changes summary.
+/// Minimal bottom status bar showing the current working directory.
 struct StatusBarView: View {
     @ObservedObject var workingDirectory: WorkingDirectoryModel
-    @ObservedObject var filePreview: FilePreviewModel
-    @ObservedObject var changesModel: ChangesModel
+    @AppStorage("terminalThemeID") private var themeID: String = TerminalTheme.defaultDark.id
 
     var body: some View {
-        HStack(spacing: 0) {
-            // Left: Selected file info
-            if filePreview.selectedURL != nil {
-                HStack(spacing: Spacing.sm) {
-                    Image(systemName: "doc")
-                        .font(.system(size: 9))
-                    Text(filePreview.relativePath)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                }
-                .padding(.horizontal, 10)
-
-                if let lang = filePreview.highlightLanguage {
-                    StatusBarDivider()
-
-                    Text(lang.capitalized)
-                        .padding(.horizontal, 10)
-                }
-
-                if filePreview.lineCount > 0 {
-                    StatusBarDivider()
-
-                    let lineCount = filePreview.lineCount
-                    Text("\(lineCount) line\(lineCount == 1 ? "" : "s")")
-                        .padding(.horizontal, 10)
-                }
-            }
-
+        HStack(spacing: Spacing.sm) {
+            Image(systemName: "folder")
+                .font(.system(size: 9))
+                .foregroundStyle(.tertiary)
+            Text(workingDirectory.displayPath)
+                .lineLimit(1)
+                .truncationMode(.head)
+                .foregroundStyle(.secondary)
             Spacer()
-
-            // Right: Changes summary
-            if !changesModel.changedFiles.isEmpty {
-                HStack(spacing: 8) {
-                    Text("\(changesModel.changedFiles.count) changed")
-
-                    if changesModel.totalAdditions > 0 {
-                        Text("+\(changesModel.totalAdditions)")
-                            .foregroundStyle(.green)
-                    }
-                    if changesModel.totalDeletions > 0 {
-                        Text("-\(changesModel.totalDeletions)")
-                            .foregroundStyle(.red)
-                    }
-                }
-                .padding(.horizontal, 10)
-            }
         }
-        .font(.system(size: 12, design: .monospaced))
-        .foregroundStyle(.secondary)
-        .frame(height: 26)
+        .font(.system(size: 11, design: .monospaced))
+        .padding(.horizontal, 14)
+        .frame(height: 22)
         .frame(maxWidth: .infinity)
-        .background(Color(nsColor: .windowBackgroundColor))
-        .overlay(alignment: .top) { Divider() }
+        .background(Color(nsColor: TerminalTheme.theme(forID: themeID).background))
+        .overlay(alignment: .top) { Divider().opacity(0.3) }
         .overlay(alignment: .top) {
             if let error = workingDirectory.lastSyncError {
                 HStack(spacing: 6) {
@@ -91,13 +53,4 @@ struct StatusBarView: View {
         .animation(.easeInOut(duration: 0.2), value: workingDirectory.lastSyncError != nil)
     }
 
-}
-
-/// Thin vertical separator for status bar items.
-private struct StatusBarDivider: View {
-    var body: some View {
-        Rectangle()
-            .fill(Color.secondary.opacity(0.2))
-            .frame(width: 1, height: 12)
-    }
 }

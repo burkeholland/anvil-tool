@@ -73,10 +73,10 @@ extension TerminalTheme {
         ])
         return TerminalTheme(
             id: "default-dark", name: "Default Dark",
-            background: NSColor(red: 0.1, green: 0.1, blue: 0.12, alpha: 1.0),
+            background: hex(0x1C1917),
             foreground: NSColor(red: 0.9, green: 0.9, blue: 0.9, alpha: 1.0),
             cursor: NSColor(red: 0.9, green: 0.9, blue: 0.9, alpha: 1.0),
-            selection: hexA(0x4D6699, alpha: 0.5),
+            selection: hexA(0x4D6699, alpha: 0.65),
             ansiColors: ansi
         )
     }()

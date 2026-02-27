@@ -724,6 +724,7 @@ struct ContentView: View {
                         lastTaskPrompt: promptHistoryStore.entries.first?.text
                     )
                         .frame(width: max(sidebarWidth, 0))
+                        .transition(.move(edge: .leading).combined(with: .opacity))
 
                     PanelDivider(
                         width: $sidebarWidth,
@@ -731,6 +732,7 @@ struct ContentView: View {
                         maxWidth: 500,
                         edge: .leading
                     )
+                    .transition(.opacity)
                 }
 
                 VStack(spacing: 0) {
@@ -780,7 +782,7 @@ struct ContentView: View {
                                 }
                                 .padding(.leading, 10)
                                 .frame(height: 26)
-                                .background(Color(nsColor: NSColor(red: 0.08, green: 0.08, blue: 0.10, alpha: 1.0)))
+                                .background(Color(nsColor: NSColor(red: 0.09, green: 0.08, blue: 0.08, alpha: 1.0)))
                                 .overlay(alignment: .bottom) { Divider().opacity(0.3) }
 
                                 EmbeddedTerminalView(
@@ -874,9 +876,7 @@ struct ContentView: View {
                     }
 
                     StatusBarView(
-                        workingDirectory: workingDirectory,
-                        filePreview: filePreview,
-                        changesModel: changesModel
+                        workingDirectory: workingDirectory
                     )
                 }
 
@@ -1780,7 +1780,9 @@ struct ToolbarView: ToolbarContent {
         // Group 1: Navigation — sidebar toggle
         ToolbarItem(placement: .navigation) {
             Button {
-                showSidebar.toggle()
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                    showSidebar.toggle()
+                }
             } label: {
                 Image(systemName: "sidebar.leading")
             }
