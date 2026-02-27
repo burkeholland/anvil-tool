@@ -57,7 +57,7 @@ struct SymbolOutlineView: View {
                 .frame(maxWidth: .infinity, minHeight: 80)
                 .padding()
             } else {
-                ScrollView {
+                ScrollView([.vertical, .horizontal]) {
                     LazyVStack(alignment: .leading, spacing: 0) {
                         ForEach(filtered) { symbol in
                             SymbolRow(symbol: symbol)
@@ -113,6 +113,7 @@ private struct SymbolRow: View {
                 .font(.system(size: 12, design: .monospaced))
                 .lineLimit(1)
                 .truncationMode(.tail)
+                .help(symbol.name)
 
             Spacer()
 
