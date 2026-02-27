@@ -574,22 +574,12 @@ phase_screenshot() {
 PLIST
   fi
 
-  # Capture multiple views
+  # Capture main view (terminal is the full content area)
   mkdir -p "$SCREENSHOT_DIR"
   local captured=0
 
-  # Main view — Files sidebar (the hero screenshot)
-  if capture_app_screenshot "files" "$SCREENSHOT_DIR/screenshot.png"; then
-    captured=$((captured + 1))
-  fi
-
-  # Changes view
-  if capture_app_screenshot "changes" "$SCREENSHOT_DIR/screenshot-changes.png"; then
-    captured=$((captured + 1))
-  fi
-
-  # Commit History view
-  if capture_app_screenshot "history" "$SCREENSHOT_DIR/screenshot-history.png"; then
+  # Main view — terminal-first layout
+  if capture_app_screenshot "terminal" "$SCREENSHOT_DIR/screenshot.png"; then
     captured=$((captured + 1))
   fi
 
@@ -607,30 +597,22 @@ PLIST
   cat > README.md << READMEEOF
 # Anvil
 
-A native macOS app that wraps the GitHub Copilot CLI in a beautiful, full-featured IDE experience.
+A native macOS app that wraps the GitHub Copilot CLI in a clean, terminal-first experience.
 
 > **Last updated**: $timestamp
 
 ## Screenshots
 
-### File Explorer
-![File Explorer](docs/screenshot.png)
-
-### Changes View
-![Changes](docs/screenshot-changes.png)
-
-### Commit History
-![Commit History](docs/screenshot-history.png)
+![Anvil](docs/screenshot.png)
 
 ## Features
 
-- 🗂️ File explorer with git status indicators
-- ✏️ Syntax-highlighted file preview
-- 🔀 Inline diff viewer for changes
-- 🖥️ Integrated terminal with Copilot CLI
-- 📋 Git commit history browser
-- 🔍 Project-wide search
-- 🤖 Agent activity feed
+- 🖥️ Terminal as the full content area — the Copilot CLI takes center stage
+- 🗂️ Multi-tab terminal sessions with quick switching
+- 🌿 Branch picker and git sync controls in the toolbar
+- ⚡ Quick Open (⌘P) for jumping to files
+- 🤖 Agent status pill with live model/mode indicator
+- 📋 Prompt history and session browsing
 
 ## Build
 
