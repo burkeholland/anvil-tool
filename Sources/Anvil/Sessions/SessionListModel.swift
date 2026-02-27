@@ -22,6 +22,8 @@ final class SessionListModel: ObservableObject {
 
     /// Called when the user taps a session row to resume it in a terminal tab.
     var onOpenSession: ((String) -> Void)?
+    /// Called when the user taps the "+" button to start a new Copilot session.
+    var onNewSession: (() -> Void)?
 
     private var allSessions: [SessionItem] = []
     private var watcher: FileWatcher?
@@ -42,6 +44,13 @@ final class SessionListModel: ObservableObject {
     private static let isoFormatterNoFraction: ISO8601DateFormatter = {
         let f = ISO8601DateFormatter()
         f.formatOptions = [.withInternetDateTime]
+        return f
+    }()
+
+    // Relative date formatter for the "Session from X ago" last-resort fallback.
+    private static let relativeDateFormatter: RelativeDateTimeFormatter = {
+        let f = RelativeDateTimeFormatter()
+        f.unitsStyle = .full
         return f
     }()
 
@@ -186,13 +195,34 @@ final class SessionListModel: ObservableObject {
             let updatedAt = parseDate(updatedStr)
         else { return nil }
 
-        let summary = dict["summary"] ?? ""
+        let rawSummary = dict["summary"] ?? ""
+        let branch = dict["branch"]?.isEmpty == false ? dict["branch"] : nil
+        let isFallbackSummary = rawSummary.isEmpty
+        let summary: String
+        if rawSummary.isEmpty {
+            if let b = branch {
+                // Priority 1: branch name
+                summary = b
+            } else {
+                // Priority 2: last path component of CWD (project folder name)
+                let lastComponent = URL(fileURLWithPath: cwd).lastPathComponent
+                if !lastComponent.isEmpty && lastComponent != "/" {
+                    summary = lastComponent
+                } else {
+                    // Priority 3: relative creation time as last resort
+                    summary = "Session from \(Self.relativeDateFormatter.localizedString(for: createdAt, relativeTo: Date()))"
+                }
+            }
+        } else {
+            summary = rawSummary
+        }
         return SessionItem(
             id: id,
             cwd: cwd,
-            summary: summary.isEmpty ? "(no summary)" : summary,
+            summary: summary,
+            isFallbackSummary: isFallbackSummary,
             repository: dict["repository"]?.isEmpty == false ? dict["repository"] : nil,
-            branch: dict["branch"]?.isEmpty == false ? dict["branch"] : nil,
+            branch: branch,
             createdAt: createdAt,
             updatedAt: updatedAt
         )

@@ -245,6 +245,9 @@ struct ContentView: View {
             sessionListModel.onOpenSession = { [weak terminalTabs] sessionID in
                 terminalTabs?.addResumeSessionTab(sessionID: sessionID)
             }
+            sessionListModel.onNewSession = { [weak terminalTabs] in
+                terminalTabs?.addCopilotTab()
+            }
             if let url = workingDirectory.directoryURL {
                 recentProjects.recordOpen(url)
             }
@@ -970,7 +973,9 @@ struct ToolbarView: ToolbarContent {
     var body: some ToolbarContent {
         ToolbarItem(placement: .navigation) {
             Button {
-                showSidebar.toggle()
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                    showSidebar.toggle()
+                }
             } label: {
                 Image(systemName: "sidebar.leading")
             }
