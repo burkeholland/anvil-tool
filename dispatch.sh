@@ -658,78 +658,6 @@ Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>" --quiet
     log "   No changes to commit."
   fi
 
-  # ── UI refinement issue (new each cycle with latest screenshots) ─────
-  # Close previous UI refinement issue, then open a fresh one with
-  # the most current screenshots so the agent always sees the latest state.
-  local base_url="https://raw.githubusercontent.com/$REPO/main/$SCREENSHOT_DIR"
-  local issue_prefix="UI refinement:"
-
-  # Close any previous UI refinement issues
-  local prev_issues
-  prev_issues="$(gh issue list --repo "$REPO" --label "$LABEL" --state open \
-    --json number,title \
-    --jq ".[] | select(.title | startswith(\"$issue_prefix\")) | .number" \
-    2>/dev/null)" || prev_issues=""
-  for issue_num in $prev_issues; do
-    gh issue close "$issue_num" --repo "$REPO" \
-      --comment "Closing — new UI refinement issue filed with updated screenshots." \
-      2>/dev/null || true
-    log "   🔒 Closed previous UI refinement issue #$issue_num."
-  done
-
-  local issue_body
-  read -r -d '' issue_body << ISSUEEOF || true
-🎨 **UI refinement pass** — $timestamp
-
-Review these screenshots of the current app state. Pick ONE visual issue to fix, implement it, and close this issue.
-
-### Current App Screenshots
-
-#### File Explorer
-![File Explorer](${base_url}/screenshot.png)
-
-#### Changes View
-![Changes](${base_url}/screenshot-changes.png)
-
-#### Commit History
-![Commit History](${base_url}/screenshot-history.png)
-
----
-
-### Design Reference
-Study **[postrboard.com](https://postrboard.com)** carefully — that is the target aesthetic:
-- Clean, minimal, polished native macOS feel
-- Dark theme with clear visual hierarchy and subtle depth
-- Generous spacing, breathing room, no clutter
-- Subtle borders and dividers (not harsh lines)
-- Refined typography — proper font weights, sizes, letter spacing
-- Every UI element earns its place
-
-### Areas to evaluate
-Look at the screenshots above and identify the MOST impactful visual improvement from:
-- Spacing and padding (too cramped? inconsistent?)
-- Color palette (background shades, accent colors, text contrast)
-- Typography (font sizes, weights, hierarchy between headings/body/labels)
-- Borders and dividers (too harsh? missing? inconsistent?)
-- Sidebar styling (item spacing, hover/selection states, icons)
-- Terminal panel appearance (background, prompt, spacing)
-- Toolbar and tab bar refinement
-- Empty states and placeholder content
-- Overall polish — anything that looks rough or unfinished
-
-### Instructions
-1. Study the screenshots and postrboard.com
-2. Pick the ONE most impactful visual fix
-3. Implement it with minimal, surgical changes
-4. Close this issue when done — a new one will be filed next cycle with fresh screenshots
-ISSUEEOF
-
-  gh issue create --repo "$REPO" \
-    --title "$issue_prefix visual polish ($timestamp)" \
-    --label "$LABEL" \
-    --body "$issue_body" \
-    2>/dev/null || true
-  log "   📝 Filed new UI refinement issue with latest screenshots."
 }
 
 # ─── Phase 2: TRIAGE ────────────────────────────────────────────────────────
@@ -874,11 +802,6 @@ run_cycle() {
     echo ""
   fi
 
-  if [ -z "$DEBUG_PHASE" ] || [ "$DEBUG_PHASE" = "screenshot" ]; then
-    phase_screenshot || log "⚠️  phase_screenshot failed, continuing..."
-    echo ""
-  fi
-
   if [ -z "$DEBUG_PHASE" ] || [ "$DEBUG_PHASE" = "triage" ]; then
     phase_triage || log "⚠️  phase_triage failed, continuing..."
     echo ""
@@ -898,6 +821,11 @@ run_cycle() {
 # ─── Main Loop ───────────────────────────────────────────────────────────────
 
 ITERATION=0
+
+# Screenshots run once at startup, not every cycle
+if [ -z "$DEBUG_PHASE" ] || [ "$DEBUG_PHASE" = "screenshot" ]; then
+  phase_screenshot || log "⚠️  phase_screenshot failed, continuing..."
+fi
 
 if [ "$DEBUG" = true ]; then
   ITERATION=1
