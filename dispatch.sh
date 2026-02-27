@@ -219,12 +219,37 @@ phase_merge() {
     }
 
     if ! git merge --no-edit --quiet "$pr_head" 2>/dev/null; then
-      log "   ⚠️  PR #$pr_num merge conflicts locally. Asking @copilot to rebase."
       git merge --abort 2>/dev/null || true
       git checkout main --force --quiet 2>/dev/null || true
-      gh pr comment "$pr_num" --repo "$REPO" \
-        --body "⚠️ dispatch: This PR has merge conflicts with main (detected during local test-merge). @copilot please rebase this branch onto main and resolve any conflicts, keeping the intent of your changes intact." \
-        2>/dev/null || true
+      # Smart conflict resolution: ask @copilot to rebase, track progress (mirrors CONFLICTING handler)
+      local our_local_rebase_comment
+      our_local_rebase_comment="$(gh pr view "$pr_num" --repo "$REPO" --json comments \
+        --jq '[.comments[] | select(.author.login != "app/copilot-swe-agent" and .author.login != "copilot-swe-agent") | select(.body | contains("dispatch:") and contains("@copilot") and contains("rebase"))] | last')" || our_local_rebase_comment=""
+      if [ "$our_local_rebase_comment" = "null" ] || [ -z "$our_local_rebase_comment" ]; then
+        log "   ⚠️  PR #$pr_num merge conflicts locally. Asking @copilot to rebase."
+        gh pr comment "$pr_num" --repo "$REPO" \
+          --body "⚠️ dispatch: This PR has merge conflicts with main (detected during local test-merge). @copilot please rebase this branch onto main and resolve any conflicts, keeping the intent of your changes intact." \
+          2>/dev/null || true
+      else
+        local our_local_comment_date
+        our_local_comment_date="$(echo "$our_local_rebase_comment" | jq -r '.createdAt')" || our_local_comment_date=""
+        local latest_local_commit_date
+        latest_local_commit_date="$(gh pr view "$pr_num" --repo "$REPO" --json commits \
+          --jq '[.commits[].committedDate] | sort | last')" || latest_local_commit_date=""
+        if [ -n "$latest_local_commit_date" ] && [ -n "$our_local_comment_date" ] && [[ "$latest_local_commit_date" > "$our_local_comment_date" ]]; then
+          log "   🗑️  PR #$pr_num: agent pushed after rebase request but still conflicting. Closing."
+          gh pr close "$pr_num" --repo "$REPO" \
+            --comment "Closed by dispatch: agent attempted rebase but merge conflicts persist. Will reopen the linked issue for a fresh attempt." \
+            2>/dev/null || true
+          if [ -n "$linked_issue_num" ] && [ "$linked_issue_num" != "null" ]; then
+            gh issue reopen "$linked_issue_num" --repo "$REPO" 2>/dev/null || true
+            gh issue edit "$linked_issue_num" --repo "$REPO" --remove-assignee "copilot-swe-agent" 2>/dev/null || true
+            log "   ♻️  Reopened issue #$linked_issue_num for fresh attempt."
+          fi
+        else
+          log "   ⏳ PR #$pr_num: merge conflicts locally, waiting for @copilot to rebase."
+        fi
+      fi
       continue
     fi
 
@@ -241,10 +266,35 @@ phase_merge() {
       gh pr ready "$pr_num" --repo "$REPO" 2>/dev/null || true
       gh pr merge "$pr_num" --repo "$REPO" --squash --delete-branch \
         --body "Merged by dispatch.sh after local build verification." || {
-        log "   ❌ Merge failed for PR #$pr_num. Asking @copilot to rebase."
-        gh pr comment "$pr_num" --repo "$REPO" \
-          --body "❌ dispatch: Squash-merge failed (main likely moved since local test). @copilot please rebase this branch onto main and resolve any conflicts, keeping the intent of your changes intact." \
-          2>/dev/null || true
+        # Smart merge-failure handling: ask @copilot to rebase, track progress (mirrors CONFLICTING handler)
+        local our_merge_rebase_comment
+        our_merge_rebase_comment="$(gh pr view "$pr_num" --repo "$REPO" --json comments \
+          --jq '[.comments[] | select(.author.login != "app/copilot-swe-agent" and .author.login != "copilot-swe-agent") | select(.body | contains("dispatch:") and contains("@copilot") and contains("rebase"))] | last')" || our_merge_rebase_comment=""
+        if [ "$our_merge_rebase_comment" = "null" ] || [ -z "$our_merge_rebase_comment" ]; then
+          log "   ❌ Merge failed for PR #$pr_num. Asking @copilot to rebase."
+          gh pr comment "$pr_num" --repo "$REPO" \
+            --body "❌ dispatch: Squash-merge failed (main likely moved since local test). @copilot please rebase this branch onto main and resolve any conflicts, keeping the intent of your changes intact." \
+            2>/dev/null || true
+        else
+          local our_merge_comment_date
+          our_merge_comment_date="$(echo "$our_merge_rebase_comment" | jq -r '.createdAt')" || our_merge_comment_date=""
+          local latest_merge_commit_date
+          latest_merge_commit_date="$(gh pr view "$pr_num" --repo "$REPO" --json commits \
+            --jq '[.commits[].committedDate] | sort | last')" || latest_merge_commit_date=""
+          if [ -n "$latest_merge_commit_date" ] && [ -n "$our_merge_comment_date" ] && [[ "$latest_merge_commit_date" > "$our_merge_comment_date" ]]; then
+            log "   🗑️  PR #$pr_num: agent pushed after merge-fail rebase request but still failing. Closing."
+            gh pr close "$pr_num" --repo "$REPO" \
+              --comment "Closed by dispatch: agent attempted rebase but merge still fails. Will reopen the linked issue for a fresh attempt." \
+              2>/dev/null || true
+            if [ -n "$linked_issue_num" ] && [ "$linked_issue_num" != "null" ]; then
+              gh issue reopen "$linked_issue_num" --repo "$REPO" 2>/dev/null || true
+              gh issue edit "$linked_issue_num" --repo "$REPO" --remove-assignee "copilot-swe-agent" 2>/dev/null || true
+              log "   ♻️  Reopened issue #$linked_issue_num for fresh attempt."
+            fi
+          else
+            log "   ⏳ PR #$pr_num: merge failed, waiting for @copilot to rebase."
+          fi
+        fi
         continue
       }
       git pull --quiet origin main 2>/dev/null || true
