@@ -101,39 +101,51 @@ struct ContentView: View {
         }
     }
 
-    // Split into two levels to stay within Swift's type-checker expression limit.
+    // Split into five levels (≤6 modifiers each) to stay within Swift's type-checker limit.
     private var bodyBase: some View {
         bodyBaseB
-        .focusedSceneValue(\.findInTerminal, workingDirectory.directoryURL != nil ? { terminalProxy.showFindBar() } : nil)
-        .focusedSceneValue(\.findTerminalNext, workingDirectory.directoryURL != nil ? { terminalProxy.findTerminalNext() } : nil)
-        .focusedSceneValue(\.findTerminalPrevious, workingDirectory.directoryURL != nil ? { terminalProxy.findTerminalPrevious() } : nil)
-        .focusedSceneValue(\.showCommandPalette, { buildCommandPalette(); showCommandPalette = true })
-        .focusedSceneValue(\.showKeyboardShortcuts, { showKeyboardShortcuts = true })
-        .focusedSceneValue(\.cloneRepository, { showCloneSheet = true })
-        .focusedSceneValue(\.splitTerminalH, workingDirectory.directoryURL != nil ? { terminalTabs.splitPane(direction: .horizontal) } : nil)
-        .focusedSceneValue(\.splitTerminalV, workingDirectory.directoryURL != nil ? { terminalTabs.splitPane(direction: .vertical) } : nil)
-        .focusedSceneValue(\.showPromptHistory, workingDirectory.directoryURL != nil ? { showPromptHistory = true } : nil)
         .focusedSceneValue(\.exportSession, workingDirectory.directoryURL != nil ? exportSessionAsMarkdown : nil)
         .focusedSceneObject(recentProjects)
         .focusedSceneValue(\.openRecentProject, { url in openDirectory(url) })
     }
 
     private var bodyBaseB: some View {
-        overlayStack
-        .environmentObject(terminalProxy)
-        .toolbar { projectToolbar }
-        .focusedSceneValue(\.sidebarVisible, $showSidebar)
-        .focusedSceneValue(\.openDirectory, browseForDirectory)
-        .focusedSceneValue(\.refresh, nil)
+        bodyBaseC
+        .focusedSceneValue(\.showCommandPalette, { buildCommandPalette(); showCommandPalette = true })
+        .focusedSceneValue(\.showKeyboardShortcuts, { showKeyboardShortcuts = true })
+        .focusedSceneValue(\.cloneRepository, { showCloneSheet = true })
+        .focusedSceneValue(\.splitTerminalH, workingDirectory.directoryURL != nil ? { terminalTabs.splitPane(direction: .horizontal) } : nil)
+        .focusedSceneValue(\.splitTerminalV, workingDirectory.directoryURL != nil ? { terminalTabs.splitPane(direction: .vertical) } : nil)
+        .focusedSceneValue(\.showPromptHistory, workingDirectory.directoryURL != nil ? { showPromptHistory = true } : nil)
+    }
+
+    private var bodyBaseC: some View {
+        bodyBaseD
+        .focusedSceneValue(\.resetFontSize, { terminalFontSize = EmbeddedTerminalView.defaultFontSize })
+        .focusedSceneValue(\.newTerminalTab, workingDirectory.directoryURL != nil ? { terminalTabs.addTab() } : nil)
+        .focusedSceneValue(\.newCopilotTab, workingDirectory.directoryURL != nil ? { terminalTabs.addCopilotTab() } : nil)
+        .focusedSceneValue(\.findInTerminal, workingDirectory.directoryURL != nil ? { terminalProxy.showFindBar() } : nil)
+        .focusedSceneValue(\.findTerminalNext, workingDirectory.directoryURL != nil ? { terminalProxy.findTerminalNext() } : nil)
+        .focusedSceneValue(\.findTerminalPrevious, workingDirectory.directoryURL != nil ? { terminalProxy.findTerminalPrevious() } : nil)
+    }
+
+    private var bodyBaseD: some View {
+        bodyBaseE
         .focusedSceneValue(\.quickOpen, workingDirectory.directoryURL != nil ? { showMentionPicker = false; showQuickOpen = true } : nil)
         .focusedSceneValue(\.autoFollow, $autoFollow)
         .focusedSceneValue(\.findInProject, workingDirectory.directoryURL != nil ? { quickOpenModel.reset(); showQuickOpen = true } : nil)
         .focusedSceneValue(\.closeProject, workingDirectory.directoryURL != nil ? closeCurrentProject : nil)
         .focusedSceneValue(\.increaseFontSize, { terminalFontSize = min(terminalFontSize + 1, EmbeddedTerminalView.maxFontSize) })
         .focusedSceneValue(\.decreaseFontSize, { terminalFontSize = max(terminalFontSize - 1, EmbeddedTerminalView.minFontSize) })
-        .focusedSceneValue(\.resetFontSize, { terminalFontSize = EmbeddedTerminalView.defaultFontSize })
-        .focusedSceneValue(\.newTerminalTab, workingDirectory.directoryURL != nil ? { terminalTabs.addTab() } : nil)
-        .focusedSceneValue(\.newCopilotTab, workingDirectory.directoryURL != nil ? { terminalTabs.addCopilotTab() } : nil)
+    }
+
+    private var bodyBaseE: some View {
+        overlayStack
+        .environmentObject(terminalProxy)
+        .toolbar { projectToolbar }
+        .focusedSceneValue(\.sidebarVisible, $showSidebar)
+        .focusedSceneValue(\.openDirectory, browseForDirectory)
+        .focusedSceneValue(\.refresh, nil)
     }
 
     @ToolbarContentBuilder
