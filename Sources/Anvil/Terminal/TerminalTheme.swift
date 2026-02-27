@@ -66,17 +66,19 @@ extension TerminalTheme {
 
     static let defaultDark: TerminalTheme = {
         let ansi = makeAnsi([
-            0x505050, 0xCC0000, 0x4E9A06, 0xC4A000,
-            0x3465A4, 0x75507B, 0x06989A, 0xD3D7CF,
-            0x555753, 0xEF2929, 0x8AE234, 0xFCE94F,
+            // Normal colors — all adjusted to meet WCAG AA 4.5:1 contrast on this background
+            0x878787, 0xE05555, 0x4E9A06, 0xC4A000,
+            0x4589CC, 0xB070B0, 0x06989A, 0xD3D7CF,
+            // Bright colors
+            0x909090, 0xFF5555, 0x8AE234, 0xFCE94F,
             0x729FCF, 0xAD7FA8, 0x34E2E2, 0xEEEEEC,
         ])
         return TerminalTheme(
             id: "default-dark", name: "Default Dark",
-            background: NSColor(red: 0.1, green: 0.1, blue: 0.12, alpha: 1.0),
+            background: hex(0x1C1917),
             foreground: NSColor(red: 0.9, green: 0.9, blue: 0.9, alpha: 1.0),
             cursor: NSColor(red: 0.9, green: 0.9, blue: 0.9, alpha: 1.0),
-            selection: hexA(0x4D6699, alpha: 0.5),
+            selection: hexA(0x4D6699, alpha: 0.65),
             ansiColors: ansi
         )
     }()

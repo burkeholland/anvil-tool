@@ -8,7 +8,8 @@ struct SessionListView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            searchField
+            sidebarHeader
+            Divider()
             if model.groups.isEmpty {
                 emptyState
             } else {
@@ -41,30 +42,49 @@ struct SessionListView: View {
         }
     }
 
-    private var searchField: some View {
-        HStack(spacing: Spacing.xs) {
-            Image(systemName: "magnifyingglass")
-                .foregroundStyle(.secondary)
-                .font(.system(size: 12))
-            TextField("Search sessions", text: $model.filterQuery)
-                .textFieldStyle(.plain)
-                .font(.subheadline)
-            if !model.filterQuery.isEmpty {
+    private var sidebarHeader: some View {
+        VStack(spacing: Spacing.xs) {
+            HStack {
+                Text("Sessions")
+                    .font(.headline)
+                    .fontWeight(.semibold)
+                Spacer()
                 Button {
-                    model.filterQuery = ""
+                    model.onNewSession?()
                 } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(.secondary)
-                        .font(.system(size: 12))
+                    Image(systemName: "plus")
+                        .font(.system(size: 13, weight: .medium))
                 }
                 .buttonStyle(.plain)
+                .help("New Copilot Session")
             }
+            .padding(.horizontal, Spacing.md)
+            .padding(.top, Spacing.sm)
+
+            HStack(spacing: Spacing.xs) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.tertiary)
+                TextField("Search", text: $model.filterQuery)
+                    .font(.subheadline)
+                    .textFieldStyle(.plain)
+                if !model.filterQuery.isEmpty {
+                    Button {
+                        model.filterQuery = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.tertiary)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, Spacing.sm)
+            .padding(.vertical, Spacing.xs)
+            .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 6))
+            .padding(.horizontal, Spacing.md)
+            .padding(.bottom, Spacing.sm)
         }
-        .padding(.horizontal, Spacing.sm)
-        .padding(.vertical, Spacing.xs)
-        .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 6))
-        .padding(.horizontal, Spacing.md)
-        .padding(.vertical, Spacing.sm)
     }
 
     private var emptyState: some View {
@@ -112,8 +132,9 @@ private struct SessionRowView: View {
                 // Summary line
                 Text(item.summary)
                     .font(.subheadline)
+                    .italic(item.isFallbackSummary)
                     .lineLimit(2)
-                    .foregroundStyle(isActive ? Color.accentColor : .primary)
+                    .foregroundStyle(summaryColor)
 
                 HStack(spacing: Spacing.xs) {
                     // Relative timestamp
@@ -155,6 +176,11 @@ private struct SessionRowView: View {
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .abbreviated
         return formatter.localizedString(for: date, relativeTo: Date())
+    }
+
+    private var summaryColor: Color {
+        if isActive { return Color.accentColor }
+        return item.isFallbackSummary ? .secondary : .primary
     }
 }
 

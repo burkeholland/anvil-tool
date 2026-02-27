@@ -5,6 +5,9 @@ struct SessionItem: Identifiable, Equatable {
     let id: String
     let cwd: String
     let summary: String
+    /// `true` when `summary` was generated from a fallback (branch name, CWD folder, or
+    /// relative time) rather than read directly from `workspace.yaml`.
+    let isFallbackSummary: Bool
     let repository: String?
     let branch: String?
     let createdAt: Date
