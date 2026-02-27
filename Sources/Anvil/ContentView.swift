@@ -261,44 +261,47 @@ struct ContentView: View {
         ))
     }
 
+    @ToolbarContentBuilder
+    private var projectToolbar: some ToolbarContent {
+        if workingDirectory.directoryURL != nil {
+            ToolbarView(
+                workingDirectory: workingDirectory,
+                changesModel: changesModel,
+                activityModel: activityModel,
+                filePreview: filePreview,
+                recentProjects: recentProjects,
+                promptHistoryStore: promptHistoryStore,
+                sessionHealthMonitor: sessionHealthMonitor,
+                showSidebar: $showSidebar,
+                autoFollow: $autoFollow,
+                showBranchPicker: $showBranchPicker,
+                showInstructions: $showInstructions,
+                showCopilotActions: $showCopilotActions,
+                showPromptHistory: $showPromptHistory,
+                showProjectSwitcher: $showProjectSwitcher,
+                isAgentWaitingForInput: terminalTabs.isAnyTabWaitingForInput,
+                agentMode: terminalTabs.agentMode,
+                agentModel: terminalTabs.agentModel,
+                onOpenDirectory: { browseForDirectory() },
+                onSwitchProject: { url in openDirectory(url) },
+                onCloneRepository: { showCloneSheet = true },
+                onCompact: {
+                    terminalProxy.send("/compact\n")
+                    sessionHealthMonitor.reset()
+                },
+                onFocusTerminal: {
+                    if let tv = terminalProxy.terminalView {
+                        tv.window?.makeFirstResponder(tv)
+                    }
+                }
+            )
+        }
+    }
+
     var body: some View {
         bodyBase
         .environmentObject(terminalProxy)
-        .toolbar {
-            if workingDirectory.directoryURL != nil {
-                ToolbarView(
-                    workingDirectory: workingDirectory,
-                    changesModel: changesModel,
-                    activityModel: activityModel,
-                    filePreview: filePreview,
-                    recentProjects: recentProjects,
-                    promptHistoryStore: promptHistoryStore,
-                    sessionHealthMonitor: sessionHealthMonitor,
-                    showSidebar: $showSidebar,
-                    autoFollow: $autoFollow,
-                    showBranchPicker: $showBranchPicker,
-                    showInstructions: $showInstructions,
-                    showCopilotActions: $showCopilotActions,
-                    showPromptHistory: $showPromptHistory,
-                    showProjectSwitcher: $showProjectSwitcher,
-                    isAgentWaitingForInput: terminalTabs.isAnyTabWaitingForInput,
-                    agentMode: terminalTabs.agentMode,
-                    agentModel: terminalTabs.agentModel,
-                    onOpenDirectory: { browseForDirectory() },
-                    onSwitchProject: { url in openDirectory(url) },
-                    onCloneRepository: { showCloneSheet = true },
-                    onCompact: {
-                        terminalProxy.send("/compact\n")
-                        sessionHealthMonitor.reset()
-                    },
-                    onFocusTerminal: {
-                        if let tv = terminalProxy.terminalView {
-                            tv.window?.makeFirstResponder(tv)
-                        }
-                    }
-                )
-            }
-        }
+        .toolbar { projectToolbar }
         .onChange(of: terminalTabs.isAnyTabWaitingForInput) { _, isWaiting in
             if isWaiting { NSSound.beep() }
         }
