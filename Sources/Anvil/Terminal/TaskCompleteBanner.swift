@@ -47,11 +47,6 @@ struct TaskCompleteBanner: View {
     /// The task prompt that initiated this work session, used to populate the copy summary.
     var taskPrompt: String? = nil
 
-    /// Changed file entries to show in the collapsible file list.
-    var changedFiles: [ChangedFile] = []
-    /// Called when the user taps a file row to navigate to that file's diff.
-    var onOpenFileDiff: ((ChangedFile) -> Void)?
-
     /// Number of changed files not yet marked as reviewed (drives the "Explain changes" chip).
     var unreviewedCount: Int = 0
     /// Number of inline diff annotations in the current review session.
@@ -67,9 +62,6 @@ struct TaskCompleteBanner: View {
     @State private var isExpanded = false
     @State private var showBuildOutput = false
     @State private var showTestOutput = false
-    @State private var showChangedFiles = false
-    @State private var showCopiedConfirmation = false
-    @State private var copiedDismissTask: DispatchWorkItem?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -84,27 +76,9 @@ struct TaskCompleteBanner: View {
                 if changedFileCount > 0 {
                     Text("•")
                         .foregroundStyle(.tertiary)
-                    if isExpanded {
-                        Button {
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                showChangedFiles.toggle()
-                            }
-                        } label: {
-                            HStack(spacing: 4) {
-                                Text("\(changedFileCount) file\(changedFileCount == 1 ? "" : "s") changed")
-                                    .font(.system(size: 12))
-                                    .foregroundStyle(.secondary)
-                                Image(systemName: showChangedFiles ? "chevron.up" : "chevron.down")
-                                    .font(.system(size: 9))
-                                    .foregroundStyle(.tertiary)
-                            }
-                        }
-                        .buttonStyle(.plain)
-                    } else {
-                        Text("\(changedFileCount) file\(changedFileCount == 1 ? "" : "s") changed")
-                            .font(.system(size: 12))
-                            .foregroundStyle(.secondary)
-                    }
+                    Text("\(changedFileCount) file\(changedFileCount == 1 ? "" : "s") changed")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
                 }
 
                 if totalAdditions > 0 || totalDeletions > 0 {
@@ -176,14 +150,6 @@ struct TaskCompleteBanner: View {
                             style: .secondary
                         ) {
                             onStageAllAndCommit()
-                        }
-
-                        BannerPillButton(
-                            icon: "doc.on.clipboard",
-                            label: "Copy Summary",
-                            style: .secondary
-                        ) {
-                            copySummaryToClipboard()
                         }
                     }
 
@@ -351,23 +317,6 @@ struct TaskCompleteBanner: View {
                     }
                     .background(Color(nsColor: .textBackgroundColor).opacity(0.6))
                 }
-                // Expandable changed-files panel
-                if showChangedFiles && !changedFiles.isEmpty {
-                    Divider()
-                    ScrollView {
-                        LazyVStack(spacing: 0) {
-                            ForEach(ReviewPriorityScorer.sorted(changedFiles)) { file in
-                                BannerFileRow(file: file) {
-                                    onOpenFileDiff?(file)
-                                }
-                                Divider().padding(.leading, 32)
-                            }
-                        }
-                    }
-                    .frame(maxHeight: 180)
-                    .background(Color(nsColor: .textBackgroundColor).opacity(0.6))
-                }
-
                 // Contextual suggestion chips (merged from PromptSuggestionBar)
                 if let handler = onSelectSuggestion {
                     PromptSuggestionBar(
@@ -386,28 +335,6 @@ struct TaskCompleteBanner: View {
         }
         .background(.ultraThinMaterial)
         .overlay(alignment: .top) { Divider() }
-        .overlay(alignment: .center) {
-            if showCopiedConfirmation {
-                Text("Summary copied to clipboard")
-                    .font(.system(size: 12, weight: .medium))
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 7)
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
-                    .transition(.opacity.combined(with: .scale(scale: 0.95)))
-            }
-        }
-        .animation(.easeInOut(duration: 0.2), value: showCopiedConfirmation)
-    }
-
-    private func copySummaryToClipboard() {
-        let summary = ChangeSummaryGenerator.generate(files: changedFiles, taskPrompt: taskPrompt)
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(summary, forType: .string)
-        copiedDismissTask?.cancel()
-        showCopiedConfirmation = true
-        let task = DispatchWorkItem { showCopiedConfirmation = false }
-        copiedDismissTask = task
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2, execute: task)
     }
 
     /// Branch names that are considered "default" and should not trigger the Create PR suggestion.
@@ -661,73 +588,6 @@ private struct DiagnosticRow: View {
             return "\(filename):\(diagnostic.line):\(col)"
         }
         return "\(filename):\(diagnostic.line)"
-    }
-}
-
-/// A single row in the changed-files list showing status badge, path, diff stats, and risk indicator.
-private struct BannerFileRow: View {
-    let file: ChangedFile
-    let onTap: () -> Void
-
-    @State private var isHovering = false
-
-    private var priority: ReviewPriority { ReviewPriorityScorer.score(file) }
-
-    var body: some View {
-        Button(action: onTap) {
-            HStack(spacing: 8) {
-                Text(statusLabel)
-                    .font(.system(size: 9, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(.white)
-                    .frame(width: 16, height: 16)
-                    .background(
-                        RoundedRectangle(cornerRadius: 2)
-                            .fill(file.status.color)
-                    )
-
-                Text(file.relativePath)
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                if let diff = file.diff {
-                    HStack(spacing: 4) {
-                        if diff.additionCount > 0 {
-                            Text("+\(diff.additionCount)")
-                                .font(.system(size: 10).monospacedDigit())
-                                .foregroundStyle(.green)
-                        }
-                        if diff.deletionCount > 0 {
-                            Text("-\(diff.deletionCount)")
-                                .font(.system(size: 10).monospacedDigit())
-                                .foregroundStyle(.red)
-                        }
-                    }
-                }
-
-                ReviewPriorityIndicator(priority: priority)
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
-            .contentShape(Rectangle())
-            .background(isHovering ? Color.accentColor.opacity(0.08) : Color.clear)
-        }
-        .buttonStyle(.plain)
-        .onHover { isHovering = $0 }
-        .help("Click to view diff for \(file.fileName)")
-    }
-
-    private var statusLabel: String {
-        switch file.status {
-        case .modified:   return "M"
-        case .added:      return "A"
-        case .deleted:    return "D"
-        case .untracked:  return "?"
-        case .renamed:    return "R"
-        case .conflicted: return "!"
-        }
     }
 }
 

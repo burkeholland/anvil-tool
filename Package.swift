@@ -9,14 +9,12 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/migueldeicaza/SwiftTerm.git", from: "1.2.0"),
-        .package(url: "https://github.com/raspu/Highlightr.git", from: "2.2.1"),
     ],
     targets: [
         .executableTarget(
             name: "Anvil",
             dependencies: [
                 .product(name: "SwiftTerm", package: "SwiftTerm"),
-                .product(name: "Highlightr", package: "Highlightr"),
             ],
             path: "Sources/Anvil"
         ),

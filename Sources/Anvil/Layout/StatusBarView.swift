@@ -14,6 +14,7 @@ struct StatusBarView: View {
                 .lineLimit(1)
                 .truncationMode(.head)
                 .foregroundStyle(.secondary)
+
             Spacer()
         }
         .font(.system(size: 11, design: .monospaced))
@@ -52,5 +53,6 @@ struct StatusBarView: View {
         }
         .animation(.easeInOut(duration: 0.2), value: workingDirectory.lastSyncError != nil)
     }
+
 
 }
