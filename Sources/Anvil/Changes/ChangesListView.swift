@@ -25,6 +25,8 @@ struct ChangesListView: View {
     @State private var collapsedGroups: Set<String> = []
     @State private var showCopiedConfirmation = false
     @State private var copiedDismissTask: DispatchWorkItem?
+    @State private var commitFormExpanded = false
+    @State private var showFilterOptions = false
 
     private enum ChangeScope: String, CaseIterable {
         case all = "All Changes"
@@ -36,6 +38,7 @@ struct ChangesListView: View {
     // MARK: - File Grouping Mode
 
     enum GroupingMode: String, CaseIterable {
+        case flat = "flat"
         case directory = "directory"
         case changeType = "changeType"
         case fileKind = "fileKind"
@@ -43,6 +46,7 @@ struct ChangesListView: View {
 
         var label: String {
             switch self {
+            case .flat:       return "Flat"
             case .directory:  return "Directory"
             case .changeType: return "Type"
             case .fileKind:   return "Kind"
@@ -51,7 +55,7 @@ struct ChangesListView: View {
         }
     }
 
-    @State private var groupingMode: GroupingMode = .directory
+    @State private var groupingMode: GroupingMode = .flat
 
     private func groupingModeKey() -> String? {
         guard let path = workingDirectory.directoryURL?.standardizedFileURL.path else { return nil }
@@ -100,6 +104,10 @@ struct ChangesListView: View {
         displayedFiles.filter { SensitiveFileClassifier.isSensitive($0.relativePath) }
     }
 
+    private var isFilterActive: Bool {
+        changeScope != .all || groupingMode != .flat
+    }
+
     private var testCoverageMap: [URL: TestCoverageChecker.TestCoverage] {
         TestCoverageChecker.coverage(for: displayedFiles)
     }
@@ -133,11 +141,52 @@ struct ChangesListView: View {
     private var changesTopSections: some View {
         if !model.changedFiles.isEmpty {
             Section {
-                CommitFormView(
-                    model: model,
-                    onPush: workingDirectory.hasRemotes ? { workingDirectory.push() } : nil,
-                    activityFeedModel: activityFeedModel
-                )
+                if commitFormExpanded {
+                    CommitFormView(
+                        model: model,
+                        onPush: workingDirectory.hasRemotes ? { workingDirectory.push() } : nil,
+                        activityFeedModel: activityFeedModel
+                    )
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) { commitFormExpanded = false }
+                    } label: {
+                        HStack {
+                            Spacer()
+                            Text("Collapse")
+                                .font(.system(size: 10))
+                                .foregroundStyle(.secondary)
+                            Image(systemName: "chevron.up")
+                                .font(.system(size: 9))
+                                .foregroundStyle(.tertiary)
+                            Spacer()
+                        }
+                        .padding(.top, 2)
+                    }
+                    .buttonStyle(.plain)
+                } else {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) { commitFormExpanded = true }
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "square.and.pencil")
+                                .font(.system(size: 11))
+                                .foregroundStyle(.secondary)
+                            Text("Commit…")
+                                .font(.system(size: 12, weight: .medium))
+                            Spacer()
+                            if !model.stagedFiles.isEmpty {
+                                Text("\(model.stagedFiles.count) staged")
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(.secondary)
+                            }
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 9))
+                                .foregroundStyle(.tertiary)
+                        }
+                        .padding(.vertical, 2)
+                    }
+                    .buttonStyle(.plain)
+                }
             }
             if let onReviewAll, model.changedFiles.count > 0 {
                 Section {
@@ -361,7 +410,42 @@ struct ChangesListView: View {
         .padding(.vertical, 1)
     }
 
-    /// A summary row showing test coverage stats and a button to ask the agent for tests.
+    /// A popover showing scope filters and grouping mode options (progressive disclosure).
+    private var filterOptionsView: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if availableScopes.count > 1 {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Scope")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                    Picker("Scope", selection: $changeScope) {
+                        ForEach(availableScopes, id: \.self) { scope in
+                            Text(scopeShortLabel(scope)).tag(scope)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                }
+            }
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Group By")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                Picker("Group by", selection: $groupingMode) {
+                    ForEach(GroupingMode.allCases, id: \.self) { mode in
+                        Text(mode.label).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .onChange(of: groupingMode) { saveGroupingMode() }
+            }
+        }
+        .padding(14)
+        .frame(minWidth: 200)
+    }
+
+
     @ViewBuilder
     private var testCoverageSummarySection: some View {
         let covMap = testCoverageMap
@@ -514,6 +598,16 @@ struct ChangesListView: View {
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(.secondary)
                 .textCase(nil)
+            Button { showFilterOptions.toggle() } label: {
+                Image(systemName: isFilterActive ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
+                    .font(.system(size: 10))
+                    .foregroundStyle(isFilterActive ? .accentColor : .secondary)
+            }
+            .buttonStyle(.plain)
+            .help("Filter and group options")
+            .popover(isPresented: $showFilterOptions, arrowEdge: .trailing) {
+                filterOptionsView
+            }
             Spacer()
             if displayedTotalAdditions > 0 {
                 Text("+\(displayedTotalAdditions)")
@@ -621,8 +715,6 @@ struct ChangesListView: View {
         ScrollViewReader { proxy in
             List {
                 changesTopSections
-                changeScopeSection
-                groupingModeSection
                 conflictsSection
                 sensitiveFilesSection
                 stagedSection
@@ -942,6 +1034,13 @@ struct ChangesListView: View {
                                  coverageMap: [URL: TestCoverageChecker.TestCoverage] = [:],
                                  brokenReferenceMap: [URL: [BrokenReferenceScanner.Finding]] = [:]) -> some View {
         switch groupingMode {
+        case .flat:
+            ForEach(files) { file in
+                fileRow(file: file, isStaged: isStaged,
+                        testCoverage: coverageMap[file.url] ?? .notApplicable,
+                        brokenReferences: brokenReferenceMap[file.url] ?? [])
+            }
+
         case .directory:
             let groups = directoryGroups(from: files)
             if groups.count > 1 {
