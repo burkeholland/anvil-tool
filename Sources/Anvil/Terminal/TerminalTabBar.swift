@@ -31,6 +31,25 @@ struct TerminalTabBar: View {
 
             Spacer()
 
+            // Prominent "New Session" button — always visible with label and icon
+            Button(action: onNewCopilotTab) {
+                HStack(spacing: 5) {
+                    Image(systemName: "plus")
+                        .font(.system(size: 11, weight: .semibold))
+                    Text("New Session")
+                        .font(.system(size: 12, weight: .medium))
+                }
+                .foregroundStyle(.primary.opacity(0.75))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(Color.primary.opacity(0.07))
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+            }
+            .buttonStyle(.plain)
+            .help("New Copilot Session")
+            .padding(.trailing, 10)
+
+            // Split / additional options overflow menu
             Menu {
                 Button {
                     onNewCopilotTab()
@@ -66,18 +85,18 @@ struct TerminalTabBar: View {
                     }
                 }
             } label: {
-                Image(systemName: "plus")
+                Image(systemName: "ellipsis")
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.secondary)
-                    .frame(width: 28, height: 28)
+                    .frame(width: 24, height: 24)
                     .contentShape(Rectangle())
             }
             .menuStyle(.borderlessButton)
-            .frame(width: 28)
-            .help("New Terminal Tab")
-            .padding(.trailing, 6)
+            .frame(width: 24)
+            .help("More Options")
+            .padding(.trailing, 10)
         }
-        .frame(height: 36)
+        .frame(height: 48)
         .background(Color(nsColor: NSColor(red: 0.09, green: 0.08, blue: 0.08, alpha: 1.0)))
         .overlay(alignment: .bottom) {
             Divider().opacity(0.3)
@@ -97,14 +116,19 @@ private struct TerminalTabItem: View {
     @State private var isHovering = false
     @State private var isWaitingPulsing = false
 
+    /// The primary label shown in the tab — session summary takes precedence over process title.
+    private var displayTitle: String {
+        tab.sessionSummary ?? tab.title
+    }
+
     var body: some View {
-        HStack(spacing: Spacing.sm) {
+        HStack(spacing: 6) {
             Image(systemName: tab.launchCopilot ? "sparkle" : "terminal")
-                .font(.system(size: 10))
+                .font(.system(size: 11))
                 .foregroundStyle(tab.launchCopilot && isActive ? .purple : .secondary)
 
-            Text(tab.title)
-                .font(.system(size: 12))
+            Text(displayTitle)
+                .font(.system(size: 13, weight: isActive ? .medium : .regular))
                 .lineLimit(1)
                 .foregroundStyle(isActive ? .primary : .secondary)
 
@@ -132,21 +156,21 @@ private struct TerminalTabItem: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .opacity(isHovering || isActive ? 1 : 0)
+                .opacity(isHovering ? 1 : 0)
             }
         }
-        .padding(.horizontal, 10)
+        .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .background(
             isActive
-                ? Color.primary.opacity(0.08)
-                : Color.clear
+                ? Color.primary.opacity(0.10)
+                : (isHovering ? Color.primary.opacity(0.04) : Color.clear)
         )
         .overlay(alignment: .bottom) {
             if isActive {
                 Rectangle()
                     .fill(tab.launchCopilot ? Color.purple : Color.accentColor)
-                    .frame(height: 2)
+                    .frame(height: 3)
             }
         }
         .contentShape(Rectangle())
