@@ -12,27 +12,31 @@ struct ContentView: View {
     @StateObject private var promptMarkerStore = PromptMarkerStore()
     @StateObject private var sessionTranscriptStore = SessionTranscriptStore()
     @StateObject private var sessionHealthMonitor = SessionHealthMonitor()
+    @StateObject private var sessionListModel = SessionListModel()
     @StateObject private var buildVerifier = BuildVerifier()
     @StateObject private var testRunner = TestRunner()
     @State private var notificationManager = AgentNotificationManager()
-    @AppStorage("terminalFontSize") private var terminalFontSize: Double = 14
+    @AppStorage("showSidebar") private var showSidebar = true
+    @AppStorage("autoFollowChanges") private var autoFollow = true
     @AppStorage("autoBuildOnTaskComplete") private var autoBuildOnTaskComplete = true
+    @AppStorage("terminalFontSize") private var terminalFontSize: Double = 14
     @AppStorage("agentSoundEnabled") private var agentSoundEnabled = true
     @AppStorage("agentSoundName") private var agentSoundName = "Glass"
-    @State private var agentCompletionSound: NSSound?
     @State private var showQuickOpen = false
     @State private var showMentionPicker = false
     @State private var showCommandPalette = false
     @State private var showBranchPicker = false
+    @State private var isDroppingFolder = false
+    @State private var isDroppingFileToTerminal = false
+    @State private var showTaskBanner = false
+    @State private var agentCompletionSound: NSSound?
     @State private var showKeyboardShortcuts = false
     @State private var showInstructions = false
     @State private var showCopilotActions = false
     @State private var showProjectSwitcher = false
     @State private var showCloneSheet = false
     @State private var showPromptHistory = false
-    @State private var showTaskBanner = false
-    @State private var isDroppingFolder = false
-    @State private var isDroppingFileToTerminal = false
+    @State private var columnVisibility: NavigationSplitViewVisibility = .all
 
     private var overlayStack: some View {
         ZStack {
@@ -92,60 +96,51 @@ struct ContentView: View {
         }
     }
 
+    // Split into five levels (≤6 modifiers each) to stay within Swift's type-checker limit.
     private var bodyBase: some View {
+        bodyBaseB
+        .focusedSceneValue(\.exportSession, workingDirectory.directoryURL != nil ? exportSessionAsMarkdown : nil)
+        .focusedSceneObject(recentProjects)
+        .focusedSceneValue(\.openRecentProject, { url in openDirectory(url) })
+    }
+
+    private var bodyBaseB: some View {
+        bodyBaseC
+        .focusedSceneValue(\.showCommandPalette, { buildCommandPalette(); showCommandPalette = true })
+        .focusedSceneValue(\.showKeyboardShortcuts, { showKeyboardShortcuts = true })
+        .focusedSceneValue(\.cloneRepository, { showCloneSheet = true })
+        .focusedSceneValue(\.splitTerminalH, workingDirectory.directoryURL != nil ? { terminalTabs.splitPane(direction: .horizontal) } : nil)
+        .focusedSceneValue(\.splitTerminalV, workingDirectory.directoryURL != nil ? { terminalTabs.splitPane(direction: .vertical) } : nil)
+        .focusedSceneValue(\.showPromptHistory, workingDirectory.directoryURL != nil ? { showPromptHistory = true } : nil)
+    }
+
+    private var bodyBaseC: some View {
+        bodyBaseD
+        .focusedSceneValue(\.resetFontSize, { terminalFontSize = EmbeddedTerminalView.defaultFontSize })
+        .focusedSceneValue(\.newTerminalTab, workingDirectory.directoryURL != nil ? { terminalTabs.addTab() } : nil)
+        .focusedSceneValue(\.newCopilotTab, workingDirectory.directoryURL != nil ? { terminalTabs.addCopilotTab() } : nil)
+        .focusedSceneValue(\.findInTerminal, workingDirectory.directoryURL != nil ? { terminalProxy.showFindBar() } : nil)
+        .focusedSceneValue(\.findTerminalNext, workingDirectory.directoryURL != nil ? { terminalProxy.findTerminalNext() } : nil)
+        .focusedSceneValue(\.findTerminalPrevious, workingDirectory.directoryURL != nil ? { terminalProxy.findTerminalPrevious() } : nil)
+    }
+
+    private var bodyBaseD: some View {
+        bodyBaseE
+        .focusedSceneValue(\.quickOpen, workingDirectory.directoryURL != nil ? { showMentionPicker = false; showQuickOpen = true } : nil)
+        .focusedSceneValue(\.autoFollow, $autoFollow)
+        .focusedSceneValue(\.findInProject, workingDirectory.directoryURL != nil ? { quickOpenModel.reset(); showQuickOpen = true } : nil)
+        .focusedSceneValue(\.closeProject, workingDirectory.directoryURL != nil ? closeCurrentProject : nil)
+        .focusedSceneValue(\.increaseFontSize, { terminalFontSize = min(terminalFontSize + 1, EmbeddedTerminalView.maxFontSize) })
+        .focusedSceneValue(\.decreaseFontSize, { terminalFontSize = max(terminalFontSize - 1, EmbeddedTerminalView.minFontSize) })
+    }
+
+    private var bodyBaseE: some View {
         overlayStack
         .environmentObject(terminalProxy)
         .toolbar { projectToolbar }
-        .modifier(FocusedSceneModifier(
-            autoFollow: .constant(true),
-            workingDirectory: workingDirectory,
-            hasProject: workingDirectory.directoryURL != nil,
-            onShowQuickOpen: {
-                showMentionPicker = false
-                showQuickOpen = true
-            },
-            onFindInProject: {},
-            onBrowse: { browseForDirectory() },
-            onCloseProject: { closeCurrentProject() },
-            onIncreaseFontSize: {
-                terminalFontSize = min(terminalFontSize + 1, EmbeddedTerminalView.maxFontSize)
-            },
-            onDecreaseFontSize: {
-                terminalFontSize = max(terminalFontSize - 1, EmbeddedTerminalView.minFontSize)
-            },
-            onResetFontSize: {
-                terminalFontSize = EmbeddedTerminalView.defaultFontSize
-            },
-            onNewTerminalTab: { terminalTabs.addTab() },
-            onNewCopilotTab: { terminalTabs.addCopilotTab() },
-            onFindInTerminal: { terminalProxy.showFindBar() },
-            onFindTerminalNext: { terminalProxy.findTerminalNext() },
-            onFindTerminalPrevious: { terminalProxy.findTerminalPrevious() },
-            onShowCommandPalette: {
-                buildCommandPalette()
-                showCommandPalette = true
-            },
-            onShowKeyboardShortcuts: { showKeyboardShortcuts = true },
-            onMentionInTerminal: workingDirectory.directoryURL != nil ? {
-                showQuickOpen = false
-                showMentionPicker = true
-            } : nil,
-            onCloneRepository: { showCloneSheet = true },
-            onSplitTerminalH: workingDirectory.directoryURL != nil ? {
-                terminalTabs.splitPane(direction: .horizontal)
-            } : nil,
-            onSplitTerminalV: workingDirectory.directoryURL != nil ? {
-                terminalTabs.splitPane(direction: .vertical)
-            } : nil,
-            onShowPromptHistory: workingDirectory.directoryURL != nil ? {
-                showPromptHistory = true
-            } : nil,
-            onExportSession: workingDirectory.directoryURL != nil ? {
-                exportSessionAsMarkdown()
-            } : nil,
-            recentProjects: recentProjects,
-            onOpenRecentProject: { url in openDirectory(url) }
-        ))
+        .focusedSceneValue(\.sidebarVisible, $showSidebar)
+        .focusedSceneValue(\.openDirectory, browseForDirectory)
+        .focusedSceneValue(\.refresh, nil)
     }
 
     @ToolbarContentBuilder
@@ -194,25 +189,9 @@ struct ContentView: View {
             promptMarkerStore.clear()
             promptHistoryStore.configure(projectPath: newURL?.standardizedFileURL.path)
             sessionTranscriptStore.configure(projectPath: newURL?.standardizedFileURL.path)
+            sessionListModel.projectCWD = newURL?.standardizedFileURL.path
             if let url = newURL {
                 recentProjects.recordOpen(url)
-            }
-        }
-        .onChange(of: terminalTabs.isAgentActive) { wasActive, isActive in
-            if wasActive && !isActive {
-                withAnimation(.easeInOut(duration: 0.25)) { showTaskBanner = true }
-                if agentSoundEnabled {
-                    agentCompletionSound?.stop()
-                    agentCompletionSound = NSSound(named: agentSoundName)
-                    agentCompletionSound?.play()
-                }
-                if autoBuildOnTaskComplete, let url = workingDirectory.directoryURL {
-                    buildVerifier.run(at: url)
-                }
-            } else if isActive {
-                withAnimation(.easeInOut(duration: 0.25)) { showTaskBanner = false }
-                buildVerifier.cancel()
-                testRunner.cancel()
             }
         }
         .onChange(of: buildVerifier.status) { _, newStatus in
@@ -247,12 +226,13 @@ struct ContentView: View {
             }
         }
         .onAppear {
-            notificationManager.connect()
             terminalProxy.historyStore = promptHistoryStore
             terminalProxy.sessionMonitor = sessionHealthMonitor
             terminalProxy.markerStore = promptMarkerStore
             promptHistoryStore.configure(projectPath: workingDirectory.directoryURL?.standardizedFileURL.path)
             sessionTranscriptStore.configure(projectPath: workingDirectory.directoryURL?.standardizedFileURL.path)
+            sessionListModel.projectCWD = workingDirectory.directoryURL?.standardizedFileURL.path
+            sessionListModel.start()
             if let url = workingDirectory.directoryURL {
                 recentProjects.recordOpen(url)
             }
@@ -309,57 +289,8 @@ struct ContentView: View {
         }
     }
 
-    @ViewBuilder private var taskCompleteBannerView: some View {
-        TaskCompleteBanner(
-            changedFileCount: 0,
-            totalAdditions: 0,
-            totalDeletions: 0,
-            buildStatus: buildVerifier.status,
-            buildDiagnostics: buildVerifier.diagnostics,
-            onOpenDiagnostic: { _ in },
-            onFixDiagnostic: { diagnostic in
-                let location = "\(diagnostic.filePath):\(diagnostic.line)"
-                let prompt = "Fix this build error: \(diagnostic.message)\n\nFile: \(location)"
-                terminalProxy.sendPrompt(prompt)
-                showTaskBanner = false
-            },
-            testStatus: testRunner.status,
-            onRunTests: workingDirectory.directoryURL != nil ? {
-                if let url = workingDirectory.directoryURL {
-                    testRunner.run(at: url)
-                }
-            } : nil,
-            onFixTestFailure: { output in
-                let prompt = "The test suite failed. Please fix the failing tests.\n\nTest output:\n\(output)"
-                terminalProxy.sendPrompt(prompt)
-                showTaskBanner = false
-            },
-            onFixTestCase: { testName in
-                let prompt = "Fix this failing test: \(testName)"
-                terminalProxy.sendPrompt(prompt)
-                showTaskBanner = false
-            },
-            gitBranch: workingDirectory.gitBranch,
-            aheadCount: workingDirectory.aheadCount,
-            hasOpenPR: workingDirectory.openPRURL != nil,
-            onNewTask: {
-                if let tv = terminalProxy.terminalView {
-                    tv.window?.makeFirstResponder(tv)
-                }
-                showTaskBanner = false
-            },
-            onDismiss: { showTaskBanner = false },
-            onExportSession: workingDirectory.directoryURL != nil ? {
-                exportSessionAsMarkdown()
-            } : nil,
-            taskPrompt: promptHistoryStore.entries.first?.text,
-            isSaturated: sessionHealthMonitor.isSaturated,
-            onSelectSuggestion: { prompt in
-                terminalProxy.sendPrompt(prompt)
-            }
-        )
-    }
-
+    /// Updates the "waiting for input" state for a tab and fires a macOS notification
+    /// when the agent transitions into the waiting state while Anvil is in the background.
     private func handleAgentWaitingForInput(_ waiting: Bool, for tab: TerminalTab) {
         terminalTabs.setWaitingForInput(waiting, tabID: tab.id)
         if waiting {
@@ -367,15 +298,20 @@ struct ContentView: View {
         }
     }
 
+    /// Returns an EmbeddedTerminalView configured for the given tab.
     private func makeTabTerminalView(for tab: TerminalTab) -> some View {
         EmbeddedTerminalView(
             workingDirectory: workingDirectory,
             launchCopilotOverride: tab.launchCopilot,
             isActiveTab: tab.id == terminalTabs.activeTabID,
-            onTitleChange: { title in terminalTabs.updateTitle(for: tab.id, to: title) },
+            onTitleChange: { title in
+                terminalTabs.updateTitle(for: tab.id, to: title)
+            },
             onOpenFile: { _, _ in },
             onOutputFilePath: { _ in },
-            onAgentWaitingForInput: { waiting in handleAgentWaitingForInput(waiting, for: tab) },
+            onAgentWaitingForInput: { waiting in
+                handleAgentWaitingForInput(waiting, for: tab)
+            },
             onAgentModeChanged: { mode in
                 if tab.id == terminalTabs.activeTabID { terminalTabs.agentMode = mode }
             },
@@ -388,81 +324,80 @@ struct ContentView: View {
         .allowsHitTesting(tab.id == terminalTabs.activeTabID)
     }
 
-    private var projectView: some View {
-        ZStack {
-            VStack(spacing: 0) {
-                TerminalTabBar(
-                    model: terminalTabs,
-                    onNewShellTab: { terminalTabs.addTab() },
-                    onNewCopilotTab: { terminalTabs.addCopilotTab() },
-                    onSplitHorizontally: { terminalTabs.splitPane(direction: .horizontal) },
-                    onSplitVertically: { terminalTabs.splitPane(direction: .vertical) },
-                    onCloseSplit: { terminalTabs.closeSplit() }
-                )
+    private var terminalAreaView: some View {
+        VStack(spacing: 0) {
+            TerminalTabBar(
+                model: terminalTabs,
+                onNewShellTab: { terminalTabs.addTab() },
+                onNewCopilotTab: { terminalTabs.addCopilotTab() },
+                onSplitHorizontally: { terminalTabs.splitPane(direction: .horizontal) },
+                onSplitVertically: { terminalTabs.splitPane(direction: .vertical) },
+                onCloseSplit: { terminalTabs.closeSplit() }
+            )
 
-                Group {
-                    if terminalTabs.isSplit, let splitTab = terminalTabs.splitTab {
-                        let primaryPane = ZStack {
-                            ForEach(terminalTabs.tabs) { tab in
-                                makeTabTerminalView(for: tab)
-                            }
+            Group {
+                if terminalTabs.isSplit, let splitTab = terminalTabs.splitTab {
+                    let primaryPane = ZStack {
+                        ForEach(terminalTabs.tabs) { tab in
+                            makeTabTerminalView(for: tab)
                         }
 
-                        let splitPane = VStack(spacing: 0) {
-                            HStack(spacing: 6) {
-                                Image(systemName: splitTab.launchCopilot ? "sparkle" : "terminal")
-                                    .font(.system(size: 10))
-                                    .foregroundStyle(splitTab.launchCopilot ? .purple : .secondary)
-                                Text(splitTab.title)
-                                    .font(.system(size: 11))
-                                    .lineLimit(1)
-                                    .foregroundStyle(.secondary)
-                                if terminalTabs.waitingForInputTabIDs.contains(splitTab.id) {
-                                    SplitPaneInputBadge()
-                                }
-                                Spacer()
-                                Button {
-                                    terminalTabs.closeSplit()
-                                } label: {
-                                    Image(systemName: "xmark")
-                                        .font(.system(size: 8, weight: .semibold))
-                                        .foregroundStyle(.tertiary)
-                                        .frame(width: 16, height: 16)
-                                        .contentShape(Rectangle())
-                                }
-                                .buttonStyle(.plain)
-                                .help("Close Split")
-                                .padding(.trailing, 6)
+                    let splitPane = VStack(spacing: 0) {
+                        HStack(spacing: 6) {
+                            Image(systemName: splitTab.launchCopilot ? "sparkle" : "terminal")
+                                .font(.system(size: 10))
+                                .foregroundStyle(splitTab.launchCopilot ? .purple : .secondary)
+                            Text(splitTab.title)
+                                .font(.system(size: 11))
+                                .lineLimit(1)
+                                .foregroundStyle(.secondary)
+                            if terminalTabs.waitingForInputTabIDs.contains(splitTab.id) {
+                                SplitPaneInputBadge()
                             }
-                            .padding(.leading, 10)
-                            .frame(height: 26)
-                            .background(Color(nsColor: NSColor(red: 0.08, green: 0.08, blue: 0.10, alpha: 1.0)))
-                            .overlay(alignment: .bottom) { Divider().opacity(0.3) }
-
-                            EmbeddedTerminalView(
-                                workingDirectory: workingDirectory,
-                                launchCopilotOverride: splitTab.launchCopilot,
-                                isActiveTab: false,
-                                onTitleChange: { title in terminalTabs.updateSplitTitle(to: title) },
-                                onOpenFile: { _, _ in },
-                                onOutputFilePath: { _ in },
-                                onAgentWaitingForInput: { waiting in
-                                    handleAgentWaitingForInput(waiting, for: splitTab)
-                                }
-                            )
-                            .id(splitTab.id)
+                            Spacer()
+                            Button {
+                                terminalTabs.closeSplit()
+                            } label: {
+                                Image(systemName: "xmark")
+                                    .font(.system(size: 8, weight: .semibold))
+                                    .foregroundStyle(.tertiary)
+                                    .frame(width: 16, height: 16)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .help("Close Split")
+                            .padding(.trailing, 6)
                         }
+                        .padding(.leading, 10)
+                        .frame(height: 26)
+                        .background(Color(nsColor: NSColor(red: 0.08, green: 0.08, blue: 0.10, alpha: 1.0)))
+                        .overlay(alignment: .bottom) { Divider().opacity(0.3) }
 
-                        if terminalTabs.splitDirection == .horizontal {
-                            HSplitView {
-                                primaryPane
-                                splitPane
+                        EmbeddedTerminalView(
+                            workingDirectory: workingDirectory,
+                            launchCopilotOverride: splitTab.launchCopilot,
+                            isActiveTab: false,
+                            onTitleChange: { title in
+                                terminalTabs.updateSplitTitle(to: title)
+                            },
+                            onOpenFile: { _, _ in },
+                            onOutputFilePath: { _ in },
+                            onAgentWaitingForInput: { waiting in
+                                handleAgentWaitingForInput(waiting, for: splitTab)
                             }
-                        } else {
-                            VSplitView {
-                                primaryPane
-                                splitPane
-                            }
+                        )
+                        .id(splitTab.id)
+                    }
+
+                    if terminalTabs.splitDirection == .horizontal {
+                        HSplitView {
+                            primaryPane
+                            splitPane
+                        }
+                    } else {
+                        VSplitView {
+                            primaryPane
+                            splitPane
                         }
                     } else {
                         ZStack {
@@ -494,14 +429,105 @@ struct ContentView: View {
                             isDroppingFileToTerminal = targeted
                         }
                     }
-                }
+                } else {
+                    ZStack {
+                        ForEach(terminalTabs.tabs) { tab in
+                            makeTabTerminalView(for: tab)
+                        }
 
-                if showTaskBanner {
-                    taskCompleteBannerView
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                        if isDroppingFileToTerminal {
+                            VStack(spacing: 6) {
+                                Image(systemName: "at")
+                                    .font(.system(size: 28, weight: .medium))
+                                Text("Drop to @mention in terminal")
+                                    .font(.system(size: 13, weight: .medium))
+                            }
+                            .foregroundStyle(Color.accentColor)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .background(Color.accentColor.opacity(0.06))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .strokeBorder(Color.accentColor, style: StrokeStyle(lineWidth: 2, dash: [8, 4]))
+                            )
+                            .allowsHitTesting(false)
+                        }
+                    }
+                    .id(workingDirectory.directoryURL)
+                    .dropDestination(for: URL.self) { urls, _ in
+                        handleTerminalFileDrop(urls)
+                    } isTargeted: { targeted in
+                        isDroppingFileToTerminal = targeted
+                    }
                 }
             }
 
+            if showTaskBanner {
+                TaskCompleteBanner(
+                    changedFileCount: 0,
+                    totalAdditions: 0,
+                    totalDeletions: 0,
+                    buildStatus: buildVerifier.status,
+                    buildDiagnostics: buildVerifier.diagnostics,
+                    onOpenDiagnostic: { _ in },
+                    onFixDiagnostic: { diagnostic in
+                        let location = "\(diagnostic.filePath):\(diagnostic.line)"
+                        let prompt = "Fix this build error: \(diagnostic.message)\n\nFile: \(location)"
+                        terminalProxy.sendPrompt(prompt)
+                        showTaskBanner = false
+                    },
+                    testStatus: testRunner.status,
+                    onRunTests: workingDirectory.directoryURL != nil ? {
+                        if let url = workingDirectory.directoryURL {
+                            testRunner.run(at: url)
+                        }
+                    } : nil,
+                    onFixTestFailure: { output in
+                        let prompt = "The test suite failed. Please fix the failing tests.\n\nTest output:\n\(output)"
+                        terminalProxy.sendPrompt(prompt)
+                        showTaskBanner = false
+                    },
+                    onFixTestCase: { testName in
+                        let prompt = "Fix this failing test: \(testName)"
+                        terminalProxy.sendPrompt(prompt)
+                        showTaskBanner = false
+                    },
+                    gitBranch: workingDirectory.gitBranch,
+                    aheadCount: workingDirectory.aheadCount,
+                    hasOpenPR: workingDirectory.openPRURL != nil,
+                    onReviewAll: { showTaskBanner = false },
+                    onStageAllAndCommit: { showTaskBanner = false },
+                    onNewTask: {
+                        if let tv = terminalProxy.terminalView {
+                            tv.window?.makeFirstResponder(tv)
+                        }
+                        showTaskBanner = false
+                    },
+                    onDismiss: { showTaskBanner = false },
+                    onExportSession: workingDirectory.directoryURL != nil ? exportSessionAsMarkdown : nil,
+                    taskPrompt: promptHistoryStore.entries.first?.text,
+                    isSaturated: sessionHealthMonitor.isSaturated,
+                    onSelectSuggestion: { prompt in
+                        terminalProxy.sendPrompt(prompt)
+                    }
+                )
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+
+            StatusBarView(workingDirectory: workingDirectory)
+        }
+    }
+
+    private var projectView: some View {
+        ZStack {
+            NavigationSplitView(columnVisibility: $columnVisibility) {
+                SessionListView(model: sessionListModel)
+                    .navigationSplitViewColumnWidth(min: 140, ideal: 240, max: 500)
+                    .toolbar(removing: .sidebarToggle)
+            } detail: {
+                terminalAreaView
+            }
+
+            // Quick Open overlay
             if showQuickOpen {
                 Color.black.opacity(0.2)
                     .ignoresSafeArea()
@@ -558,6 +584,12 @@ struct ContentView: View {
                 quickOpenModel.index(rootURL: url, recentURLs: [])
             }
         }
+        .onChange(of: showSidebar) { _, show in
+            withAnimation { columnVisibility = show ? .all : .detailOnly }
+        }
+        .onChange(of: columnVisibility) { _, vis in
+            showSidebar = vis != .detailOnly
+        }
     }
 
     private func openDirectory(_ url: URL) {
@@ -605,28 +637,42 @@ struct ContentView: View {
         commandPalette.register([
             PaletteCommand(id: "quick-open", title: "Quick Open File\u2026", icon: "doc.text.magnifyingglass", shortcut: "\u2318\u21e7O", category: "Navigation") {
                 hasProject
-            } action: {
+            } action: { [weak quickOpenModel] in
                 if let url = workingDirectory.directoryURL {
-                    quickOpenModel.index(rootURL: url, recentURLs: [])
+                    quickOpenModel?.index(rootURL: url, recentURLs: [])
                 }
                 showMentionPicker = false
                 showQuickOpen = true
             },
             PaletteCommand(id: "mention-file", title: "Mention File in Terminal\u2026", icon: "at", shortcut: "\u2318\u21e7M", category: "Terminal") {
                 hasProject
-            } action: {
+            } action: { [weak quickOpenModel] in
                 if let url = workingDirectory.directoryURL {
-                    quickOpenModel.index(rootURL: url, recentURLs: [])
+                    quickOpenModel?.index(rootURL: url, recentURLs: [])
                 }
                 showQuickOpen = false
                 showMentionPicker = true
             },
-            PaletteCommand(id: "find-in-terminal", title: "Find in Terminal\u2026", icon: "text.magnifyingglass", shortcut: "\u2318F", category: "Navigation") {
+            PaletteCommand(id: "find-in-terminal", title: "Find in Terminal…", icon: "text.magnifyingglass", shortcut: "⌘F", category: "Navigation") {
                 hasProject
             } action: { [weak terminalProxy] in
                 terminalProxy?.showFindBar()
             },
-            PaletteCommand(id: "new-terminal-tab", title: "New Shell Tab", icon: "terminal", shortcut: "\u2318T", category: "Terminal") {
+
+            // View
+            PaletteCommand(id: "toggle-sidebar", title: "Toggle Sidebar", icon: "sidebar.leading", shortcut: "⌘B", category: "View") {
+                true
+            } action: {
+                showSidebar.toggle()
+            },
+            PaletteCommand(id: "toggle-auto-follow", title: autoFollow ? "Disable Follow Agent" : "Enable Follow Agent", icon: autoFollow ? "eye.slash" : "eye", shortcut: "⌘⇧A", category: "View") {
+                true
+            } action: {
+                autoFollow.toggle()
+            },
+
+            // Terminal
+            PaletteCommand(id: "new-terminal-tab", title: "New Shell Tab", icon: "terminal", shortcut: "⌘T", category: "Terminal") {
                 hasProject
             } action: { [weak terminalTabs] in
                 terminalTabs?.addTab()
@@ -676,16 +722,19 @@ struct ContentView: View {
             } action: {
                 showCloneSheet = true
             },
-            PaletteCommand(id: "close-project", title: "Close Project", icon: "xmark.circle", shortcut: "\u2318\u21e7W", category: "File") {
+            PaletteCommand(id: "close-project", title: "Close Project", icon: "xmark.circle", shortcut: "⌘⇧W", category: "File") {
                 hasProject
             } action: {
                 closeCurrentProject()
             },
-            PaletteCommand(id: "switch-branch", title: "Switch Branch\u2026", icon: "arrow.triangle.branch", shortcut: nil, category: "Git") {
+
+            // Git
+            PaletteCommand(id: "switch-branch", title: "Switch Branch…", icon: "arrow.triangle.branch", shortcut: nil, category: "Git") {
                 hasProject && workingDirectory.gitBranch != nil
             } action: {
                 showBranchPicker = true
             },
+
             PaletteCommand(id: "git-push", title: "Push", icon: "arrow.up", shortcut: nil, category: "Git") {
                 hasProject && workingDirectory.hasRemotes && !workingDirectory.isPushing
             } action: { [weak workingDirectory] in
@@ -701,12 +750,14 @@ struct ContentView: View {
             } action: { [weak workingDirectory] in
                 workingDirectory?.fetch()
             },
-            PaletteCommand(id: "keyboard-shortcuts", title: "Keyboard Shortcuts", icon: "keyboard", shortcut: "\u2318/", category: "Help") {
+
+            PaletteCommand(id: "keyboard-shortcuts", title: "Keyboard Shortcuts", icon: "keyboard", shortcut: "⌘/", category: "Help") {
                 true
             } action: {
                 showKeyboardShortcuts = true
             },
-            PaletteCommand(id: "instructions", title: "Project Instructions\u2026", icon: "doc.text", shortcut: nil, category: "Actions") {
+
+            PaletteCommand(id: "instructions", title: "Project Instructions…", icon: "doc.text", shortcut: nil, category: "Actions") {
                 hasProject
             } action: {
                 showInstructions = true
@@ -833,8 +884,6 @@ struct ContentView: View {
 
     private func closeCurrentProject() {
         showTaskBanner = false
-        buildVerifier.cancel()
-        testRunner.cancel()
         terminalTabs.reset()
         workingDirectory.closeProject()
     }
@@ -849,7 +898,8 @@ struct ContentView: View {
             openDirectory(url)
             return true
         } else {
-            openDirectory(url.deletingLastPathComponent())
+            let parent = url.deletingLastPathComponent()
+            openDirectory(parent)
             return true
         }
     }
@@ -896,9 +946,6 @@ struct ToolbarView: ToolbarContent {
     @ObservedObject var sessionHealthMonitor: SessionHealthMonitor
     @Binding var showPromptHistory: Bool
     @Binding var showProjectSwitcher: Bool
-    @Binding var showInstructions: Bool
-    @Binding var showCopilotActions: Bool
-    @Binding var showBranchPicker: Bool
     var isAgentWaitingForInput: Bool = false
     var agentMode: AgentMode? = nil
     var agentModel: String? = nil
@@ -910,6 +957,15 @@ struct ToolbarView: ToolbarContent {
 
     @ToolbarContentBuilder
     var body: some ToolbarContent {
+        ToolbarItem(placement: .navigation) {
+            Button {
+                showSidebar.toggle()
+            } label: {
+                Image(systemName: "sidebar.leading")
+            }
+            .help("Toggle Sidebar (⌘B)")
+        }
+
         ToolbarItem(placement: .navigation) {
             HStack(spacing: Spacing.xs) {
                 Image(systemName: "folder")
@@ -1000,11 +1056,13 @@ private struct UnifiedAgentStatusPill: View {
     @State private var isPulsing = false
 
     private var dotColor: Color {
-        isAgentWaitingForInput ? .orange : Color.secondary.opacity(0.3)
+        if isAgentWaitingForInput { return .orange }
+        return Color.secondary.opacity(0.3)
     }
 
     private var pillBackground: Color {
-        isAgentWaitingForInput ? .orange.opacity(0.12) : Color.secondary.opacity(0.07)
+        if isAgentWaitingForInput { return .orange.opacity(0.12) }
+        return Color.secondary.opacity(0.07)
     }
 
     private var contextBarColor: Color {
@@ -1062,7 +1120,6 @@ private struct UnifiedAgentStatusPill: View {
             .background(RoundedRectangle(cornerRadius: 4).fill(pillBackground))
         }
         .buttonStyle(.plain)
-        .help(isAgentWaitingForInput ? "Agent is waiting for your input \u2014 click to focus terminal" : "Agent idle \u2014 click for session details")
         .popover(isPresented: $showPopover, arrowEdge: .bottom) {
             UnifiedAgentPopover(
                 sessionHealthMonitor: sessionHealthMonitor,
@@ -1094,6 +1151,9 @@ private struct UnifiedAgentPopover: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 8) {
+                Circle()
+                    .fill(Color.secondary.opacity(0.4))
+                    .frame(width: 7, height: 7)
                 Text("Agent Idle")
                     .font(.system(size: 12, weight: .semibold))
                 Spacer()
@@ -1306,152 +1366,6 @@ struct GitSyncControls: View {
                 }
             }
         }
-    }
-}
-
-// MARK: - Focused Scene Modifiers
-
-private struct FocusedSceneModifier: ViewModifier {
-    @Binding var autoFollow: Bool
-    var workingDirectory: WorkingDirectoryModel
-    var hasProject: Bool
-    var onShowQuickOpen: () -> Void
-    var onFindInProject: () -> Void
-    var onBrowse: () -> Void
-    var onCloseProject: () -> Void
-    var onIncreaseFontSize: () -> Void
-    var onDecreaseFontSize: () -> Void
-    var onResetFontSize: () -> Void
-    var onNewTerminalTab: () -> Void
-    var onNewCopilotTab: () -> Void
-    var onFindInTerminal: () -> Void
-    var onFindTerminalNext: () -> Void
-    var onFindTerminalPrevious: () -> Void
-    var onShowCommandPalette: () -> Void
-    var onShowKeyboardShortcuts: () -> Void
-    var onMentionInTerminal: (() -> Void)?
-    var onCloneRepository: (() -> Void)?
-    var onSplitTerminalH: (() -> Void)?
-    var onSplitTerminalV: (() -> Void)?
-    var onShowPromptHistory: (() -> Void)?
-    var onExportSession: (() -> Void)?
-    var recentProjects: RecentProjectsModel
-    var onOpenRecentProject: ((URL) -> Void)?
-
-    func body(content: Content) -> some View {
-        content
-            .modifier(FocusedSceneModifierA(
-                autoFollow: $autoFollow,
-                hasProject: hasProject,
-                onShowQuickOpen: onShowQuickOpen,
-                onFindInProject: onFindInProject,
-                onBrowse: onBrowse
-            ))
-            .modifier(FocusedSceneModifierB(
-                hasProject: hasProject,
-                onCloseProject: onCloseProject,
-                onIncreaseFontSize: onIncreaseFontSize,
-                onDecreaseFontSize: onDecreaseFontSize,
-                onResetFontSize: onResetFontSize,
-                onNewTerminalTab: onNewTerminalTab,
-                onFindInTerminal: onFindInTerminal,
-                onShowCommandPalette: onShowCommandPalette,
-                onShowKeyboardShortcuts: onShowKeyboardShortcuts
-            ))
-            .modifier(FocusedSceneModifierC(
-                hasProject: hasProject,
-                onNewCopilotTab: onNewCopilotTab,
-                onFindTerminalNext: onFindTerminalNext,
-                onFindTerminalPrevious: onFindTerminalPrevious,
-                onMentionInTerminal: onMentionInTerminal,
-                onCloneRepository: onCloneRepository,
-                onSplitTerminalH: onSplitTerminalH,
-                onSplitTerminalV: onSplitTerminalV
-            ))
-            .modifier(FocusedSceneModifierD(
-                onShowPromptHistory: onShowPromptHistory,
-                onExportSession: onExportSession,
-                recentProjects: recentProjects,
-                onOpenRecentProject: onOpenRecentProject
-            ))
-    }
-}
-
-private struct FocusedSceneModifierA: ViewModifier {
-    @Binding var autoFollow: Bool
-    var hasProject: Bool
-    var onShowQuickOpen: () -> Void
-    var onFindInProject: () -> Void
-    var onBrowse: () -> Void
-
-    func body(content: Content) -> some View {
-        content
-            .focusedSceneValue(\.openDirectory, onBrowse)
-            .focusedSceneValue(\.refresh, {})
-            .focusedSceneValue(\.quickOpen, hasProject ? onShowQuickOpen : nil)
-            .focusedSceneValue(\.autoFollow, $autoFollow)
-            .focusedSceneValue(\.findInProject, hasProject ? onFindInProject : nil)
-    }
-}
-
-private struct FocusedSceneModifierB: ViewModifier {
-    var hasProject: Bool
-    var onCloseProject: () -> Void
-    var onIncreaseFontSize: () -> Void
-    var onDecreaseFontSize: () -> Void
-    var onResetFontSize: () -> Void
-    var onNewTerminalTab: () -> Void
-    var onFindInTerminal: () -> Void
-    var onShowCommandPalette: () -> Void
-    var onShowKeyboardShortcuts: () -> Void
-
-    func body(content: Content) -> some View {
-        content
-            .focusedSceneValue(\.closeProject, hasProject ? onCloseProject : nil)
-            .focusedSceneValue(\.increaseFontSize, onIncreaseFontSize)
-            .focusedSceneValue(\.decreaseFontSize, onDecreaseFontSize)
-            .focusedSceneValue(\.resetFontSize, onResetFontSize)
-            .focusedSceneValue(\.newTerminalTab, hasProject ? onNewTerminalTab : nil)
-            .focusedSceneValue(\.findInTerminal, hasProject ? onFindInTerminal : nil)
-            .focusedSceneValue(\.showCommandPalette, onShowCommandPalette)
-            .focusedSceneValue(\.showKeyboardShortcuts, onShowKeyboardShortcuts)
-    }
-}
-
-private struct FocusedSceneModifierC: ViewModifier {
-    var hasProject: Bool
-    var onNewCopilotTab: () -> Void
-    var onFindTerminalNext: () -> Void
-    var onFindTerminalPrevious: () -> Void
-    var onMentionInTerminal: (() -> Void)?
-    var onCloneRepository: (() -> Void)?
-    var onSplitTerminalH: (() -> Void)?
-    var onSplitTerminalV: (() -> Void)?
-
-    func body(content: Content) -> some View {
-        content
-            .focusedSceneValue(\.newCopilotTab, hasProject ? onNewCopilotTab : nil)
-            .focusedSceneValue(\.findTerminalNext, hasProject ? onFindTerminalNext : nil)
-            .focusedSceneValue(\.findTerminalPrevious, hasProject ? onFindTerminalPrevious : nil)
-            .focusedSceneValue(\.mentionInTerminal, onMentionInTerminal)
-            .focusedSceneValue(\.cloneRepository, onCloneRepository)
-            .focusedSceneValue(\.splitTerminalH, onSplitTerminalH)
-            .focusedSceneValue(\.splitTerminalV, onSplitTerminalV)
-    }
-}
-
-private struct FocusedSceneModifierD: ViewModifier {
-    var onShowPromptHistory: (() -> Void)?
-    var onExportSession: (() -> Void)?
-    var recentProjects: RecentProjectsModel
-    var onOpenRecentProject: ((URL) -> Void)?
-
-    func body(content: Content) -> some View {
-        content
-            .focusedSceneValue(\.showPromptHistory, onShowPromptHistory)
-            .focusedSceneValue(\.exportSession, onExportSession)
-            .focusedSceneObject(recentProjects)
-            .focusedSceneValue(\.openRecentProject, onOpenRecentProject)
     }
 }
 

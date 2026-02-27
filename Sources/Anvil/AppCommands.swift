@@ -71,10 +71,6 @@ struct ShowKeyboardShortcutsKey: FocusedValueKey {
     typealias Value = () -> Void
 }
 
-struct MentionInTerminalKey: FocusedValueKey {
-    typealias Value = () -> Void
-}
-
 struct CloneRepositoryKey: FocusedValueKey {
     typealias Value = () -> Void
 }
@@ -100,6 +96,11 @@ struct OpenRecentProjectKey: FocusedValueKey {
 }
 
 extension FocusedValues {
+    var sidebarVisible: Binding<Bool>? {
+        get { self[SidebarVisibleKey.self] }
+        set { self[SidebarVisibleKey.self] = newValue }
+    }
+
     var openDirectory: (() -> Void)? {
         get { self[OpenDirectoryKey.self] }
         set { self[OpenDirectoryKey.self] = newValue }
@@ -180,11 +181,6 @@ extension FocusedValues {
         set { self[ShowKeyboardShortcutsKey.self] = newValue }
     }
 
-    var mentionInTerminal: (() -> Void)? {
-        get { self[MentionInTerminalKey.self] }
-        set { self[MentionInTerminalKey.self] = newValue }
-    }
-
     var cloneRepository: (() -> Void)? {
         get { self[CloneRepositoryKey.self] }
         set { self[CloneRepositoryKey.self] = newValue }
@@ -219,6 +215,7 @@ extension FocusedValues {
 // MARK: - View Menu Commands
 
 struct ViewCommands: Commands {
+    @FocusedValue(\.sidebarVisible) var sidebarVisible
     @FocusedValue(\.refresh) var refresh
     @FocusedValue(\.quickOpen) var quickOpen
     @FocusedValue(\.autoFollow) var autoFollow
@@ -234,10 +231,8 @@ struct ViewCommands: Commands {
     @FocusedValue(\.splitTerminalH) var splitTerminalH
     @FocusedValue(\.splitTerminalV) var splitTerminalV
     @FocusedValue(\.showCommandPalette) var showCommandPalette
-    @FocusedValue(\.mentionInTerminal) var mentionInTerminal
     @FocusedValue(\.showPromptHistory) var showPromptHistory
     @FocusedValue(\.exportSession) var exportSession
-    @FocusedValue(\.showKeyboardShortcuts) var showKeyboardShortcuts
     @AppStorage("autoLaunchCopilot") private var autoLaunchCopilot = true
     @AppStorage("notificationsEnabled") private var notificationsEnabled = true
 
@@ -281,12 +276,6 @@ struct ViewCommands: Commands {
             .keyboardShortcut("g", modifiers: [.command, .shift])
             .disabled(findTerminalPrevious == nil)
 
-            Button("Mention File in Terminal…") {
-                mentionInTerminal?()
-            }
-            .keyboardShortcut("m", modifiers: [.command, .shift])
-            .disabled(mentionInTerminal == nil)
-
             Button("Prompt History…") {
                 showPromptHistory?()
             }
@@ -308,6 +297,14 @@ struct ViewCommands: Commands {
                 Toggle("Follow Agent", isOn: autoFollow)
                     .keyboardShortcut("a", modifiers: [.command, .shift])
             }
+
+            Divider()
+
+            Button("Toggle Sidebar") {
+                sidebarVisible?.wrappedValue.toggle()
+            }
+            .keyboardShortcut("b", modifiers: .command)
+            .disabled(sidebarVisible == nil)
 
             Divider()
 

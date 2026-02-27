@@ -33,12 +33,19 @@ struct SettingsView: View {
 
 private struct GeneralSettingsTab: View {
     @AppStorage("autoLaunchCopilot") private var autoLaunchCopilot = true
+    @AppStorage("autoFollowChanges") private var autoFollow = true
     @AppStorage("autoBuildOnTaskComplete") private var autoBuildOnTaskComplete = true
 
     var body: some View {
         Form {
             Toggle("Auto-launch Copilot CLI", isOn: $autoLaunchCopilot)
             Text("Run the `copilot` command automatically when a new terminal session starts.")
+                .settingsDescription()
+
+            Spacer().frame(height: 8)
+
+            Toggle("Follow Agent", isOn: $autoFollow)
+            Text("Auto-navigate the file tree and preview pane to files as the agent modifies them. Use ⌘⇧A to toggle.")
                 .settingsDescription()
 
             Spacer().frame(height: 8)

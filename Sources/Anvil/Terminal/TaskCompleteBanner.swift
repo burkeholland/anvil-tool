@@ -114,6 +114,34 @@ struct TaskCompleteBanner: View {
                         }
                     }
 
+                    if changedFileCount > 0 {
+                        BannerPillButton(
+                            icon: "doc.text.magnifyingglass",
+                            label: "Review Changes",
+                            style: .prominent
+                        ) {
+                            onReviewAll()
+                        }
+
+                        BannerPillButton(
+                            icon: "checkmark.circle",
+                            label: "Stage All & Commit",
+                            style: .secondary
+                        ) {
+                            onStageAllAndCommit()
+                        }
+                    }
+
+                    if shouldShowCreatePR {
+                        BannerPillButton(
+                            icon: "arrow.triangle.pull",
+                            label: "Create PR",
+                            style: .secondary
+                        ) {
+                            onCreatePR?()
+                        }
+                    }
+
                     if let exportHandler = onExportSession {
                         BannerPillButton(
                             icon: "arrow.down.doc",
@@ -286,6 +314,16 @@ struct TaskCompleteBanner: View {
         }
         .background(.ultraThinMaterial)
         .overlay(alignment: .top) { Divider() }
+    }
+
+    /// Branch names that are considered "default" and should not trigger the Create PR suggestion.
+    private static let defaultBranchNames: Set<String> = ["main", "master", "develop"]
+
+    /// True when the "Create PR" pill should be shown: non-default feature branch with
+    /// unpushed commits and no PR already open.
+    private var shouldShowCreatePR: Bool {
+        guard let branch = gitBranch, onCreatePR != nil else { return false }
+        return !Self.defaultBranchNames.contains(branch) && aheadCount > 0 && !hasOpenPR
     }
 
     @ViewBuilder
