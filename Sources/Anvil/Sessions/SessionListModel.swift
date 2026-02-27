@@ -22,6 +22,8 @@ final class SessionListModel: ObservableObject {
 
     /// Called when the user taps a session row to resume it in a terminal tab.
     var onOpenSession: ((String) -> Void)?
+    /// Called when the user taps the "+" button to start a new Copilot session.
+    var onNewSession: (() -> Void)?
 
     private var allSessions: [SessionItem] = []
     private var watcher: FileWatcher?

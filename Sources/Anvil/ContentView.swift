@@ -245,6 +245,9 @@ struct ContentView: View {
             sessionListModel.onOpenSession = { [weak terminalTabs] sessionID in
                 terminalTabs?.addResumeSessionTab(sessionID: sessionID)
             }
+            sessionListModel.onNewSession = { [weak terminalTabs] in
+                terminalTabs?.addCopilotTab()
+            }
             if let url = workingDirectory.directoryURL {
                 recentProjects.recordOpen(url)
             }
