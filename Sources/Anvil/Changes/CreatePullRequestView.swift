@@ -103,7 +103,7 @@ struct CreatePullRequestView: View {
                                 .foregroundStyle(.secondary)
                             TextEditor(text: $prBody)
                                 .font(.system(size: 12))
-                                .frame(minHeight: 120)
+                                .frame(minHeight: 200)
                                 .overlay(
                                     RoundedRectangle(cornerRadius: 4)
                                         .stroke(Color.secondary.opacity(0.3), lineWidth: 1)
@@ -145,7 +145,7 @@ struct CreatePullRequestView: View {
                 .padding()
             }
         }
-        .frame(width: 480)
+        .frame(width: 560)
         .frame(minHeight: 360)
         .onAppear { loadInitialData() }
     }
