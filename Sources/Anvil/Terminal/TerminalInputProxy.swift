@@ -24,9 +24,6 @@ final class TerminalInputProxy: ObservableObject {
     /// Optional store for session-scoped prompt timeline markers.
     var markerStore: PromptMarkerStore?
 
-    /// Optional store that tracks files pinned via /context add.
-    var contextStore: ContextStore?
-
     /// Tracks the highest `buffer.yDisp` value seen since the terminal was last reset.
     /// Approximates the current maximum scrollback depth so the timeline overlay can
     /// position markers proportionally and restore scroll positions.
@@ -70,20 +67,16 @@ final class TerminalInputProxy: ObservableObject {
 
     /// Sends `/context add <relativePath>` to the terminal to add a file to the Copilot CLI context.
     /// Strips control characters to prevent terminal injection.
-    /// Also records the path in the ContextStore when available.
     func addToContext(relativePath: String) {
         let sanitized = sanitizePath(relativePath)
         send("/context add \(sanitized)\n")
-        contextStore?.add(relativePath: sanitized)
     }
 
     /// Sends `/context remove <relativePath>` to the terminal to remove a file from the Copilot CLI context.
     /// Strips control characters to prevent terminal injection.
-    /// Also removes the path from the ContextStore when available.
     func removeFromContext(relativePath: String) {
         let sanitized = sanitizePath(relativePath)
         send("/context remove \(sanitized)\n")
-        contextStore?.remove(relativePath: sanitized)
     }
 
     /// Sends @relativePath to the terminal for Copilot CLI file mentions.

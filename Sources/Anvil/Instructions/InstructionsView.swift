@@ -4,7 +4,6 @@ import SwiftUI
 /// Each existing instruction file gets its own tab; missing files can be created from templates.
 struct InstructionsView: View {
     let rootURL: URL
-    @ObservedObject var filePreview: FilePreviewModel
     var onDismiss: () -> Void
 
     @State private var files: [InstructionFile] = []
@@ -101,14 +100,6 @@ struct InstructionsView: View {
                         selectTab(file)
                     }
                     .contextMenu {
-                        Button {
-                            if let url = file.url {
-                                filePreview.select(url)
-                                onDismiss()
-                            }
-                        } label: {
-                            Label("View in Preview Panel", systemImage: "eye")
-                        }
                         Button {
                             if let url = file.url {
                                 ExternalEditorManager.openFile(url)
