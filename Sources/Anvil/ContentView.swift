@@ -25,9 +25,10 @@ struct ContentView: View {
     @StateObject private var branchDiffModel = BranchDiffModel()
     @StateObject private var commitHistoryModel = CommitHistoryModel()
     @State private var notificationManager = AgentNotificationManager()
-    @AppStorage("sidebarWidth") private var sidebarWidth: Double = 240
     @AppStorage("previewWidth") private var previewWidth: Double = 400
     @AppStorage("showSidebar") private var showSidebar = true
+    /// Drives NavigationSplitView column visibility; kept in sync with `showSidebar`.
+    @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @AppStorage("sidebarTab") private var sidebarTab: SidebarTab = .files
     @AppStorage("splitPreview") private var splitPreview = false
     @State private var showQuickOpen = false
@@ -263,6 +264,15 @@ struct ContentView: View {
 
     var body: some View {
         bodyBase
+        .onChange(of: showSidebar) { _, newValue in
+            // Propagate programmatic showSidebar changes to NavigationSplitView.
+            columnVisibility = newValue ? .all : .detailOnly
+        }
+        .onChange(of: columnVisibility) { _, newValue in
+            // Propagate native sidebar toggle (swipe gesture, etc.) back to showSidebar.
+            let nowVisible = newValue != .detailOnly
+            if showSidebar != nowVisible { showSidebar = nowVisible }
+        }
         .onChange(of: workingDirectory.directoryURL) { _, newURL in
             showTaskBanner = false
             showBranchGuardBanner = false
@@ -401,6 +411,8 @@ struct ContentView: View {
             }
         }
         .onAppear {
+            // Sync NavigationSplitView column visibility with persisted sidebar state.
+            columnVisibility = showSidebar ? .all : .detailOnly
             let screenshotMode = UserDefaults.standard.bool(forKey: "anvil.screenshotMode")
             if screenshotMode {
                 showSidebar = true
@@ -607,48 +619,41 @@ struct ContentView: View {
 
     private var projectView: some View {
         ZStack {
-            HStack(spacing: 0) {
-                if showSidebar {
-                    SidebarView(
-                        model: workingDirectory,
-                        filePreview: filePreview,
-                        changesModel: changesModel,
-                        activityModel: activityModel,
-                        searchModel: searchModel,
-                        fileTreeModel: fileTreeModel,
-                        commitHistoryModel: commitHistoryModel,
-                        contextStore: contextStore,
-                        activeTab: $sidebarTab,
-                        onReviewAll: { showDiffSummary = true },
-                        onBranchDiff: {
-                            if let url = workingDirectory.directoryURL {
-                                branchDiffModel.load(rootURL: url)
-                            }
-                            showDiffSummary = false
-                            showBranchDiff = true
-                        },
-                        onCreatePR: { showCreatePR = true },
-                        onResolveConflicts: { fileURL in
-                            if let rootURL = workingDirectory.directoryURL {
-                                let allConflictURLs = changesModel.conflictedFiles.map { $0.url }
-                                mergeConflictModel.load(fileURL: fileURL, rootURL: rootURL, allConflictURLs: allConflictURLs)
-                            }
-                            showDiffSummary = false
-                            showBranchDiff = false
-                            showMergeConflict = true
-                        },
-                        lastTaskPrompt: promptHistoryStore.entries.first?.text
-                    )
-                        .frame(width: max(sidebarWidth, 0))
-
-                    PanelDivider(
-                        width: $sidebarWidth,
-                        minWidth: 140,
-                        maxWidth: 500,
-                        edge: .leading
-                    )
-                }
-
+            NavigationSplitView(columnVisibility: $columnVisibility) {
+                SidebarView(
+                    model: workingDirectory,
+                    filePreview: filePreview,
+                    changesModel: changesModel,
+                    activityModel: activityModel,
+                    searchModel: searchModel,
+                    fileTreeModel: fileTreeModel,
+                    commitHistoryModel: commitHistoryModel,
+                    contextStore: contextStore,
+                    activeTab: $sidebarTab,
+                    onReviewAll: { showDiffSummary = true },
+                    onBranchDiff: {
+                        if let url = workingDirectory.directoryURL {
+                            branchDiffModel.load(rootURL: url)
+                        }
+                        showDiffSummary = false
+                        showBranchDiff = true
+                    },
+                    onCreatePR: { showCreatePR = true },
+                    onResolveConflicts: { fileURL in
+                        if let rootURL = workingDirectory.directoryURL {
+                            let allConflictURLs = changesModel.conflictedFiles.map { $0.url }
+                            mergeConflictModel.load(fileURL: fileURL, rootURL: rootURL, allConflictURLs: allConflictURLs)
+                        }
+                        showDiffSummary = false
+                        showBranchDiff = false
+                        showMergeConflict = true
+                    },
+                    lastTaskPrompt: promptHistoryStore.entries.first?.text
+                )
+                .navigationSplitViewColumnWidth(min: 140, ideal: 240, max: 500)
+                .toolbar(removing: .sidebarToggle)
+            } detail: {
+                HStack(spacing: 0) {
                 VStack(spacing: 0) {
                     ToolbarView(
                         workingDirectory: workingDirectory,
@@ -948,6 +953,7 @@ struct ContentView: View {
                         }
                     }
                     .frame(width: max(previewWidth, 0))
+                }
                 }
             }
 
@@ -2529,7 +2535,7 @@ struct SidebarView: View {
                 }
             }
         }
-        .background(Color(nsColor: .controlBackgroundColor))
+        .background(.clear)
         .onChange(of: activityModel.events.count) { oldCount, newCount in
             if activeTab != .activity && newCount > oldCount {
                 activityUnread += newCount - oldCount
