@@ -7,18 +7,6 @@ struct SidebarVisibleKey: FocusedValueKey {
     typealias Value = Binding<Bool>
 }
 
-struct SidebarTabKey: FocusedValueKey {
-    typealias Value = Binding<SidebarTab>
-}
-
-struct PreviewOpenKey: FocusedValueKey {
-    typealias Value = Bool
-}
-
-struct ClosePreviewKey: FocusedValueKey {
-    typealias Value = () -> Void
-}
-
 struct OpenDirectoryKey: FocusedValueKey {
     typealias Value = () -> Void
 }
@@ -79,71 +67,11 @@ struct ShowCommandPaletteKey: FocusedValueKey {
     typealias Value = () -> Void
 }
 
-struct NextChangeKey: FocusedValueKey {
-    typealias Value = () -> Void
-}
-
-struct PreviousChangeKey: FocusedValueKey {
-    typealias Value = () -> Void
-}
-
-struct ReviewAllChangesKey: FocusedValueKey {
-    typealias Value = () -> Void
-}
-
 struct ShowKeyboardShortcutsKey: FocusedValueKey {
     typealias Value = () -> Void
 }
 
-struct GoToLineKey: FocusedValueKey {
-    typealias Value = () -> Void
-}
-
-struct RevealInTreeKey: FocusedValueKey {
-    typealias Value = () -> Void
-}
-
-struct MentionInTerminalKey: FocusedValueKey {
-    typealias Value = () -> Void
-}
-
 struct CloneRepositoryKey: FocusedValueKey {
-    typealias Value = () -> Void
-}
-
-struct NextReviewFileKey: FocusedValueKey {
-    typealias Value = () -> Void
-}
-
-struct PreviousReviewFileKey: FocusedValueKey {
-    typealias Value = () -> Void
-}
-
-struct NextHunkKey: FocusedValueKey {
-    typealias Value = () -> Void
-}
-
-struct PreviousHunkKey: FocusedValueKey {
-    typealias Value = () -> Void
-}
-
-struct StageFocusedHunkKey: FocusedValueKey {
-    typealias Value = () -> Void
-}
-
-struct UnstageFocusedHunkKey: FocusedValueKey {
-    typealias Value = () -> Void
-}
-
-struct DiscardFocusedHunkKey: FocusedValueKey {
-    typealias Value = () -> Void
-}
-
-struct ToggleFocusedFileReviewedKey: FocusedValueKey {
-    typealias Value = () -> Void
-}
-
-struct OpenFocusedFileKey: FocusedValueKey {
     typealias Value = () -> Void
 }
 
@@ -155,18 +83,6 @@ struct SplitTerminalVKey: FocusedValueKey {
     typealias Value = () -> Void
 }
 
-struct RequestFixKey: FocusedValueKey {
-    typealias Value = () -> Void
-}
-
-struct NextPreviewTabKey: FocusedValueKey {
-    typealias Value = () -> Void
-}
-
-struct PreviousPreviewTabKey: FocusedValueKey {
-    typealias Value = () -> Void
-}
-
 struct ShowPromptHistoryKey: FocusedValueKey {
     typealias Value = () -> Void
 }
@@ -175,45 +91,14 @@ struct ExportSessionKey: FocusedValueKey {
     typealias Value = () -> Void
 }
 
-struct GoToTestFileKey: FocusedValueKey {
-    typealias Value = () -> Void
-}
-
-struct ToggleDiffViewModeKey: FocusedValueKey {
-    typealias Value = () -> Void
-}
-
-struct ToggleSplitPreviewKey: FocusedValueKey {
-    typealias Value = () -> Void
-}
-
 struct OpenRecentProjectKey: FocusedValueKey {
     typealias Value = (URL) -> Void
-}
-
-struct AskAboutSelectionKey: FocusedValueKey {
-    typealias Value = () -> Void
 }
 
 extension FocusedValues {
     var sidebarVisible: Binding<Bool>? {
         get { self[SidebarVisibleKey.self] }
         set { self[SidebarVisibleKey.self] = newValue }
-    }
-
-    var sidebarTab: Binding<SidebarTab>? {
-        get { self[SidebarTabKey.self] }
-        set { self[SidebarTabKey.self] = newValue }
-    }
-
-    var previewOpen: Bool? {
-        get { self[PreviewOpenKey.self] }
-        set { self[PreviewOpenKey.self] = newValue }
-    }
-
-    var closePreview: (() -> Void)? {
-        get { self[ClosePreviewKey.self] }
-        set { self[ClosePreviewKey.self] = newValue }
     }
 
     var openDirectory: (() -> Void)? {
@@ -291,89 +176,14 @@ extension FocusedValues {
         set { self[ShowCommandPaletteKey.self] = newValue }
     }
 
-    var nextChange: (() -> Void)? {
-        get { self[NextChangeKey.self] }
-        set { self[NextChangeKey.self] = newValue }
-    }
-
-    var previousChange: (() -> Void)? {
-        get { self[PreviousChangeKey.self] }
-        set { self[PreviousChangeKey.self] = newValue }
-    }
-
-    var reviewAllChanges: (() -> Void)? {
-        get { self[ReviewAllChangesKey.self] }
-        set { self[ReviewAllChangesKey.self] = newValue }
-    }
-
     var showKeyboardShortcuts: (() -> Void)? {
         get { self[ShowKeyboardShortcutsKey.self] }
         set { self[ShowKeyboardShortcutsKey.self] = newValue }
     }
 
-    var goToLine: (() -> Void)? {
-        get { self[GoToLineKey.self] }
-        set { self[GoToLineKey.self] = newValue }
-    }
-
-    var revealInTree: (() -> Void)? {
-        get { self[RevealInTreeKey.self] }
-        set { self[RevealInTreeKey.self] = newValue }
-    }
-
-    var mentionInTerminal: (() -> Void)? {
-        get { self[MentionInTerminalKey.self] }
-        set { self[MentionInTerminalKey.self] = newValue }
-    }
-
     var cloneRepository: (() -> Void)? {
         get { self[CloneRepositoryKey.self] }
         set { self[CloneRepositoryKey.self] = newValue }
-    }
-
-    var nextReviewFile: (() -> Void)? {
-        get { self[NextReviewFileKey.self] }
-        set { self[NextReviewFileKey.self] = newValue }
-    }
-
-    var previousReviewFile: (() -> Void)? {
-        get { self[PreviousReviewFileKey.self] }
-        set { self[PreviousReviewFileKey.self] = newValue }
-    }
-
-    var nextHunk: (() -> Void)? {
-        get { self[NextHunkKey.self] }
-        set { self[NextHunkKey.self] = newValue }
-    }
-
-    var previousHunk: (() -> Void)? {
-        get { self[PreviousHunkKey.self] }
-        set { self[PreviousHunkKey.self] = newValue }
-    }
-
-    var stageFocusedHunk: (() -> Void)? {
-        get { self[StageFocusedHunkKey.self] }
-        set { self[StageFocusedHunkKey.self] = newValue }
-    }
-
-    var unstageFocusedHunk: (() -> Void)? {
-        get { self[UnstageFocusedHunkKey.self] }
-        set { self[UnstageFocusedHunkKey.self] = newValue }
-    }
-
-    var discardFocusedHunk: (() -> Void)? {
-        get { self[DiscardFocusedHunkKey.self] }
-        set { self[DiscardFocusedHunkKey.self] = newValue }
-    }
-
-    var toggleFocusedFileReviewed: (() -> Void)? {
-        get { self[ToggleFocusedFileReviewedKey.self] }
-        set { self[ToggleFocusedFileReviewedKey.self] = newValue }
-    }
-
-    var openFocusedFile: (() -> Void)? {
-        get { self[OpenFocusedFileKey.self] }
-        set { self[OpenFocusedFileKey.self] = newValue }
     }
 
     var splitTerminalH: (() -> Void)? {
@@ -386,21 +196,6 @@ extension FocusedValues {
         set { self[SplitTerminalVKey.self] = newValue }
     }
 
-    var requestFix: (() -> Void)? {
-        get { self[RequestFixKey.self] }
-        set { self[RequestFixKey.self] = newValue }
-    }
-
-    var nextPreviewTab: (() -> Void)? {
-        get { self[NextPreviewTabKey.self] }
-        set { self[NextPreviewTabKey.self] = newValue }
-    }
-
-    var previousPreviewTab: (() -> Void)? {
-        get { self[PreviousPreviewTabKey.self] }
-        set { self[PreviousPreviewTabKey.self] = newValue }
-    }
-
     var showPromptHistory: (() -> Void)? {
         get { self[ShowPromptHistoryKey.self] }
         set { self[ShowPromptHistoryKey.self] = newValue }
@@ -411,29 +206,9 @@ extension FocusedValues {
         set { self[ExportSessionKey.self] = newValue }
     }
 
-    var goToTestFile: (() -> Void)? {
-        get { self[GoToTestFileKey.self] }
-        set { self[GoToTestFileKey.self] = newValue }
-    }
-
-    var toggleDiffViewMode: (() -> Void)? {
-        get { self[ToggleDiffViewModeKey.self] }
-        set { self[ToggleDiffViewModeKey.self] = newValue }
-    }
-
-    var toggleSplitPreview: (() -> Void)? {
-        get { self[ToggleSplitPreviewKey.self] }
-        set { self[ToggleSplitPreviewKey.self] = newValue }
-    }
-
     var openRecentProject: ((URL) -> Void)? {
         get { self[OpenRecentProjectKey.self] }
         set { self[OpenRecentProjectKey.self] = newValue }
-    }
-
-    var askAboutSelection: (() -> Void)? {
-        get { self[AskAboutSelectionKey.self] }
-        set { self[AskAboutSelectionKey.self] = newValue }
     }
 }
 
@@ -441,9 +216,6 @@ extension FocusedValues {
 
 struct ViewCommands: Commands {
     @FocusedValue(\.sidebarVisible) var sidebarVisible
-    @FocusedValue(\.sidebarTab) var sidebarTab
-    @FocusedValue(\.previewOpen) var previewOpen
-    @FocusedValue(\.closePreview) var closePreview
     @FocusedValue(\.refresh) var refresh
     @FocusedValue(\.quickOpen) var quickOpen
     @FocusedValue(\.autoFollow) var autoFollow
@@ -459,30 +231,8 @@ struct ViewCommands: Commands {
     @FocusedValue(\.splitTerminalH) var splitTerminalH
     @FocusedValue(\.splitTerminalV) var splitTerminalV
     @FocusedValue(\.showCommandPalette) var showCommandPalette
-    @FocusedValue(\.revealInTree) var revealInTree
-    @FocusedValue(\.mentionInTerminal) var mentionInTerminal
-    @FocusedValue(\.nextChange) var nextChange
-    @FocusedValue(\.previousChange) var previousChange
-    @FocusedValue(\.reviewAllChanges) var reviewAllChanges
-    @FocusedValue(\.goToLine) var goToLine
-    @FocusedValue(\.nextReviewFile) var nextReviewFile
-    @FocusedValue(\.previousReviewFile) var previousReviewFile
-    @FocusedValue(\.nextHunk) var nextHunk
-    @FocusedValue(\.previousHunk) var previousHunk
-    @FocusedValue(\.stageFocusedHunk) var stageFocusedHunk
-    @FocusedValue(\.unstageFocusedHunk) var unstageFocusedHunk
-    @FocusedValue(\.discardFocusedHunk) var discardFocusedHunk
-    @FocusedValue(\.toggleFocusedFileReviewed) var toggleFocusedFileReviewed
-    @FocusedValue(\.openFocusedFile) var openFocusedFile
-    @FocusedValue(\.requestFix) var requestFix
-    @FocusedValue(\.nextPreviewTab) var nextPreviewTab
-    @FocusedValue(\.previousPreviewTab) var previousPreviewTab
     @FocusedValue(\.showPromptHistory) var showPromptHistory
     @FocusedValue(\.exportSession) var exportSession
-    @FocusedValue(\.goToTestFile) var goToTestFile
-    @FocusedValue(\.toggleDiffViewMode) var toggleDiffViewMode
-    @FocusedValue(\.toggleSplitPreview) var toggleSplitPreview
-    @FocusedValue(\.askAboutSelection) var askAboutSelection
     @AppStorage("autoLaunchCopilot") private var autoLaunchCopilot = true
     @AppStorage("notificationsEnabled") private var notificationsEnabled = true
 
@@ -526,36 +276,6 @@ struct ViewCommands: Commands {
             .keyboardShortcut("g", modifiers: [.command, .shift])
             .disabled(findTerminalPrevious == nil)
 
-            Button("Go to Line…") {
-                goToLine?()
-            }
-            .keyboardShortcut("l", modifiers: .command)
-            .disabled(goToLine == nil)
-
-            Button("Reveal in File Tree") {
-                revealInTree?()
-            }
-            .keyboardShortcut("j", modifiers: [.command, .shift])
-            .disabled(revealInTree == nil)
-
-            Button("Go to Test File") {
-                goToTestFile?()
-            }
-            .keyboardShortcut("t", modifiers: [.command, .control])
-            .disabled(goToTestFile == nil)
-
-            Button("Mention File in Terminal…") {
-                mentionInTerminal?()
-            }
-            .keyboardShortcut("m", modifiers: [.command, .shift])
-            .disabled(mentionInTerminal == nil)
-
-            Button("Ask About Selection") {
-                askAboutSelection?()
-            }
-            .keyboardShortcut("e", modifiers: [.command, .shift])
-            .disabled(askAboutSelection == nil)
-
             Button("Prompt History…") {
                 showPromptHistory?()
             }
@@ -565,7 +285,6 @@ struct ViewCommands: Commands {
             Button("Export Session as Markdown") {
                 exportSession?()
             }
-            .keyboardShortcut("e", modifiers: [.command, .shift])
             .disabled(exportSession == nil)
 
             Divider()
@@ -589,157 +308,11 @@ struct ViewCommands: Commands {
 
             Divider()
 
-            Button("Files") {
-                sidebarVisible?.wrappedValue = true
-                sidebarTab?.wrappedValue = .files
-            }
-            .keyboardShortcut("1", modifiers: .command)
-            .disabled(sidebarTab == nil)
-
-            Button("Changes") {
-                sidebarVisible?.wrappedValue = true
-                sidebarTab?.wrappedValue = .changes
-            }
-            .keyboardShortcut("2", modifiers: .command)
-            .disabled(sidebarTab == nil)
-
-            Button("Activity") {
-                sidebarVisible?.wrappedValue = true
-                sidebarTab?.wrappedValue = .activity
-            }
-            .keyboardShortcut("3", modifiers: .command)
-            .disabled(sidebarTab == nil)
-
-            Button("Search") {
-                sidebarVisible?.wrappedValue = true
-                sidebarTab?.wrappedValue = .search
-            }
-            .keyboardShortcut("4", modifiers: .command)
-            .disabled(sidebarTab == nil)
-
-            Divider()
-
-            Button("Split Preview") {
-                toggleSplitPreview?()
-            }
-            .keyboardShortcut("\\", modifiers: .command)
-            .disabled(toggleSplitPreview == nil)
-
-            Divider()
-
-            Button("Close Tab") {
-                closePreview?()
-            }
-            .keyboardShortcut("w", modifiers: .command)
-            .disabled(previewOpen != true)
-
-            Button("Select Next Tab") {
-                nextPreviewTab?()
-            }
-            .keyboardShortcut(KeyEquivalent("\t"), modifiers: .control)
-            .disabled(nextPreviewTab == nil)
-
-            Button("Select Previous Tab") {
-                previousPreviewTab?()
-            }
-            .keyboardShortcut(KeyEquivalent("\t"), modifiers: [.control, .shift])
-            .disabled(previousPreviewTab == nil)
-
-            Divider()
-
             Button("Refresh") {
                 refresh?()
             }
             .keyboardShortcut("r", modifiers: [.command, .shift])
             .disabled(refresh == nil)
-
-            Divider()
-
-            Button("Next Changed File") {
-                nextChange?()
-            }
-            .keyboardShortcut(.downArrow, modifiers: [.command, .control])
-            .disabled(nextChange == nil)
-
-            Button("Previous Changed File") {
-                previousChange?()
-            }
-            .keyboardShortcut(.upArrow, modifiers: [.command, .control])
-            .disabled(previousChange == nil)
-
-            Button("Review All Changes") {
-                reviewAllChanges?()
-            }
-            .keyboardShortcut("d", modifiers: [.command, .shift])
-            .disabled(reviewAllChanges == nil)
-
-            Button("Toggle Diff View") {
-                toggleDiffViewMode?()
-            }
-            .keyboardShortcut("d", modifiers: .command)
-            .disabled(toggleDiffViewMode == nil)
-
-            Divider()
-
-            Button("Next File in Review") {
-                nextReviewFile?()
-            }
-            .keyboardShortcut("]", modifiers: .command)
-            .disabled(nextReviewFile == nil)
-
-            Button("Previous File in Review") {
-                previousReviewFile?()
-            }
-            .keyboardShortcut("[", modifiers: .command)
-            .disabled(previousReviewFile == nil)
-
-            Button("Next Hunk") {
-                nextHunk?()
-            }
-            .keyboardShortcut("j", modifiers: [])
-            .disabled(nextHunk == nil)
-
-            Button("Previous Hunk") {
-                previousHunk?()
-            }
-            .keyboardShortcut("k", modifiers: [])
-            .disabled(previousHunk == nil)
-
-            Button("Stage Focused Hunk") {
-                stageFocusedHunk?()
-            }
-            .keyboardShortcut("s", modifiers: [])
-            .disabled(stageFocusedHunk == nil)
-
-            Button("Unstage Focused Hunk") {
-                unstageFocusedHunk?()
-            }
-            .keyboardShortcut("u", modifiers: [])
-            .disabled(unstageFocusedHunk == nil)
-
-            Button("Discard Focused Hunk") {
-                discardFocusedHunk?()
-            }
-            .keyboardShortcut("d", modifiers: [])
-            .disabled(discardFocusedHunk == nil)
-
-            Button("Toggle File Reviewed") {
-                toggleFocusedFileReviewed?()
-            }
-            .keyboardShortcut("r", modifiers: [])
-            .disabled(toggleFocusedFileReviewed == nil)
-
-            Button("Open File in Preview") {
-                openFocusedFile?()
-            }
-            .keyboardShortcut(.return, modifiers: [])
-            .disabled(openFocusedFile == nil)
-
-            Button("Request Fix…") {
-                requestFix?()
-            }
-            .keyboardShortcut("f", modifiers: [])
-            .disabled(requestFix == nil)
 
             Divider()
 
