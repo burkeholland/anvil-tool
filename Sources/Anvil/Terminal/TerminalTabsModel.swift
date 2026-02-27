@@ -13,6 +13,16 @@ struct TerminalTab: Identifiable, Equatable {
     let launchCopilot: Bool
     /// The original title assigned at creation, used as fallback when terminal title is empty.
     let defaultTitle: String
+    /// When non-nil, this tab was opened to resume a specific Copilot session.
+    let resumeSessionID: String?
+
+    init(id: UUID, title: String, launchCopilot: Bool, defaultTitle: String, resumeSessionID: String? = nil) {
+        self.id = id
+        self.title = title
+        self.launchCopilot = launchCopilot
+        self.defaultTitle = defaultTitle
+        self.resumeSessionID = resumeSessionID
+    }
 
     static func == (lhs: TerminalTab, rhs: TerminalTab) -> Bool {
         lhs.id == rhs.id
@@ -79,6 +89,27 @@ final class TerminalTabsModel: ObservableObject {
         let tab = TerminalTab(id: UUID(), title: title, launchCopilot: true, defaultTitle: title)
         tabs.append(tab)
         activeTabID = tab.id
+    }
+
+    /// Opens a new Copilot tab that resumes the given session, or switches to that
+    /// tab if it is already open (deduplication).
+    @discardableResult
+    func addResumeSessionTab(sessionID: String) -> TerminalTab {
+        if let existing = tabs.first(where: { $0.resumeSessionID == sessionID }) {
+            activeTabID = existing.id
+            return existing
+        }
+        let copilotCount = tabs.filter(\.launchCopilot).count
+        let title = copilotCount == 0 ? "Copilot" : "Copilot \(copilotCount + 1)"
+        let tab = TerminalTab(id: UUID(), title: title, launchCopilot: true, defaultTitle: title, resumeSessionID: sessionID)
+        tabs.append(tab)
+        activeTabID = tab.id
+        return tab
+    }
+
+    /// The set of session IDs currently open in a tab.
+    var activeSessionIDs: Set<String> {
+        Set(tabs.compactMap(\.resumeSessionID))
     }
 
     func closeOtherTabs(_ id: UUID) {

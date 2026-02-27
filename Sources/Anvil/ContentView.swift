@@ -7,6 +7,7 @@ enum SidebarTab: String {
     case activity
     case search
     case history
+    case sessions
 }
 
 struct ContentView: View {
@@ -63,6 +64,7 @@ struct ContentView: View {
     @StateObject private var promptMarkerStore = PromptMarkerStore()
     @StateObject private var sessionTranscriptStore = SessionTranscriptStore()
     @StateObject private var sessionHealthMonitor = SessionHealthMonitor()
+    @StateObject private var sessionListModel = SessionListModel()
     @StateObject private var diffAnnotationStore = DiffAnnotationStore()
     @StateObject private var contextStore = ContextStore()
     @State private var showPromptHistory = false
@@ -465,6 +467,12 @@ struct ContentView: View {
             terminalProxy.sessionMonitor = sessionHealthMonitor
             terminalProxy.markerStore = promptMarkerStore
             terminalProxy.contextStore = contextStore
+            sessionListModel.onOpenSession = { [weak terminalTabs] sessionID in
+                terminalTabs?.addResumeSessionTab(sessionID: sessionID)
+            }
+            sessionListModel.onNewSession = { [weak terminalTabs] in
+                terminalTabs?.addCopilotTab()
+            }
             promptHistoryStore.configure(projectPath: workingDirectory.directoryURL?.standardizedFileURL.path)
             sessionTranscriptStore.configure(projectPath: workingDirectory.directoryURL?.standardizedFileURL.path)
             if let url = workingDirectory.directoryURL {
@@ -658,6 +666,7 @@ struct ContentView: View {
         EmbeddedTerminalView(
             workingDirectory: workingDirectory,
             launchCopilotOverride: tab.launchCopilot,
+            resumeSessionID: tab.resumeSessionID,
             isActiveTab: tab.id == terminalTabs.activeTabID,
             onTitleChange: { title in
                 terminalTabs.updateTitle(for: tab.id, to: title)
@@ -702,6 +711,8 @@ struct ContentView: View {
                         fileTreeModel: fileTreeModel,
                         commitHistoryModel: commitHistoryModel,
                         contextStore: contextStore,
+                        sessionListModel: sessionListModel,
+                        activeSessionIDs: terminalTabs.activeSessionIDs,
                         activeTab: $sidebarTab,
                         onReviewAll: { showDiffSummary = true },
                         onBranchDiff: {
@@ -2381,6 +2392,8 @@ struct SidebarView: View {
     @ObservedObject var fileTreeModel: FileTreeModel
     @ObservedObject var commitHistoryModel: CommitHistoryModel
     @ObservedObject var contextStore: ContextStore
+    @ObservedObject var sessionListModel: SessionListModel
+    var activeSessionIDs: Set<String> = []
     @Binding var activeTab: SidebarTab
     var onReviewAll: (() -> Void)?
     var onBranchDiff: (() -> Void)?
@@ -2435,6 +2448,14 @@ struct SidebarView: View {
                     isActive: activeTab == .history
                 ) {
                     activeTab = .history
+                }
+
+                SidebarTabButton(
+                    title: "Sessions",
+                    systemImage: "arrow.counterclockwise.circle",
+                    isActive: activeTab == .sessions
+                ) {
+                    activeTab = .sessions
                 }
 
                 Spacer()
@@ -2498,6 +2519,9 @@ struct SidebarView: View {
                     }
                     .frame(maxWidth: .infinity)
                 }
+
+            case .sessions:
+                SessionListView(model: sessionListModel, activeSessionIDs: activeSessionIDs)
             }
         }
         .background(VisualEffectView(material: .sidebar))
