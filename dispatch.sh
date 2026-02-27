@@ -219,9 +219,12 @@ phase_merge() {
     }
 
     if ! git merge --no-edit --quiet "$pr_head" 2>/dev/null; then
-      log "   ⚠️  PR #$pr_num merge conflicts locally. Skipping."
+      log "   ⚠️  PR #$pr_num merge conflicts locally. Asking @copilot to rebase."
       git merge --abort 2>/dev/null || true
       git checkout main --force --quiet 2>/dev/null || true
+      gh pr comment "$pr_num" --repo "$REPO" \
+        --body "⚠️ dispatch: This PR has merge conflicts with main (detected during local test-merge). @copilot please rebase this branch onto main and resolve any conflicts, keeping the intent of your changes intact." \
+        2>/dev/null || true
       continue
     fi
 
@@ -238,7 +241,10 @@ phase_merge() {
       gh pr ready "$pr_num" --repo "$REPO" 2>/dev/null || true
       gh pr merge "$pr_num" --repo "$REPO" --squash --delete-branch \
         --body "Merged by dispatch.sh after local build verification." || {
-        log "   ❌ Merge failed for PR #$pr_num."
+        log "   ❌ Merge failed for PR #$pr_num. Asking @copilot to rebase."
+        gh pr comment "$pr_num" --repo "$REPO" \
+          --body "❌ dispatch: Squash-merge failed (main likely moved since local test). @copilot please rebase this branch onto main and resolve any conflicts, keeping the intent of your changes intact." \
+          2>/dev/null || true
         continue
       }
       git pull --quiet origin main 2>/dev/null || true
