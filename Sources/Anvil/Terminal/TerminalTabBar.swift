@@ -29,25 +29,13 @@ struct TerminalTabBar: View {
                 }
             }
 
-            Spacer()
+            // Browser-style + tab at end of tab row
+            AddTabButton(
+                onNewCopilotTab: onNewCopilotTab,
+                onNewShellTab: onNewShellTab
+            )
 
-            // Prominent "New Session" button — always visible with label and icon
-            Button(action: onNewCopilotTab) {
-                HStack(spacing: 5) {
-                    Image(systemName: "plus")
-                        .font(.system(size: 11, weight: .semibold))
-                    Text("New Session")
-                        .font(.system(size: 12, weight: .medium))
-                }
-                .foregroundStyle(.primary.opacity(0.75))
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(Color.primary.opacity(0.07))
-                .clipShape(RoundedRectangle(cornerRadius: 6))
-            }
-            .buttonStyle(.plain)
-            .help("New Copilot Session")
-            .padding(.trailing, 10)
+            Spacer()
 
             // Split / additional options overflow menu
             Menu {
@@ -101,6 +89,104 @@ struct TerminalTabBar: View {
         .overlay(alignment: .bottom) {
             Divider().opacity(0.3)
         }
+    }
+}
+
+/// Browser-style `+` tab button at the end of the tab row.
+/// Single-click creates a new Copilot tab; right-click or long-press shows a
+/// menu to choose between a Copilot tab and a Shell tab.
+private struct AddTabButton: View {
+    var onNewCopilotTab: () -> Void
+    var onNewShellTab: () -> Void
+
+    @State private var isHovering = false
+    @State private var showMenu = false
+    /// Set by the long-press gesture before mouse-up fires the tap handler,
+    /// allowing the tap to be suppressed when a long press was detected.
+    @State private var didLongPress = false
+
+    var body: some View {
+        Image(systemName: "plus")
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(isHovering ? .primary.opacity(0.8) : .secondary)
+            .frame(width: 28, height: 28)
+            .background(
+                RoundedRectangle(cornerRadius: 5)
+                    .fill(isHovering ? Color.primary.opacity(0.07) : Color.clear)
+            )
+            .padding(.horizontal, 6)
+            .contentShape(Rectangle())
+            .onHover { isHovering = $0 }
+            .onTapGesture {
+                if !didLongPress {
+                    onNewCopilotTab()
+                }
+                didLongPress = false
+            }
+            .simultaneousGesture(
+                LongPressGesture(minimumDuration: 0.5)
+                    .onEnded { _ in
+                        didLongPress = true
+                        showMenu = true
+                    }
+            )
+            // Reset long-press flag whenever the popover is dismissed so that
+            // subsequent single-clicks work correctly even if mouse-up was not
+            // delivered after the long press (e.g. release outside the view).
+            .onChange(of: showMenu) { isShowing in
+                if !isShowing { didLongPress = false }
+            }
+            .contextMenu {
+                newTabMenuItems
+            }
+            .popover(isPresented: $showMenu, arrowEdge: .top) {
+                NewTabPopoverContent(
+                    onNewCopilotTab: { onNewCopilotTab(); showMenu = false },
+                    onNewShellTab: { onNewShellTab(); showMenu = false }
+                )
+            }
+            .help("New Copilot Tab (right-click or hold for options)")
+    }
+
+    /// Items used by the native context menu (right-click).
+    @ViewBuilder private var newTabMenuItems: some View {
+        Button {
+            onNewCopilotTab()
+        } label: {
+            Label("New Copilot Tab", systemImage: "sparkle")
+        }
+        Button {
+            onNewShellTab()
+        } label: {
+            Label("New Shell Tab", systemImage: "terminal")
+        }
+    }
+}
+
+/// Content displayed inside the long-press popover for `AddTabButton`.
+private struct NewTabPopoverContent: View {
+    private let items: [(title: String, icon: String, action: () -> Void)]
+
+    init(onNewCopilotTab: @escaping () -> Void, onNewShellTab: @escaping () -> Void) {
+        items = [
+            ("New Copilot Tab", "sparkle", onNewCopilotTab),
+            ("New Shell Tab", "terminal", onNewShellTab),
+        ]
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(items, id: \.title) { item in
+                Button(action: item.action) {
+                    Label(item.title, systemImage: item.icon)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+            }
+        }
+        .padding(.vertical, 4)
     }
 }
 
