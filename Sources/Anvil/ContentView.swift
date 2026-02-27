@@ -155,6 +155,8 @@ struct ContentView: View {
 
     private var bodyBase: some View {
         overlayStack
+        .environmentObject(terminalProxy)
+        .toolbar { projectToolbar }
         .modifier(FocusedSceneModifier(
             showSidebar: $showSidebar,
             sidebarTab: $sidebarTab,
@@ -300,8 +302,6 @@ struct ContentView: View {
 
     var body: some View {
         bodyBase
-        .environmentObject(terminalProxy)
-        .toolbar { projectToolbar }
         .onChange(of: terminalTabs.isAnyTabWaitingForInput) { _, isWaiting in
             if isWaiting { NSSound.beep() }
         }
