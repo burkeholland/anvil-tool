@@ -2,7 +2,7 @@
 
 A native macOS app that wraps the GitHub Copilot CLI in a beautiful, full-featured IDE experience.
 
-> **Last updated**: 2026-02-27 21:38 UTC
+> **Last updated**: 2026-02-27 21:43 UTC
 
 ## Screenshot
 
