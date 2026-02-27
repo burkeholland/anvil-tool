@@ -1,10 +1,11 @@
 #!/bin/bash
 # dispatch.sh — Parallel agent build loop for Anvil
 #
-# A single orchestration script that acts as PM + merge manager.
-# It files GitHub issues describing work to do, assigns them to
-# GitHub's cloud Copilot Coding Agent (@copilot), then pulls the
-# resulting PRs, builds them locally, and merges.
+# A single orchestration script that acts as merge manager.
+# It picks up existing GitHub issues, assigns them to GitHub's
+# cloud Copilot Coding Agent (@copilot), then pulls the resulting
+# PRs, builds them locally, and merges. Does NOT generate issues —
+# file those by hand or via other scripts.
 #
 # Usage:
 #   ./dispatch.sh              # Run the full loop
@@ -791,158 +792,15 @@ phase_triage() {
 # ─── Phase 3: PLAN ──────────────────────────────────────────────────────────
 
 phase_plan() {
-  log "📝 Phase 3: PLAN — deciding what to build next..."
+  log "📝 Phase 3: PLAN — checking open issues..."
 
-  # Prioritize curated issues (e.g. UX audit) over AI-generated ones.
-  # If open dispatch-managed issues with the "ux" label exist, skip AI planning.
-  local curated_count
-  curated_count="$(gh issue list --repo "$REPO" --label "$LABEL,ux" --state open \
-    --json number -q 'length' 2>/dev/null)" || curated_count=0
-  if [ "${curated_count:-0}" -gt 0 ]; then
-    log "   $curated_count curated UX issues remain. Skipping AI planning."
-    return 0
-  fi
+  # No AI issue generation — dispatch only works on manually-filed issues.
+  # File issues by hand (or via scripts) then let dispatch assign and merge them.
+  local open_count
+  open_count="$(gh issue list --repo "$REPO" --state open \
+    --json number -q 'length' 2>/dev/null)" || open_count=0
 
-  # Count open unassigned issues
-  local unassigned_count
-  unassigned_count="$(gh issue list --repo "$REPO" --label "$LABEL" --author "$ISSUE_AUTHOR" --state open \
-    --json number,assignees \
-    --jq '[.[] | select(.assignees | length == 0)] | length')" || unassigned_count=0
-
-  if [ "$unassigned_count" -ge "$MAX_BACKLOG" ]; then
-    log "   Backlog full ($unassigned_count unassigned issues). Skipping planning."
-    return 0
-  fi
-
-  local issues_to_create=$((MAX_BACKLOG - unassigned_count))
-  if [ "$issues_to_create" -gt 3 ]; then
-    issues_to_create=3
-  fi
-
-  log "   Need $issues_to_create new issue(s). Asking Copilot for ideas..."
-
-  # Pull latest and gather context
-  git checkout main --quiet 2>/dev/null || true
-  git pull --quiet origin main 2>/dev/null || true
-
-  local git_log file_list open_issue_titles
-  git_log="$(git log --oneline -30)"
-  file_list="$(find . -type f -not -path './.git/*' -not -path './.build/*' | head -80)"
-  open_issue_titles="$(gh issue list --repo "$REPO" --label "$LABEL" --author "$ISSUE_AUTHOR" --state open \
-    --json title -q '.[].title' 2>/dev/null)" || open_issue_titles=""
-
-  local plan_prompt
-  plan_prompt="You are a PM for the Anvil project. Your job is to decide what to build next.
-
-$PROJECT_CONTEXT
-
-## Current State
-
-Recent git log:
-\`\`\`
-$git_log
-\`\`\`
-
-File listing:
-\`\`\`
-$file_list
-\`\`\`
-
-Open issues already filed (DO NOT duplicate these):
-\`\`\`
-$open_issue_titles
-\`\`\`
-
-## Your Task
-
-Identify exactly $issues_to_create improvements or features to build next. Each should be:
-1. A single focused unit of work (completable in one session)
-2. Scoped to a specific area of the app (to minimize merge conflicts with parallel work)
-3. Not duplicating any open issue listed above
-4. Impactful — ask yourself what matters most to a developer using this app right now
-
-Do NOT specify which files to modify — the implementing agent will figure that out.
-
-Output ONLY a JSON array. No markdown, no explanation, no code fences. Just the raw JSON array:
-[
-  {
-    \"title\": \"Short descriptive title\",
-    \"problem\": \"What is the current problem or gap (1-2 sentences)\",
-    \"solution\": \"What to build and how it should work (2-4 sentences)\"
-  }
-]"
-
-  local copilot_output
-  if [ "$DRY_RUN" = true ]; then
-    log "   [DRY RUN] Would ask Copilot to generate $issues_to_create issues"
-    return 0
-  fi
-
-  copilot_output="$(copilot -p "$plan_prompt" --model claude-opus-4.6 --silent 2>/dev/null)" || {
-    log "   ⚠️  Copilot planning failed. Skipping issue creation."
-    return 0
-  }
-
-  # Extract JSON array — handle cases where copilot wraps in markdown
-  local json_output
-  json_output="$(echo "$copilot_output" | sed -n '/^\[/,/^\]/p')"
-  if [ -z "$json_output" ]; then
-    # Try extracting from code fences
-    json_output="$(echo "$copilot_output" | sed -n '/```json/,/```/p' | sed '1d;$d')"
-  fi
-  if [ -z "$json_output" ]; then
-    json_output="$(echo "$copilot_output" | sed -n '/```/,/```/p' | sed '1d;$d')"
-  fi
-
-  if ! echo "$json_output" | jq empty 2>/dev/null; then
-    log "   ⚠️  Copilot output was not valid JSON. Skipping."
-    log "   Raw output: $(echo "$copilot_output" | head -5)"
-    return 0
-  fi
-
-  local count
-  count="$(echo "$json_output" | jq 'length')"
-  # Cap to requested amount regardless of model output
-  if [ "$count" -gt "$issues_to_create" ]; then
-    count="$issues_to_create"
-  fi
-  log "   Creating $count issue(s)..."
-
-  local i=0
-  while [ "$i" -lt "$count" ]; do
-    local title problem solution
-    title="$(echo "$json_output" | jq -r ".[$i].title")"
-    problem="$(echo "$json_output" | jq -r ".[$i].problem // .[$i].description // empty")"
-    solution="$(echo "$json_output" | jq -r ".[$i].solution // empty")"
-
-    # Compose structured issue body
-    local full_body="## Problem
-
-$problem"
-
-    if [ -n "$solution" ]; then
-      full_body="$full_body
-
-## Solution
-
-$solution"
-    fi
-
-    full_body="$full_body
-
----
-🤖 *Filed by dispatch.sh*"
-
-    log "   📋 Creating issue: $title"
-    gh issue create --repo "$REPO" \
-      --title "$title" \
-      --body "$full_body" \
-      --label "$LABEL" 2>/dev/null || {
-      log "   ⚠️  Failed to create issue: $title"
-    }
-
-    i=$((i + 1))
-  done
+  log "   $open_count open issue(s) in backlog. Dispatch will assign from these."
 }
 
 # ─── Phase 4: ASSIGN ────────────────────────────────────────────────────────
