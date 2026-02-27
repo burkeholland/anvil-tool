@@ -64,9 +64,9 @@ struct ContentView: View {
     @StateObject private var promptMarkerStore = PromptMarkerStore()
     @StateObject private var sessionTranscriptStore = SessionTranscriptStore()
     @StateObject private var sessionHealthMonitor = SessionHealthMonitor()
-    @StateObject private var sessionListModel = SessionListModel()
     @StateObject private var diffAnnotationStore = DiffAnnotationStore()
     @StateObject private var contextStore = ContextStore()
+    @StateObject private var sessionListModel = SessionListModel()
     @State private var showPromptHistory = false
     @State private var reviewDwellTask: Task<Void, Never>? = nil
     /// Debounces auto-follow navigation to avoid thrashing the preview pane
@@ -324,6 +324,7 @@ struct ContentView: View {
             contextStore.clear()
             promptHistoryStore.configure(projectPath: newURL?.standardizedFileURL.path)
             sessionTranscriptStore.configure(projectPath: newURL?.standardizedFileURL.path)
+            sessionListModel.projectCWD = newURL?.standardizedFileURL.path
             if let url = newURL {
                 recentProjects.recordOpen(url)
                 changesModel.start(rootURL: url)
@@ -467,14 +468,13 @@ struct ContentView: View {
             terminalProxy.sessionMonitor = sessionHealthMonitor
             terminalProxy.markerStore = promptMarkerStore
             terminalProxy.contextStore = contextStore
+            promptHistoryStore.configure(projectPath: workingDirectory.directoryURL?.standardizedFileURL.path)
+            sessionTranscriptStore.configure(projectPath: workingDirectory.directoryURL?.standardizedFileURL.path)
+            sessionListModel.projectCWD = workingDirectory.directoryURL?.standardizedFileURL.path
+            sessionListModel.start()
             sessionListModel.onOpenSession = { [weak terminalTabs] sessionID in
                 terminalTabs?.addResumeSessionTab(sessionID: sessionID)
             }
-            sessionListModel.onNewSession = { [weak terminalTabs] in
-                terminalTabs?.addCopilotTab()
-            }
-            promptHistoryStore.configure(projectPath: workingDirectory.directoryURL?.standardizedFileURL.path)
-            sessionTranscriptStore.configure(projectPath: workingDirectory.directoryURL?.standardizedFileURL.path)
             if let url = workingDirectory.directoryURL {
                 recentProjects.recordOpen(url)
                 changesModel.start(rootURL: url)
@@ -1205,6 +1205,12 @@ struct ContentView: View {
             } action: {
                 showSidebar = true
                 sidebarTab = .history
+            },
+            PaletteCommand(id: "show-sessions", title: "Show Sessions", icon: "clock.badge", shortcut: "⌘6", category: "View") {
+                true
+            } action: {
+                showSidebar = true
+                sidebarTab = .sessions
             },
             PaletteCommand(id: "toggle-auto-follow", title: autoFollow ? "Disable Follow Agent" : "Enable Follow Agent", icon: autoFollow ? "eye.slash" : "eye", shortcut: "⌘⇧A", category: "View") {
                 true
@@ -2452,7 +2458,7 @@ struct SidebarView: View {
 
                 SidebarTabButton(
                     title: "Sessions",
-                    systemImage: "arrow.counterclockwise.circle",
+                    systemImage: "clock.badge",
                     isActive: activeTab == .sessions
                 ) {
                     activeTab = .sessions

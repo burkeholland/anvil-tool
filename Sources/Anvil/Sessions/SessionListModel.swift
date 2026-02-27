@@ -1,90 +1,205 @@
 import Foundation
+import Combine
 
-/// A past Copilot CLI session as returned by `copilot session list --json`.
-struct CopilotSession: Identifiable, Decodable {
-    let id: String
-    let title: String?
-    let date: Date?
-
-    var displayTitle: String {
-        if let t = title, !t.isEmpty { return t }
-        return id
-    }
-}
-
-/// Fetches and manages the list of past Copilot sessions, and coordinates
-/// opening them in terminal tabs.
+/// Scans `~/.copilot/session-state/` for Copilot CLI sessions, parses each
+/// `workspace.yaml`, filters by the current project, and groups by date.
+///
+/// Auto-refreshes when new sessions appear using FSEvents (via `FileWatcher`).
 final class SessionListModel: ObservableObject {
-    @Published private(set) var sessions: [CopilotSession] = []
-    @Published private(set) var isLoading = false
-    @Published private(set) var errorMessage: String?
+    /// Sessions filtered to the current project, sorted newest-first.
+    @Published private(set) var sessions: [SessionItem] = []
+    /// Sessions grouped by date bucket for display.
+    @Published private(set) var groups: [(group: SessionDateGroup, items: [SessionItem])] = []
+
+    /// Set to filter sessions by the current project directory path.
+    var projectCWD: String? {
+        didSet { if oldValue != projectCWD { applyFilter() } }
+    }
+    /// Set to filter sessions by the current project's `owner/repo` string.
+    var projectRepository: String? {
+        didSet { if oldValue != projectRepository { applyFilter() } }
+    }
 
     /// Called when the user taps a session row to resume it in a terminal tab.
     var onOpenSession: ((String) -> Void)?
 
-    /// Called when the user taps "New Session" to start a fresh Copilot tab.
-    var onNewSession: (() -> Void)?
+    private var allSessions: [SessionItem] = []
+    private var watcher: FileWatcher?
+    private var pollTimer: Timer?
+    private let sessionStateURL: URL = {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".copilot/session-state")
+    }()
 
-    // MARK: - Public API
+    // ISO 8601 formatter with fractional seconds (matches CLI output).
+    private static let isoFormatter: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f
+    }()
 
-    func refresh() {
-        guard !isLoading else { return }
-        isLoading = true
-        errorMessage = nil
+    // Fallback formatter without fractional seconds.
+    private static let isoFormatterNoFraction: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime]
+        return f
+    }()
+
+    deinit {
+        stop()
+    }
+
+    /// Begins watching the session-state directory and loads existing sessions.
+    func start() {
+        scanSessions()
+        startWatching()
+    }
+
+    /// Stops watching and clears all state.
+    func stop() {
+        watcher?.stop()
+        watcher = nil
+        pollTimer?.invalidate()
+        pollTimer = nil
+    }
+
+    // MARK: - Scanning
+
+    private func startWatching() {
+        watcher?.stop()
+        let dir = sessionStateURL
+        let fm = FileManager.default
+
+        // Create the directory if it doesn't exist yet so FSEvents can watch it.
+        if !fm.fileExists(atPath: dir.path) {
+            try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        }
+
+        if fm.fileExists(atPath: dir.path) {
+            watcher = FileWatcher(directory: dir) { [weak self] in
+                self?.scanSessions()
+            }
+        }
+
+        // Always set up a 5-second poll as a safety net (handles newly-created
+        // session-state directories and environments where FSEvents may lag).
+        pollTimer?.invalidate()
+        pollTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
+            self?.scanSessions()
+        }
+    }
+
+    private func scanSessions() {
+        let baseURL = sessionStateURL
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let result = Self.fetchSessions()
-            DispatchQueue.main.async {
-                guard let self else { return }
-                self.isLoading = false
-                switch result {
-                case .success(let list):
-                    self.sessions = list
-                case .failure(let err):
-                    self.errorMessage = err.localizedDescription
-                    self.sessions = []
+            guard let self = self else { return }
+            let fm = FileManager.default
+            guard let subdirs = try? fm.contentsOfDirectory(
+                at: baseURL,
+                includingPropertiesForKeys: [.isDirectoryKey],
+                options: [.skipsHiddenFiles]
+            ) else {
+                DispatchQueue.main.async { self.allSessions = []; self.applyFilter() }
+                return
+            }
+
+            var parsed: [SessionItem] = []
+            for dir in subdirs {
+                var isDir: ObjCBool = false
+                guard fm.fileExists(atPath: dir.path, isDirectory: &isDir), isDir.boolValue else { continue }
+                let yamlURL = dir.appendingPathComponent("workspace.yaml")
+                guard let contents = try? String(contentsOf: yamlURL, encoding: .utf8) else { continue }
+                if let item = Self.parseWorkspaceYAML(contents, id: dir.lastPathComponent) {
+                    parsed.append(item)
                 }
+            }
+
+            // Sort newest-first by updatedAt.
+            parsed.sort { $0.updatedAt > $1.updatedAt }
+
+            DispatchQueue.main.async {
+                self.allSessions = parsed
+                self.applyFilter()
             }
         }
     }
 
-    func openSession(_ session: CopilotSession) {
-        onOpenSession?(session.id)
+    // MARK: - Filtering & Grouping
+
+    private func applyFilter() {
+        let cwd = projectCWD
+        let repo = projectRepository
+
+        let filtered: [SessionItem]
+        if cwd == nil && repo == nil {
+            filtered = allSessions
+        } else {
+            filtered = allSessions.filter { item in
+                if let cwd = cwd, item.cwd == cwd { return true }
+                if let repo = repo, let itemRepo = item.repository, itemRepo == repo { return true }
+                return false
+            }
+        }
+
+        sessions = filtered
+        groups = buildGroups(filtered)
     }
 
-    func openNewSession() {
-        onNewSession?()
+    private func buildGroups(_ items: [SessionItem]) -> [(group: SessionDateGroup, items: [SessionItem])] {
+        var buckets: [SessionDateGroup: [SessionItem]] = [:]
+        for item in items {
+            let g = SessionDateGroup.group(for: item.updatedAt)
+            buckets[g, default: []].append(item)
+        }
+        // Return in canonical order, omitting empty buckets.
+        return SessionDateGroup.allCases.compactMap { g in
+            guard let bucket = buckets[g], !bucket.isEmpty else { return nil }
+            return (group: g, items: bucket)
+        }
     }
 
-    // MARK: - CLI
+    // MARK: - YAML Parsing
 
-    /// Runs `copilot session list --json` via a login shell and decodes the result.
-    private static func fetchSessions() -> Result<[CopilotSession], Error> {
-        let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: shell)
-        process.arguments = ["-l", "-c", "copilot session list --json 2>/dev/null"]
-
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = FileHandle.nullDevice
-
-        do {
-            try process.run()
-        } catch {
-            return .failure(error)
+    /// Parses a minimal `workspace.yaml` into a `SessionItem`.
+    /// The file uses simple `key: value` lines — no third-party YAML library required.
+    static func parseWorkspaceYAML(_ yaml: String, id: String) -> SessionItem? {
+        var dict: [String: String] = [:]
+        for line in yaml.components(separatedBy: "\n") {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard let colonIdx = trimmed.firstIndex(of: ":") else { continue }
+            let key = String(trimmed[trimmed.startIndex..<colonIdx])
+                .trimmingCharacters(in: .whitespaces)
+            let rawValue = String(trimmed[trimmed.index(after: colonIdx)...])
+                .trimmingCharacters(in: .whitespaces)
+            // Strip surrounding quotes (YAML scalar strings)
+            let value = rawValue.hasPrefix("\"") && rawValue.hasSuffix("\"") && rawValue.count >= 2
+                ? String(rawValue.dropFirst().dropLast())
+                : rawValue
+            dict[key] = value
         }
-        process.waitUntilExit()
 
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        guard !data.isEmpty else { return .success([]) }
+        guard
+            let cwd = dict["cwd"], !cwd.isEmpty,
+            let createdStr = dict["created_at"],
+            let updatedStr = dict["updated_at"],
+            let createdAt = parseDate(createdStr),
+            let updatedAt = parseDate(updatedStr)
+        else { return nil }
 
-        do {
-            let decoder = JSONDecoder()
-            decoder.dateDecodingStrategy = .iso8601
-            let list = try decoder.decode([CopilotSession].self, from: data)
-            return .success(list)
-        } catch {
-            return .failure(error)
-        }
+        let summary = dict["summary"] ?? ""
+        return SessionItem(
+            id: id,
+            cwd: cwd,
+            summary: summary.isEmpty ? "(no summary)" : summary,
+            repository: dict["repository"]?.isEmpty == false ? dict["repository"] : nil,
+            branch: dict["branch"]?.isEmpty == false ? dict["branch"] : nil,
+            createdAt: createdAt,
+            updatedAt: updatedAt
+        )
+    }
+
+    private static func parseDate(_ string: String) -> Date? {
+        if let d = isoFormatter.date(from: string) { return d }
+        return isoFormatterNoFraction.date(from: string)
     }
 }
