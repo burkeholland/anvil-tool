@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// Sidebar view that lists past Copilot CLI sessions grouped by date.
@@ -18,7 +19,9 @@ struct SessionListView: View {
                                 SessionRowView(
                                     item: item,
                                     isActive: activeSessionIDs.contains(item.id),
-                                    onTap: { model.onOpenSession?(item.id) }
+                                    sessionStateURL: model.sessionStateURL,
+                                    onTap: { model.onOpenSession?(item.id) },
+                                    onDelete: { model.deleteSession(id: item.id) }
                                 )
                                 Divider()
                                     .padding(.leading, Spacing.md)
@@ -62,8 +65,11 @@ struct SessionListView: View {
 private struct SessionRowView: View {
     let item: SessionItem
     let isActive: Bool
+    let sessionStateURL: URL
     let onTap: () -> Void
+    let onDelete: () -> Void
     @State private var isHovered = false
+    @State private var showDeleteConfirm = false
 
     var body: some View {
         Button(action: onTap) {
@@ -108,6 +114,31 @@ private struct SessionRowView: View {
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }
         .help("Resume session")
+        .contextMenu {
+            Button("Resume Session", action: onTap)
+            Button("Copy Session ID") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(item.id, forType: .string)
+            }
+            Button("Reveal in Finder") {
+                let url = sessionStateURL.appendingPathComponent(item.id)
+                NSWorkspace.shared.open(url)
+            }
+            Divider()
+            Button("Delete Session", role: .destructive) {
+                showDeleteConfirm = true
+            }
+        }
+        .confirmationDialog(
+            "Delete Session?",
+            isPresented: $showDeleteConfirm,
+            titleVisibility: .visible
+        ) {
+            Button("Delete", role: .destructive, action: onDelete)
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This will permanently delete the session and cannot be undone.")
+        }
     }
 
     private func relativeTime(_ date: Date) -> String {

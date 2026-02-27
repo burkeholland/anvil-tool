@@ -23,13 +23,25 @@ final class SessionListModel: ObservableObject {
     /// Called when the user taps a session row to resume it in a terminal tab.
     var onOpenSession: ((String) -> Void)?
 
+    // MARK: - Deletion
+
+    /// Removes the session directory at `~/.copilot/session-state/<id>/` and rescans.
+    func deleteSession(id: String) {
+        let dir = sessionStateURL.appendingPathComponent(id)
+        try? FileManager.default.removeItem(at: dir)
+        scanSessions()
+    }
+
     private var allSessions: [SessionItem] = []
     private var watcher: FileWatcher?
     private var pollTimer: Timer?
-    private let sessionStateURL: URL = {
-        FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".copilot/session-state")
-    }()
+    let sessionStateURL: URL
+
+    init(sessionStateURL: URL? = nil) {
+        self.sessionStateURL = sessionStateURL
+            ?? FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent(".copilot/session-state")
+    }
 
     // ISO 8601 formatter with fractional seconds (matches CLI output).
     private static let isoFormatter: ISO8601DateFormatter = {
