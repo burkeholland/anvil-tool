@@ -25,7 +25,7 @@ struct SettingsView: View {
                     Label("Notifications", systemImage: "bell")
                 }
         }
-        .frame(width: 450, height: 420)
+        .frame(width: 450, height: 510)
     }
 }
 
@@ -96,6 +96,9 @@ private struct TerminalSettingsTab: View {
             Text("Choose the color scheme for the terminal.")
                 .settingsDescription()
 
+            TerminalThemePreview(theme: TerminalTheme.theme(forID: themeID))
+                .padding(.top, 4)
+
             Spacer().frame(height: 8)
 
             LabeledContent("Font size") {
@@ -136,6 +139,66 @@ private struct ThemePreviewSwatch: View {
         .clipShape(RoundedRectangle(cornerRadius: 2))
         .overlay(
             RoundedRectangle(cornerRadius: 2)
+                .strokeBorder(Color.primary.opacity(0.15), lineWidth: 0.5)
+        )
+    }
+}
+
+/// A small preview pane showing sample terminal output rendered with a given theme's colors.
+/// Used in the Settings → Terminal tab so users see immediate feedback when picking a theme.
+private struct TerminalThemePreview: View {
+    let theme: TerminalTheme
+
+    /// Returns the ANSI color at `index`, falling back to `foreground` if out of range.
+    private func ansi(_ index: Int) -> Color {
+        guard index < theme.ansiColors.count else { return Color(nsColor: theme.foreground) }
+        return Color(nsColor: theme.ansiColors[index])
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            // Prompt line
+            HStack(spacing: 0) {
+                Text("user@host")
+                    .foregroundColor(ansi(2))   // green
+                Text(":")
+                    .foregroundColor(Color(nsColor: theme.foreground))
+                Text("~/project")
+                    .foregroundColor(ansi(4))   // blue
+                Text(" $ ")
+                    .foregroundColor(Color(nsColor: theme.foreground))
+                Text("git status")
+                    .foregroundColor(Color(nsColor: theme.foreground))
+            }
+            // Branch info
+            HStack(spacing: 4) {
+                Text("On branch")
+                    .foregroundColor(Color(nsColor: theme.foreground))
+                Text("main")
+                    .foregroundColor(ansi(2))   // green
+            }
+            // Modified file
+            HStack(spacing: 4) {
+                Text("modified:")
+                    .foregroundColor(ansi(1))   // red
+                Text("Sources/App/MainView.swift")
+                    .foregroundColor(Color(nsColor: theme.foreground))
+            }
+            // Untracked file
+            HStack(spacing: 4) {
+                Text("??")
+                    .foregroundColor(ansi(3))   // yellow
+                Text("Package.resolved")
+                    .foregroundColor(Color(nsColor: theme.foreground))
+            }
+        }
+        .font(.system(size: 11, weight: .regular, design: .monospaced))
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(nsColor: theme.background))
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .overlay(
+            RoundedRectangle(cornerRadius: 6)
                 .strokeBorder(Color.primary.opacity(0.15), lineWidth: 0.5)
         )
     }
