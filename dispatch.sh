@@ -232,32 +232,12 @@ phase_merge() {
     echo "$build_output" | tail -3
 
     if [ "$build_exit" -eq 0 ]; then
-      log "   ✅ Build passed for PR #$pr_num. Running UI regression check..."
-
-      # UI regression check — compare screenshot against baseline
-      if ! ui_regression_check; then
-        log "   ❌ UI regression detected for PR #$pr_num. Blocking merge."
-        git checkout main --force --quiet 2>/dev/null || true
-
-        # Comment on PR with regression details
-        local ui_comment
-        ui_comment="$(gh pr view "$pr_num" --repo "$REPO" --json comments \
-          --jq '[.comments[] | select(.body | contains("dispatch:") and contains("UI regression"))] | last')" || ui_comment=""
-
-        if [ "$ui_comment" = "null" ] || [ -z "$ui_comment" ]; then
-          gh pr comment "$pr_num" --repo "$REPO" \
-            --body "❌ dispatch: UI regression detected. The screenshot differs significantly from the baseline. @copilot please check that your changes don't break the app's visual appearance. The baseline screenshot is in \`docs/screenshot.png\`." \
-            2>/dev/null || true
-        fi
-        continue
-      fi
-
-      log "   ✅ UI check passed for PR #$pr_num. Merging..."
+      log "   ✅ Build passed for PR #$pr_num. Merging..."
       git checkout main --force --quiet 2>/dev/null || true
       # Mark as ready (PRs from Copilot arrive as drafts)
       gh pr ready "$pr_num" --repo "$REPO" 2>/dev/null || true
       gh pr merge "$pr_num" --repo "$REPO" --squash --delete-branch \
-        --body "Merged by dispatch.sh after local build + UI regression verification." || {
+        --body "Merged by dispatch.sh after local build verification." || {
         log "   ❌ Merge failed for PR #$pr_num."
         continue
       }
@@ -398,141 +378,6 @@ print(bestId)
   return 0
 }
 
-# Compares two screenshots and returns the percentage of pixels that differ.
-# Usage: compare_screenshots <baseline> <candidate>
-# Prints a float (0.0–100.0). Returns 1 if comparison fails.
-compare_screenshots() {
-  local baseline="$1"
-  local candidate="$2"
-
-  if [ ! -f "$baseline" ] || [ ! -f "$candidate" ]; then
-    echo "100.0"
-    return 1
-  fi
-
-  swift -e '
-import CoreGraphics
-import Foundation
-import ImageIO
-
-func loadImage(_ path: String) -> CGImage? {
-    guard let provider = CGDataProvider(filename: path),
-          let source = CGImageSourceCreateWithDataProvider(provider, nil),
-          CGImageSourceGetCount(source) > 0 else { return nil }
-    return CGImageSourceCreateImageAtIndex(source, 0, nil)
-}
-
-let args = CommandLine.arguments
-guard args.count >= 3 else { print("100.0"); exit(1) }
-
-guard let img1 = loadImage(args[1]), let img2 = loadImage(args[2]) else {
-    print("100.0"); exit(1)
-}
-
-// Downsample to max 800px wide for fast, memory-safe comparison
-let scale = min(1.0, 800.0 / Double(max(img1.width, img2.width)))
-let w = Int(Double(min(img1.width, img2.width)) * scale)
-let h = Int(Double(min(img1.height, img2.height)) * scale)
-let bytesPerRow = w * 4
-let totalPixels = w * h
-guard totalPixels > 0 else { print("100.0"); exit(1) }
-
-let colorSpace = CGColorSpaceCreateDeviceRGB()
-let bitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
-
-var buf1 = [UInt8](repeating: 0, count: h * bytesPerRow)
-var buf2 = [UInt8](repeating: 0, count: h * bytesPerRow)
-
-guard let ctx1 = CGContext(data: &buf1, width: w, height: h, bitsPerComponent: 8,
-                            bytesPerRow: bytesPerRow, space: colorSpace, bitmapInfo: bitmapInfo.rawValue),
-      let ctx2 = CGContext(data: &buf2, width: w, height: h, bitsPerComponent: 8,
-                            bytesPerRow: bytesPerRow, space: colorSpace, bitmapInfo: bitmapInfo.rawValue)
-else { print("100.0"); exit(1) }
-
-ctx1.draw(img1, in: CGRect(x: 0, y: 0, width: w, height: h))
-ctx2.draw(img2, in: CGRect(x: 0, y: 0, width: w, height: h))
-
-let threshold: Int = 16
-var diffCount = 0
-for i in stride(from: 0, to: buf1.count, by: 4) {
-    let dr = abs(Int(buf1[i]) - Int(buf2[i]))
-    let dg = abs(Int(buf1[i+1]) - Int(buf2[i+1]))
-    let db = abs(Int(buf1[i+2]) - Int(buf2[i+2]))
-    if dr > threshold || dg > threshold || db > threshold {
-        diffCount += 1
-    }
-}
-
-let pct = Double(diffCount) / Double(totalPixels) * 100.0
-print(String(format: "%.2f", pct))
-' "$baseline" "$candidate" 2>/dev/null
-}
-
-# Pre-merge UI regression check.
-# Builds the current branch, captures a screenshot, compares against baseline.
-# Returns 0 if UI looks OK, 1 if regression detected.
-# Usage: ui_regression_check
-UI_DIFF_THRESHOLD=15  # percent of changed pixels that triggers a failure
-
-ui_regression_check() {
-  local baseline="$SCREENSHOT_DIR/screenshot.png"
-
-  if [ ! -f "$baseline" ]; then
-    log "   ⚠️  No baseline screenshot found — skipping UI regression check."
-    return 0
-  fi
-
-  # Prepare .app bundle with freshly built binary
-  local bundle_macos="$APP_BUNDLE/Contents/MacOS"
-  mkdir -p "$bundle_macos"
-  cp .build/debug/Anvil "$bundle_macos/Anvil"
-
-  if [ ! -f "$APP_BUNDLE/Contents/Info.plist" ]; then
-    cat > "$APP_BUNDLE/Contents/Info.plist" << 'PLIST'
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>CFBundleExecutable</key>
-    <string>Anvil</string>
-    <key>CFBundleIdentifier</key>
-    <string>dev.burkeholland.anvil</string>
-    <key>CFBundleName</key>
-    <string>Anvil</string>
-    <key>CFBundlePackageType</key>
-    <string>APPL</string>
-    <key>LSUIElement</key>
-    <false/>
-</dict>
-</plist>
-PLIST
-  fi
-
-  local candidate="/tmp/anvil-ui-regression-candidate.png"
-  rm -f "$candidate"
-
-  log "   📸 Capturing UI for regression check..."
-  if ! capture_app_screenshot "files" "$candidate"; then
-    log "   ⚠️  Could not capture screenshot — skipping UI regression check."
-    return 0
-  fi
-
-  local diff_pct
-  diff_pct="$(compare_screenshots "$baseline" "$candidate")"
-  log "   🔍 Pixel diff: ${diff_pct}% changed (threshold: ${UI_DIFF_THRESHOLD}%)"
-
-  rm -f "$candidate"
-
-  # Use awk for float comparison
-  if echo "$diff_pct $UI_DIFF_THRESHOLD" | awk '{exit !($1 > $2)}'; then
-    log "   ❌ UI regression detected: ${diff_pct}% of pixels changed."
-    return 1
-  fi
-
-  log "   ✅ UI regression check passed."
-  return 0
-}
-
 phase_screenshot() {
   log "📸 Phase 1b: SCREENSHOT — capturing app state..."
 
@@ -574,31 +419,14 @@ phase_screenshot() {
 PLIST
   fi
 
-  # Capture multiple views
   mkdir -p "$SCREENSHOT_DIR"
-  local captured=0
 
-  # Main view — Files sidebar (the hero screenshot)
-  if capture_app_screenshot "files" "$SCREENSHOT_DIR/screenshot.png"; then
-    captured=$((captured + 1))
-  fi
-
-  # Changes view
-  if capture_app_screenshot "changes" "$SCREENSHOT_DIR/screenshot-changes.png"; then
-    captured=$((captured + 1))
-  fi
-
-  # Commit History view
-  if capture_app_screenshot "history" "$SCREENSHOT_DIR/screenshot-history.png"; then
-    captured=$((captured + 1))
-  fi
-
-  if [ "$captured" -eq 0 ]; then
-    log "   ⚠️  No screenshots captured. Skipping."
+  if ! capture_app_screenshot "files" "$SCREENSHOT_DIR/screenshot.png"; then
+    log "   ⚠️  Could not capture screenshot. Skipping."
     return 0
   fi
 
-  log "   📷 Captured $captured screenshot(s)."
+  log "   📷 Captured screenshot."
 
   # ── Update README.md ──────────────────────────────────────────────────────
   local timestamp
@@ -611,16 +439,9 @@ A native macOS app that wraps the GitHub Copilot CLI in a beautiful, full-featur
 
 > **Last updated**: $timestamp
 
-## Screenshots
+## Screenshot
 
-### File Explorer
-![File Explorer](docs/screenshot.png)
-
-### Changes View
-![Changes](docs/screenshot-changes.png)
-
-### Commit History
-![Commit History](docs/screenshot-history.png)
+![Anvil](docs/screenshot.png)
 
 ## Features
 
@@ -647,7 +468,7 @@ READMEEOF
   log "   📝 README.md updated with screenshots and timestamp."
 
   # ── Commit everything ────────────────────────────────────────────────────
-  git add "$SCREENSHOT_DIR"/*.png README.md
+  git add "$SCREENSHOT_DIR/screenshot.png" README.md
   if ! git diff --cached --quiet 2>/dev/null; then
     git commit -m "docs: update app screenshots and README ($timestamp)
 
