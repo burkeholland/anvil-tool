@@ -155,6 +155,8 @@ struct ContentView: View {
 
     private var bodyBase: some View {
         overlayStack
+        .environmentObject(terminalProxy)
+        .toolbar { projectToolbar }
         .modifier(FocusedSceneModifier(
             showSidebar: $showSidebar,
             sidebarTab: $sidebarTab,
@@ -261,8 +263,48 @@ struct ContentView: View {
         ))
     }
 
+    @ToolbarContentBuilder
+    private var projectToolbar: some ToolbarContent {
+        if workingDirectory.directoryURL != nil {
+            ToolbarView(
+                workingDirectory: workingDirectory,
+                changesModel: changesModel,
+                activityModel: activityModel,
+                filePreview: filePreview,
+                recentProjects: recentProjects,
+                promptHistoryStore: promptHistoryStore,
+                sessionHealthMonitor: sessionHealthMonitor,
+                showSidebar: $showSidebar,
+                autoFollow: $autoFollow,
+                showBranchPicker: $showBranchPicker,
+                showInstructions: $showInstructions,
+                showCopilotActions: $showCopilotActions,
+                showPromptHistory: $showPromptHistory,
+                showProjectSwitcher: $showProjectSwitcher,
+                isAgentWaitingForInput: terminalTabs.isAnyTabWaitingForInput,
+                agentMode: terminalTabs.agentMode,
+                agentModel: terminalTabs.agentModel,
+                onOpenDirectory: { browseForDirectory() },
+                onSwitchProject: { url in openDirectory(url) },
+                onCloneRepository: { showCloneSheet = true },
+                onCompact: {
+                    terminalProxy.send("/compact\n")
+                    sessionHealthMonitor.reset()
+                },
+                onFocusTerminal: {
+                    if let tv = terminalProxy.terminalView {
+                        tv.window?.makeFirstResponder(tv)
+                    }
+                }
+            )
+        }
+    }
+
     var body: some View {
         bodyBase
+        .onChange(of: terminalTabs.isAnyTabWaitingForInput) { _, isWaiting in
+            if isWaiting { NSSound.beep() }
+        }
         .onChange(of: workingDirectory.directoryURL) { _, newURL in
             showTaskBanner = false
             showBranchGuardBanner = false
@@ -472,6 +514,41 @@ struct ContentView: View {
                 onDismiss: { showCreatePR = false }
             )
         }
+        .sheet(isPresented: $showInstructions) {
+            if let rootURL = workingDirectory.directoryURL {
+                InstructionsView(
+                    rootURL: rootURL,
+                    filePreview: filePreview,
+                    onDismiss: { showInstructions = false }
+                )
+            }
+        }
+        .sheet(isPresented: $showPromptHistory) {
+            PromptHistoryView(
+                store: promptHistoryStore,
+                onDismiss: { showPromptHistory = false }
+            )
+            .environmentObject(terminalProxy)
+        }
+        .sheet(isPresented: $showProjectSwitcher) {
+            ProjectSwitcherView(
+                recentProjects: recentProjects,
+                currentPath: workingDirectory.directoryURL?.standardizedFileURL.path,
+                onSelect: { url in
+                    showProjectSwitcher = false
+                    openDirectory(url)
+                },
+                onBrowse: {
+                    showProjectSwitcher = false
+                    browseForDirectory()
+                },
+                onClone: {
+                    showProjectSwitcher = false
+                    showCloneSheet = true
+                },
+                onDismiss: { showProjectSwitcher = false }
+            )
+        }
     }
 
     @ViewBuilder private var taskCompleteBannerView: some View {
@@ -657,41 +734,6 @@ struct ContentView: View {
                 }
 
                 VStack(spacing: 0) {
-                    ToolbarView(
-                        workingDirectory: workingDirectory,
-                        changesModel: changesModel,
-                        activityModel: activityModel,
-                        filePreview: filePreview,
-                        recentProjects: recentProjects,
-                        promptHistoryStore: promptHistoryStore,
-                        sessionHealthMonitor: sessionHealthMonitor,
-                        showSidebar: $showSidebar,
-                        autoFollow: $autoFollow,
-                        showBranchPicker: $showBranchPicker,
-                        showInstructions: $showInstructions,
-                        showCopilotActions: $showCopilotActions,
-                        showPromptHistory: $showPromptHistory,
-                        showProjectSwitcher: $showProjectSwitcher,
-                        isAgentWaitingForInput: terminalTabs.isAnyTabWaitingForInput,
-                        agentMode: terminalTabs.agentMode,
-                        agentModel: terminalTabs.agentModel,
-                        onOpenDirectory: { browseForDirectory() },
-                        onSwitchProject: { url in openDirectory(url) },
-                        onCloneRepository: { showCloneSheet = true },
-                        onCompact: {
-                            terminalProxy.send("/compact\n")
-                            sessionHealthMonitor.reset()
-                        },
-                        onFocusTerminal: {
-                            if let tv = terminalProxy.terminalView {
-                                tv.window?.makeFirstResponder(tv)
-                            }
-                        }
-                    )
-                    .onChange(of: terminalTabs.isAnyTabWaitingForInput) { _, isWaiting in
-                        if isWaiting { NSSound.beep() }
-                    }
-
                     TerminalTabBar(
                         model: terminalTabs,
                         onNewShellTab: { terminalTabs.addTab() },
@@ -1705,7 +1747,7 @@ struct ContentView: View {
     }
 }
 
-struct ToolbarView: View {
+struct ToolbarView: ToolbarContent {
     @ObservedObject var workingDirectory: WorkingDirectoryModel
     @ObservedObject var changesModel: ChangesModel
     @ObservedObject var activityModel: ActivityFeedModel
@@ -1734,70 +1776,73 @@ struct ToolbarView: View {
     /// can be focused.
     var onFocusTerminal: (() -> Void)?
 
-    var body: some View {
-        HStack(spacing: Spacing.md) {
+    @ToolbarContentBuilder
+    var body: some ToolbarContent {
+        // Group 1: Navigation — sidebar toggle
+        ToolbarItem(placement: .navigation) {
             Button {
                 showSidebar.toggle()
             } label: {
                 Image(systemName: "sidebar.leading")
             }
-            .buttonStyle(.borderless)
             .help("Toggle Sidebar (⌘B)")
             .accessibilityLabel("Toggle Sidebar")
+        }
 
-            Divider()
-                .frame(height: 16)
+        // Path, branch picker, and git sync controls
+        ToolbarItem(placement: .navigation) {
+            HStack(spacing: Spacing.xs) {
+                Image(systemName: "folder")
+                    .foregroundStyle(.secondary)
+                Text(workingDirectory.displayPath)
+                    .font(.system(.body, design: .monospaced))
+                    .lineLimit(1)
+                    .truncationMode(.head)
 
-            Image(systemName: "folder")
-                .foregroundStyle(.secondary)
-            Text(workingDirectory.displayPath)
-                .font(.system(.body, design: .monospaced))
-                .lineLimit(1)
-                .truncationMode(.head)
+                if let branch = workingDirectory.gitBranch {
+                    Divider()
+                        .frame(height: 16)
 
-            if let branch = workingDirectory.gitBranch {
-                Divider()
-                    .frame(height: 16)
-
-                Button {
-                    showBranchPicker.toggle()
-                } label: {
-                    HStack(spacing: Spacing.xs) {
-                        Image(systemName: "arrow.triangle.branch")
-                            .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
-                        Text(branch)
-                            .font(.system(.body, design: .monospaced))
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                        Image(systemName: "chevron.down")
-                            .font(.system(size: 8, weight: .semibold))
-                            .foregroundStyle(.tertiary)
+                    Button {
+                        showBranchPicker.toggle()
+                    } label: {
+                        HStack(spacing: Spacing.xs) {
+                            Image(systemName: "arrow.triangle.branch")
+                                .font(.system(size: 11))
+                                .foregroundStyle(.secondary)
+                            Text(branch)
+                                .font(.system(.body, design: .monospaced))
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                            Image(systemName: "chevron.down")
+                                .font(.system(size: 8, weight: .semibold))
+                                .foregroundStyle(.tertiary)
+                        }
                     }
-                }
-                .buttonStyle(.plain)
-                .help("Switch Branch")
-                .accessibilityLabel("Current branch: \(branch). Tap to switch branch.")
-                .popover(isPresented: $showBranchPicker, arrowEdge: .bottom) {
-                    if let rootURL = workingDirectory.directoryURL {
-                        BranchPickerView(
-                            rootURL: rootURL,
-                            currentBranch: workingDirectory.gitBranch,
-                            onDismiss: { showBranchPicker = false },
-                            onBranchChanged: {
-                                changesModel.refresh()
-                            },
-                            workingDirectory: workingDirectory
-                        )
+                    .buttonStyle(.plain)
+                    .help("Switch Branch")
+                    .accessibilityLabel("Current branch: \(branch). Tap to switch branch.")
+                    .popover(isPresented: $showBranchPicker, arrowEdge: .bottom) {
+                        if let rootURL = workingDirectory.directoryURL {
+                            BranchPickerView(
+                                rootURL: rootURL,
+                                currentBranch: workingDirectory.gitBranch,
+                                onDismiss: { showBranchPicker = false },
+                                onBranchChanged: {
+                                    changesModel.refresh()
+                                },
+                                workingDirectory: workingDirectory
+                            )
+                        }
                     }
-                }
 
-                GitSyncControls(workingDirectory: workingDirectory)
+                    GitSyncControls(workingDirectory: workingDirectory)
+                }
             }
+        }
 
-            Spacer()
-
-            // Group 2: Unified agent status pill (mode + activity + session health)
+        // Group 2: Unified agent status pill (mode + activity + session health)
+        ToolbarItem(placement: .principal) {
             UnifiedAgentStatusPill(
                 activityModel: activityModel,
                 sessionHealthMonitor: sessionHealthMonitor,
@@ -1807,8 +1852,10 @@ struct ToolbarView: View {
                 onFocusTerminal: onFocusTerminal ?? {},
                 onCompact: onCompact
             )
+        }
 
-            // Group 3: Overflow menu with secondary actions
+        // Group 3: Overflow menu with secondary actions
+        ToolbarItem(placement: .primaryAction) {
             ToolbarOverflowMenu(
                 autoFollow: $autoFollow,
                 showCopilotActions: $showCopilotActions,
@@ -1824,24 +1871,6 @@ struct ToolbarView: View {
                 onCloneRepository: onCloneRepository
             )
         }
-        .padding(.horizontal, Spacing.md)
-        .padding(.vertical, Spacing.sm)
-        .background(.bar)
-        .overlay(alignment: .bottom) { Divider() }
-    }
-
-    /// Quick check for whether any instruction files exist in the project.
-    private var hasInstructionFiles: Bool {
-        guard let rootURL = workingDirectory.directoryURL else { return false }
-        let fm = FileManager.default
-        if InstructionFileSpec.knownFiles.contains(where: { spec in
-            fm.fileExists(atPath: rootURL.appendingPathComponent(spec.relativePath).path)
-        }) {
-            return true
-        }
-        // Also check for custom .instructions.md files
-        let customDir = rootURL.appendingPathComponent(".github/instructions")
-        return fm.fileExists(atPath: customDir.path)
     }
 }
 
@@ -2172,7 +2201,7 @@ private struct UnifiedAgentPopover: View {
 
 /// `...` overflow button containing secondary toolbar actions:
 /// Follow Agent toggle, Copilot Actions, Prompt History, Instructions, and Switch Project.
-/// Uses a single popover anchor so only one panel is shown at a time.
+/// Copilot Actions remains a transient popover; the other three open as sheets (via parent bindings).
 private struct ToolbarOverflowMenu: View {
     @Binding var autoFollow: Bool
     @Binding var showCopilotActions: Bool
@@ -2187,12 +2216,7 @@ private struct ToolbarOverflowMenu: View {
     var onSwitchProject: (URL) -> Void
     var onCloneRepository: () -> Void
 
-    private enum ActivePanel: Identifiable {
-        case copilotActions, promptHistory, instructions, projectSwitcher
-        var id: Self { self }
-    }
-
-    @State private var activePanel: ActivePanel? = nil
+    @State private var showCopilotActionsPopover = false
 
     var body: some View {
         Menu {
@@ -2202,23 +2226,23 @@ private struct ToolbarOverflowMenu: View {
             }
             Divider()
             Button {
-                activePanel = .copilotActions
+                showCopilotActionsPopover = true
             } label: {
                 Label("Copilot Actions", systemImage: "terminal")
             }
             Button {
-                activePanel = .promptHistory
+                showPromptHistory = true
             } label: {
                 Label("Prompt History", systemImage: "clock.arrow.circlepath")
             }
             Button {
-                activePanel = .instructions
+                showInstructions = true
             } label: {
                 Label("Instructions", systemImage: "doc.text")
             }
             Divider()
             Button {
-                activePanel = .projectSwitcher
+                showProjectSwitcher = true
             } label: {
                 Label("Switch Project", systemImage: "arrow.triangle.swap")
             }
@@ -2231,59 +2255,13 @@ private struct ToolbarOverflowMenu: View {
         .menuIndicator(.hidden)
         .fixedSize()
         .help("More Options")
-        .popover(item: $activePanel, arrowEdge: .bottom) { panel in
-            switch panel {
-            case .copilotActions:
-                CopilotActionsView(onDismiss: { activePanel = nil })
-            case .promptHistory:
-                PromptHistoryView(
-                    store: promptHistoryStore,
-                    onDismiss: { activePanel = nil }
-                )
-            case .instructions:
-                if let rootURL = workingDirectory.directoryURL {
-                    InstructionsView(
-                        rootURL: rootURL,
-                        filePreview: filePreview,
-                        onDismiss: { activePanel = nil }
-                    )
-                }
-            case .projectSwitcher:
-                ProjectSwitcherView(
-                    recentProjects: recentProjects,
-                    currentPath: workingDirectory.directoryURL?.standardizedFileURL.path,
-                    onSelect: { url in
-                        activePanel = nil
-                        onSwitchProject(url)
-                    },
-                    onBrowse: {
-                        activePanel = nil
-                        onOpenDirectory()
-                    },
-                    onClone: {
-                        activePanel = nil
-                        onCloneRepository()
-                    },
-                    onDismiss: { activePanel = nil }
-                )
-            }
+        // Copilot Actions stays as a transient popover (contextual, short-lived).
+        .popover(isPresented: $showCopilotActionsPopover, arrowEdge: .bottom) {
+            CopilotActionsView(onDismiss: { showCopilotActionsPopover = false })
         }
-        // Sync incoming bindings (e.g. from keyboard shortcuts) → local panel state
-        .onChange(of: showCopilotActions) { _, v in if v && activePanel != .copilotActions { activePanel = .copilotActions } }
-        .onChange(of: showPromptHistory) { _, v in if v && activePanel != .promptHistory { activePanel = .promptHistory } }
-        .onChange(of: showInstructions) { _, v in if v && activePanel != .instructions { activePanel = .instructions } }
-        .onChange(of: showProjectSwitcher) { _, v in if v && activePanel != .projectSwitcher { activePanel = .projectSwitcher } }
-        // Sync local panel state → bindings
-        .onChange(of: activePanel) { _, v in
-            let isCopilot = v == .copilotActions
-            let isHistory = v == .promptHistory
-            let isInstructions = v == .instructions
-            let isSwitcher = v == .projectSwitcher
-            if showCopilotActions != isCopilot { showCopilotActions = isCopilot }
-            if showPromptHistory != isHistory { showPromptHistory = isHistory }
-            if showInstructions != isInstructions { showInstructions = isInstructions }
-            if showProjectSwitcher != isSwitcher { showProjectSwitcher = isSwitcher }
-        }
+        // Sync showCopilotActions binding (e.g. keyboard shortcut) ↔ local popover state
+        .onChange(of: showCopilotActions) { _, v in if v != showCopilotActionsPopover { showCopilotActionsPopover = v } }
+        .onChange(of: showCopilotActionsPopover) { _, v in if showCopilotActions != v { showCopilotActions = v } }
     }
 }
 

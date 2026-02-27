@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Popover view that provides a tabbed inline text editor for Copilot CLI instruction files.
+/// Sheet view that provides a tabbed inline text editor for Copilot CLI instruction files.
 /// Each existing instruction file gets its own tab; missing files can be created from templates.
 struct InstructionsView: View {
     let rootURL: URL
@@ -51,8 +51,8 @@ struct InstructionsView: View {
             Divider()
             footerView
         }
-        .frame(width: 440)
-        .frame(minHeight: 360, maxHeight: 560)
+        .frame(minWidth: 480, idealWidth: 560)
+        .frame(minHeight: 400)
         .onAppear { refresh() }
         .overlay(alignment: .bottom) {
             if showSavedToast {
