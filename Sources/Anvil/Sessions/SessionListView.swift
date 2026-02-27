@@ -118,32 +118,43 @@ private struct SessionRowView: View {
 
     var body: some View {
         Button(action: onTap) {
-            VStack(alignment: .leading, spacing: Spacing.xs) {
-                // Summary line
-                Text(item.summary)
-                    .font(.subheadline)
-                    .italic(item.isFallbackSummary)
-                    .lineLimit(2)
-                    .foregroundStyle(summaryColor)
+            HStack(alignment: .top, spacing: Spacing.sm) {
+                // Leading sparkle icon (matches Copilot tab bar visual language)
+                Image(systemName: "sparkle")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(isActive ? Color.accentColor : .tertiary)
+                    .frame(width: 16)
+                    .padding(.top, 1)
 
-                HStack(spacing: Spacing.xs) {
-                    // Relative timestamp
-                    Text(relativeTime(item.updatedAt))
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
+                VStack(alignment: .leading, spacing: Spacing.xs) {
+                    HStack(alignment: .firstTextBaseline, spacing: Spacing.xs) {
+                        // Summary line
+                        Text(item.summary)
+                            .font(.subheadline)
+                            .italic(item.isFallbackSummary)
+                            .lineLimit(2)
+                            .foregroundStyle(summaryColor)
 
-                    // Branch badge
-                    if let branch = item.branch {
-                        Spacer(minLength: 0)
-                        BranchBadge(branch: branch)
+                        // Active indicator dot
+                        if isActive {
+                            Circle()
+                                .fill(Color.accentColor)
+                                .frame(width: 6, height: 6)
+                                .padding(.top, 3)
+                        }
                     }
 
-                    // Active indicator dot
-                    if isActive {
-                        Spacer(minLength: 0)
-                        Circle()
-                            .fill(Color.accentColor)
-                            .frame(width: 6, height: 6)
+                    HStack(spacing: Spacing.xs) {
+                        // Relative timestamp
+                        Text(relativeTime(item.updatedAt))
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+
+                        // Branch badge
+                        if let branch = item.branch {
+                            Spacer(minLength: 0)
+                            BranchBadge(branch: branch)
+                        }
                     }
                 }
             }
@@ -151,15 +162,16 @@ private struct SessionRowView: View {
             .padding(.vertical, Spacing.sm)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
-                isHovered || isActive
+                (isHovered || isActive)
                     ? Color.primary.opacity(0.05)
                     : Color.clear
             )
+            .animation(.easeInOut(duration: 0.15), value: isHovered)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }
-        .help("Resume session")
+        .help(item.summary)
     }
 
     private func relativeTime(_ date: Date) -> String {
@@ -182,14 +194,14 @@ private struct BranchBadge: View {
     var body: some View {
         HStack(spacing: 3) {
             Image(systemName: "arrow.triangle.branch")
-                .font(.system(size: 9))
-            Text(branch)
                 .font(.system(size: 10))
+            Text(branch)
+                .font(.system(size: 11))
                 .lineLimit(1)
         }
         .foregroundStyle(.secondary)
-        .padding(.horizontal, 5)
+        .padding(.horizontal, 6)
         .padding(.vertical, 2)
-        .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 4))
+        .background(Color.primary.opacity(0.12), in: RoundedRectangle(cornerRadius: 4))
     }
 }
