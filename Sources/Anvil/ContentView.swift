@@ -156,6 +156,8 @@ struct ContentView: View {
 
     private var bodyBase: some View {
         overlayStack
+        .environmentObject(terminalProxy)
+        .toolbar { projectToolbar }
         .modifier(FocusedSceneModifier(
             showSidebar: $showSidebar,
             sidebarTab: $sidebarTab,
@@ -262,6 +264,43 @@ struct ContentView: View {
         ))
     }
 
+    @ToolbarContentBuilder
+    private var projectToolbar: some ToolbarContent {
+        if workingDirectory.directoryURL != nil {
+            ToolbarView(
+                workingDirectory: workingDirectory,
+                changesModel: changesModel,
+                activityModel: activityModel,
+                filePreview: filePreview,
+                recentProjects: recentProjects,
+                promptHistoryStore: promptHistoryStore,
+                sessionHealthMonitor: sessionHealthMonitor,
+                showSidebar: $showSidebar,
+                autoFollow: $autoFollow,
+                showBranchPicker: $showBranchPicker,
+                showInstructions: $showInstructions,
+                showCopilotActions: $showCopilotActions,
+                showPromptHistory: $showPromptHistory,
+                showProjectSwitcher: $showProjectSwitcher,
+                isAgentWaitingForInput: terminalTabs.isAnyTabWaitingForInput,
+                agentMode: terminalTabs.agentMode,
+                agentModel: terminalTabs.agentModel,
+                onOpenDirectory: { browseForDirectory() },
+                onSwitchProject: { url in openDirectory(url) },
+                onCloneRepository: { showCloneSheet = true },
+                onCompact: {
+                    terminalProxy.send("/compact\n")
+                    sessionHealthMonitor.reset()
+                },
+                onFocusTerminal: {
+                    if let tv = terminalProxy.terminalView {
+                        tv.window?.makeFirstResponder(tv)
+                    }
+                }
+            )
+        }
+    }
+
     var body: some View {
         bodyBase
         .onChange(of: showSidebar) { _, newValue in
@@ -269,9 +308,12 @@ struct ContentView: View {
             columnVisibility = newValue ? .all : .detailOnly
         }
         .onChange(of: columnVisibility) { _, newValue in
-            // Propagate native sidebar toggle (swipe gesture, etc.) back to showSidebar.
+            // Propagate native sidebar toggle back to showSidebar.
             let nowVisible = newValue != .detailOnly
             if showSidebar != nowVisible { showSidebar = nowVisible }
+        }
+        .onChange(of: terminalTabs.isAnyTabWaitingForInput) { _, isWaiting in
+            if isWaiting { NSSound.beep() }
         }
         .onChange(of: workingDirectory.directoryURL) { _, newURL in
             showTaskBanner = false
@@ -566,6 +608,13 @@ struct ContentView: View {
                 }
                 showDiffSummary = true
                 showTaskBanner = false
+            },
+            unreviewedCount: changesModel.changedFiles.count - changesModel.reviewedCount,
+            annotationCount: diffAnnotationStore.annotations.count,
+            annotationPrompt: diffAnnotationStore.buildPrompt(),
+            isSaturated: sessionHealthMonitor.isSaturated,
+            onSelectSuggestion: { prompt in
+                terminalProxy.sendPrompt(prompt)
             }
         )
     }
@@ -655,41 +704,6 @@ struct ContentView: View {
             } detail: {
                 HStack(spacing: 0) {
                 VStack(spacing: 0) {
-                    ToolbarView(
-                        workingDirectory: workingDirectory,
-                        changesModel: changesModel,
-                        activityModel: activityModel,
-                        filePreview: filePreview,
-                        recentProjects: recentProjects,
-                        promptHistoryStore: promptHistoryStore,
-                        sessionHealthMonitor: sessionHealthMonitor,
-                        showSidebar: $showSidebar,
-                        autoFollow: $autoFollow,
-                        showBranchPicker: $showBranchPicker,
-                        showInstructions: $showInstructions,
-                        showCopilotActions: $showCopilotActions,
-                        showPromptHistory: $showPromptHistory,
-                        showProjectSwitcher: $showProjectSwitcher,
-                        isAgentWaitingForInput: terminalTabs.isAnyTabWaitingForInput,
-                        agentMode: terminalTabs.agentMode,
-                        agentModel: terminalTabs.agentModel,
-                        onOpenDirectory: { browseForDirectory() },
-                        onSwitchProject: { url in openDirectory(url) },
-                        onCloneRepository: { showCloneSheet = true },
-                        onCompact: {
-                            terminalProxy.send("/compact\n")
-                            sessionHealthMonitor.reset()
-                        },
-                        onFocusTerminal: {
-                            if let tv = terminalProxy.terminalView {
-                                tv.window?.makeFirstResponder(tv)
-                            }
-                        }
-                    )
-                    .onChange(of: terminalTabs.isAnyTabWaitingForInput) { _, isWaiting in
-                        if isWaiting { NSSound.beep() }
-                    }
-
                     TerminalTabBar(
                         model: terminalTabs,
                         onNewShellTab: { terminalTabs.addTab() },
@@ -828,20 +842,6 @@ struct ContentView: View {
                         taskCompleteBannerView
                             .transition(.move(edge: .bottom).combined(with: .opacity))
                     }
-
-                    PromptSuggestionBar(
-                        buildStatus: buildVerifier.status,
-                        buildDiagnostics: buildVerifier.diagnostics,
-                        testStatus: testRunner.status,
-                        unreviewedCount: changesModel.changedFiles.count - changesModel.reviewedCount,
-                        totalChangedCount: changesModel.changedFiles.count,
-                        annotationCount: diffAnnotationStore.annotations.count,
-                        annotationPrompt: diffAnnotationStore.buildPrompt(),
-                        isSaturated: sessionHealthMonitor.isSaturated,
-                        onSelectSuggestion: { prompt in
-                            terminalProxy.sendPrompt(prompt)
-                        }
-                    )
 
                     StatusBarView(
                         workingDirectory: workingDirectory,
@@ -1717,7 +1717,7 @@ struct ContentView: View {
     }
 }
 
-struct ToolbarView: View {
+struct ToolbarView: ToolbarContent {
     @ObservedObject var workingDirectory: WorkingDirectoryModel
     @ObservedObject var changesModel: ChangesModel
     @ObservedObject var activityModel: ActivityFeedModel
@@ -1746,68 +1746,71 @@ struct ToolbarView: View {
     /// can be focused.
     var onFocusTerminal: (() -> Void)?
 
-    var body: some View {
-        HStack(spacing: Spacing.md) {
+    @ToolbarContentBuilder
+    var body: some ToolbarContent {
+        // Group 1: Navigation — sidebar toggle
+        ToolbarItem(placement: .navigation) {
             Button {
                 showSidebar.toggle()
             } label: {
                 Image(systemName: "sidebar.leading")
             }
-            .buttonStyle(.borderless)
             .help("Toggle Sidebar (⌘B)")
+        }
 
-            Divider()
-                .frame(height: 16)
+        // Path, branch picker, and git sync controls
+        ToolbarItem(placement: .navigation) {
+            HStack(spacing: Spacing.xs) {
+                Image(systemName: "folder")
+                    .foregroundStyle(.secondary)
+                Text(workingDirectory.displayPath)
+                    .font(.system(.body, design: .monospaced))
+                    .lineLimit(1)
+                    .truncationMode(.head)
 
-            Image(systemName: "folder")
-                .foregroundStyle(.secondary)
-            Text(workingDirectory.displayPath)
-                .font(.system(.body, design: .monospaced))
-                .lineLimit(1)
-                .truncationMode(.head)
+                if let branch = workingDirectory.gitBranch {
+                    Divider()
+                        .frame(height: 16)
 
-            if let branch = workingDirectory.gitBranch {
-                Divider()
-                    .frame(height: 16)
-
-                Button {
-                    showBranchPicker.toggle()
-                } label: {
-                    HStack(spacing: Spacing.xs) {
-                        Image(systemName: "arrow.triangle.branch")
-                            .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
-                        Text(branch)
-                            .font(.system(.body, design: .monospaced))
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                        Image(systemName: "chevron.down")
-                            .font(.system(size: 8, weight: .semibold))
-                            .foregroundStyle(.tertiary)
+                    Button {
+                        showBranchPicker.toggle()
+                    } label: {
+                        HStack(spacing: Spacing.xs) {
+                            Image(systemName: "arrow.triangle.branch")
+                                .font(.system(size: 11))
+                                .foregroundStyle(.secondary)
+                            Text(branch)
+                                .font(.system(.body, design: .monospaced))
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                            Image(systemName: "chevron.down")
+                                .font(.system(size: 8, weight: .semibold))
+                                .foregroundStyle(.tertiary)
+                        }
                     }
-                }
-                .buttonStyle(.plain)
-                .help("Switch Branch")
-                .popover(isPresented: $showBranchPicker, arrowEdge: .bottom) {
-                    if let rootURL = workingDirectory.directoryURL {
-                        BranchPickerView(
-                            rootURL: rootURL,
-                            currentBranch: workingDirectory.gitBranch,
-                            onDismiss: { showBranchPicker = false },
-                            onBranchChanged: {
-                                changesModel.refresh()
-                            },
-                            workingDirectory: workingDirectory
-                        )
+                    .buttonStyle(.plain)
+                    .help("Switch Branch")
+                    .popover(isPresented: $showBranchPicker, arrowEdge: .bottom) {
+                        if let rootURL = workingDirectory.directoryURL {
+                            BranchPickerView(
+                                rootURL: rootURL,
+                                currentBranch: workingDirectory.gitBranch,
+                                onDismiss: { showBranchPicker = false },
+                                onBranchChanged: {
+                                    changesModel.refresh()
+                                },
+                                workingDirectory: workingDirectory
+                            )
+                        }
                     }
-                }
 
-                GitSyncControls(workingDirectory: workingDirectory)
+                    GitSyncControls(workingDirectory: workingDirectory)
+                }
             }
+        }
 
-            Spacer()
-
-            // Group 2: Unified agent status pill (mode + activity + session health)
+        // Group 2: Unified agent status pill (mode + activity + session health)
+        ToolbarItem(placement: .principal) {
             UnifiedAgentStatusPill(
                 activityModel: activityModel,
                 sessionHealthMonitor: sessionHealthMonitor,
@@ -1817,8 +1820,10 @@ struct ToolbarView: View {
                 onFocusTerminal: onFocusTerminal ?? {},
                 onCompact: onCompact
             )
+        }
 
-            // Group 3: Overflow menu with secondary actions
+        // Group 3: Overflow menu with secondary actions
+        ToolbarItem(placement: .primaryAction) {
             ToolbarOverflowMenu(
                 autoFollow: $autoFollow,
                 showCopilotActions: $showCopilotActions,
@@ -1834,24 +1839,6 @@ struct ToolbarView: View {
                 onCloneRepository: onCloneRepository
             )
         }
-        .padding(.horizontal, Spacing.md)
-        .padding(.vertical, Spacing.sm)
-        .background(.bar)
-        .overlay(alignment: .bottom) { Divider() }
-    }
-
-    /// Quick check for whether any instruction files exist in the project.
-    private var hasInstructionFiles: Bool {
-        guard let rootURL = workingDirectory.directoryURL else { return false }
-        let fm = FileManager.default
-        if InstructionFileSpec.knownFiles.contains(where: { spec in
-            fm.fileExists(atPath: rootURL.appendingPathComponent(spec.relativePath).path)
-        }) {
-            return true
-        }
-        // Also check for custom .instructions.md files
-        let customDir = rootURL.appendingPathComponent(".github/instructions")
-        return fm.fileExists(atPath: customDir.path)
     }
 }
 
@@ -3280,5 +3267,23 @@ private struct SplitPaneInputBadge: View {
             )
             .help("Agent is waiting for your input")
             .onAppear { isPulsing = true }
+    }
+}
+
+struct VisualEffectView: NSViewRepresentable {
+    var material: NSVisualEffectView.Material
+    var blendingMode: NSVisualEffectView.BlendingMode = .behindWindow
+
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.material = material
+        view.blendingMode = blendingMode
+        view.state = .active
+        return view
+    }
+
+    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {
+        nsView.material = material
+        nsView.blendingMode = blendingMode
     }
 }
