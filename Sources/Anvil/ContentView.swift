@@ -2522,7 +2522,7 @@ struct SidebarView: View {
                 }
             }
         }
-        .background(Color(nsColor: .controlBackgroundColor))
+        .background(VisualEffectView(material: .sidebar))
         .onChange(of: activityModel.events.count) { oldCount, newCount in
             if activeTab != .activity && newCount > oldCount {
                 activityUnread += newCount - oldCount
@@ -3267,5 +3267,23 @@ private struct SplitPaneInputBadge: View {
             )
             .help("Agent is waiting for your input")
             .onAppear { isPulsing = true }
+    }
+}
+
+struct VisualEffectView: NSViewRepresentable {
+    var material: NSVisualEffectView.Material
+    var blendingMode: NSVisualEffectView.BlendingMode = .behindWindow
+
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.material = material
+        view.blendingMode = blendingMode
+        view.state = .active
+        return view
+    }
+
+    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {
+        nsView.material = material
+        nsView.blendingMode = blendingMode
     }
 }
