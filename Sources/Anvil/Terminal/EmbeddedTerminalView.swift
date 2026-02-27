@@ -32,7 +32,7 @@ struct EmbeddedTerminalView: View {
     var markerStore: PromptMarkerStore? = nil
     @AppStorage("autoLaunchCopilot") private var autoLaunchCopilot = true
     @AppStorage("terminalFontSize") private var fontSize: Double = 14
-    @AppStorage("terminalThemeID") private var themeID: String = TerminalTheme.defaultDark.id
+    @AppStorage("terminalThemeID") private var themeID: String = TerminalTheme.githubDark.id
     @State private var processRunning = true
     @State private var lastExitCode: Int32?
     @State private var terminalID = UUID()

@@ -7,37 +7,88 @@ struct SessionListView: View {
     /// IDs of sessions currently open in a terminal tab (highlighted with accent color).
     var activeSessionIDs: Set<String> = []
 
+    @State private var searchText = ""
+
     var body: some View {
-        if model.groups.isEmpty {
-            emptyState
-        } else {
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(model.groups, id: \.group) { entry in
-                        Section {
-                            ForEach(entry.items) { item in
-                                SessionRowView(
-                                    item: item,
-                                    isActive: activeSessionIDs.contains(item.id),
-                                    sessionStateURL: model.sessionStateURL,
-                                    onTap: { model.onOpenSession?(item.id) },
-                                    onDelete: { model.deleteSession(id: item.id) }
-                                )
-                                Divider()
-                                    .padding(.leading, Spacing.md)
+        VStack(spacing: 0) {
+            sidebarHeader
+            Divider()
+            if model.groups.isEmpty {
+                emptyState
+            } else {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(model.groups, id: \.group) { entry in
+                            Section {
+                                ForEach(entry.items) { item in
+                                    SessionRowView(
+                                        item: item,
+                                        isActive: activeSessionIDs.contains(item.id),
+                                        sessionStateURL: model.sessionStateURL,
+                                        onTap: { model.onOpenSession?(item.id) },
+                                        onDelete: { model.deleteSession(id: item.id) }
+                                    )
+                                    Divider()
+                                        .padding(.leading, Spacing.md)
+                                }
+                            } header: {
+                                Text(entry.group.rawValue)
+                                    .font(.caption)
+                                    .fontWeight(.semibold)
+                                    .foregroundStyle(.secondary)
+                                    .padding(.horizontal, Spacing.md)
+                                    .padding(.top, Spacing.md)
+                                    .padding(.bottom, Spacing.xs)
                             }
-                        } header: {
-                            Text(entry.group.rawValue)
-                                .font(.caption)
-                                .fontWeight(.semibold)
-                                .foregroundStyle(.secondary)
-                                .padding(.horizontal, Spacing.md)
-                                .padding(.top, Spacing.md)
-                                .padding(.bottom, Spacing.xs)
                         }
                     }
                 }
             }
+        }
+    }
+
+    private var sidebarHeader: some View {
+        VStack(spacing: Spacing.xs) {
+            HStack {
+                Text("Sessions")
+                    .font(.headline)
+                    .fontWeight(.semibold)
+                Spacer()
+                Button {
+                    model.onNewSession?()
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.system(size: 13, weight: .medium))
+                }
+                .buttonStyle(.plain)
+                .help("New Copilot Session")
+            }
+            .padding(.horizontal, Spacing.md)
+            .padding(.top, Spacing.sm)
+
+            HStack(spacing: Spacing.xs) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.tertiary)
+                TextField("Search", text: $searchText)
+                    .font(.subheadline)
+                    .textFieldStyle(.plain)
+                if !searchText.isEmpty {
+                    Button {
+                        searchText = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.tertiary)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, Spacing.sm)
+            .padding(.vertical, Spacing.xs)
+            .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 6))
+            .padding(.horizontal, Spacing.md)
+            .padding(.bottom, Spacing.sm)
         }
     }
 
@@ -77,8 +128,9 @@ private struct SessionRowView: View {
                 // Summary line
                 Text(item.summary)
                     .font(.subheadline)
+                    .italic(item.isFallbackSummary)
                     .lineLimit(2)
-                    .foregroundStyle(isActive ? Color.accentColor : .primary)
+                    .foregroundStyle(summaryColor)
 
                 HStack(spacing: Spacing.xs) {
                     // Relative timestamp
@@ -145,6 +197,11 @@ private struct SessionRowView: View {
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .abbreviated
         return formatter.localizedString(for: date, relativeTo: Date())
+    }
+
+    private var summaryColor: Color {
+        if isActive { return Color.accentColor }
+        return item.isFallbackSummary ? .secondary : .primary
     }
 }
 

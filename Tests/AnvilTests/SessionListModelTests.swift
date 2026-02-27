@@ -53,7 +53,7 @@ summary: No dates
         XCTAssertNil(SessionListModel.parseWorkspaceYAML(yaml, id: "abc"))
     }
 
-    func testParseYAMLEmptySummaryFallsBackToPlaceholder() {
+    func testParseYAMLEmptySummaryFallsBackToCWDLastComponent() {
         let yaml = """
 cwd: /tmp/proj
 summary: ""
@@ -61,7 +61,8 @@ created_at: 2026-01-01T00:00:00.000Z
 updated_at: 2026-01-01T00:00:01.000Z
 """
         let item = SessionListModel.parseWorkspaceYAML(yaml, id: "abc")
-        XCTAssertEqual(item?.summary, "(no summary)")
+        XCTAssertEqual(item?.summary, "proj")
+        XCTAssertEqual(item?.isFallbackSummary, true)
     }
 
     func testParseYAMLOptionalFieldsMissing() {
@@ -74,7 +75,8 @@ updated_at: 2026-01-01T00:00:01.000Z
         XCTAssertNotNil(item)
         XCTAssertNil(item?.repository)
         XCTAssertNil(item?.branch)
-        XCTAssertEqual(item?.summary, "(no summary)")
+        XCTAssertEqual(item?.summary, "proj")
+        XCTAssertEqual(item?.isFallbackSummary, true)
     }
 
     func testParseYAMLDateWithoutFractionalSeconds() {
@@ -85,6 +87,35 @@ updated_at: 2026-01-02T12:30:00Z
 """
         let item = SessionListModel.parseWorkspaceYAML(yaml, id: "abc")
         XCTAssertNotNil(item, "Should parse ISO 8601 without fractional seconds")
+    }
+
+    func testRealSummaryNotFallback() {
+        let item = SessionListModel.parseWorkspaceYAML(sampleYAML, id: "any")
+        XCTAssertEqual(item?.isFallbackSummary, false)
+        XCTAssertEqual(item?.summary, "Add authentication to API")
+    }
+
+    func testFallbackPrefersBranchOverCWD() {
+        let yaml = """
+cwd: /tmp/myproject
+branch: feature/auth-flow
+created_at: 2026-01-01T00:00:00.000Z
+updated_at: 2026-01-01T00:00:01.000Z
+"""
+        let item = SessionListModel.parseWorkspaceYAML(yaml, id: "abc")
+        XCTAssertEqual(item?.summary, "feature/auth-flow")
+        XCTAssertEqual(item?.isFallbackSummary, true)
+    }
+
+    func testFallbackUsesCWDWhenNoBranch() {
+        let yaml = """
+cwd: /Users/user/dev/anvil
+created_at: 2026-01-01T00:00:00.000Z
+updated_at: 2026-01-01T00:00:01.000Z
+"""
+        let item = SessionListModel.parseWorkspaceYAML(yaml, id: "abc")
+        XCTAssertEqual(item?.summary, "anvil")
+        XCTAssertEqual(item?.isFallbackSummary, true)
     }
 
     // MARK: - Date grouping
@@ -181,6 +212,7 @@ updated_at: 2026-01-01T00:00:01.000Z
     private func makeItem(id: String, cwd: String, repository: String?) -> SessionItem {
         SessionItem(
             id: id, cwd: cwd, summary: "Test",
+            isFallbackSummary: false,
             repository: repository, branch: nil,
             createdAt: Date(), updatedAt: Date()
         )
