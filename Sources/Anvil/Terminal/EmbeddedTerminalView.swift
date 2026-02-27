@@ -89,6 +89,7 @@ struct EmbeddedTerminalView: View {
                     NSWorkspace.shared.open(url)
                 }
             )
+            .padding(14)
             .id(terminalID)
 
             if isDragTargeted {
@@ -121,6 +122,7 @@ struct EmbeddedTerminalView: View {
                     .allowsHitTesting(true)
             }
         }
+        .background(Color(nsColor: TerminalTheme.theme(forID: themeID).background))
         .onDrop(of: [.fileURL], isTargeted: $isDragTargeted) { providers in
             handleFileDrop(providers: providers)
             return true

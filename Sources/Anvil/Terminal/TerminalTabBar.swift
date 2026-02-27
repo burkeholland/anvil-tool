@@ -97,7 +97,7 @@ struct TerminalTabBar: View {
             .padding(.trailing, 10)
         }
         .frame(height: 48)
-        .background(Color(nsColor: NSColor(red: 0.08, green: 0.08, blue: 0.10, alpha: 1.0)))
+        .background(Color(nsColor: NSColor(red: 0.09, green: 0.08, blue: 0.08, alpha: 1.0)))
         .overlay(alignment: .bottom) {
             Divider().opacity(0.3)
         }

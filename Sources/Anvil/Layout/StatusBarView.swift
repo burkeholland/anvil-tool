@@ -1,19 +1,28 @@
 import SwiftUI
 
-/// Bottom status bar showing working-directory sync errors.
+/// Minimal bottom status bar showing the current working directory.
 struct StatusBarView: View {
     @ObservedObject var workingDirectory: WorkingDirectoryModel
+    @AppStorage("terminalThemeID") private var themeID: String = TerminalTheme.defaultDark.id
 
     var body: some View {
-        HStack(spacing: 0) {
+        HStack(spacing: Spacing.sm) {
+            Image(systemName: "folder")
+                .font(.system(size: 9))
+                .foregroundStyle(.tertiary)
+            Text(workingDirectory.displayPath)
+                .lineLimit(1)
+                .truncationMode(.head)
+                .foregroundStyle(.secondary)
+
             Spacer()
         }
-        .font(.system(size: 12, design: .monospaced))
-        .foregroundStyle(.secondary)
-        .frame(height: 26)
+        .font(.system(size: 11, design: .monospaced))
+        .padding(.horizontal, 14)
+        .frame(height: 22)
         .frame(maxWidth: .infinity)
-        .background(Color(nsColor: .windowBackgroundColor))
-        .overlay(alignment: .top) { Divider() }
+        .background(Color(nsColor: TerminalTheme.theme(forID: themeID).background))
+        .overlay(alignment: .top) { Divider().opacity(0.3) }
         .overlay(alignment: .top) {
             if let error = workingDirectory.lastSyncError {
                 HStack(spacing: 6) {
@@ -44,4 +53,6 @@ struct StatusBarView: View {
         }
         .animation(.easeInOut(duration: 0.2), value: workingDirectory.lastSyncError != nil)
     }
+
+
 }
