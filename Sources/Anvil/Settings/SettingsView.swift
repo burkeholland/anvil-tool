@@ -33,10 +33,7 @@ struct SettingsView: View {
 
 private struct GeneralSettingsTab: View {
     @AppStorage("autoLaunchCopilot") private var autoLaunchCopilot = true
-    @AppStorage("autoFollowChanges") private var autoFollow = true
-    @AppStorage("autoDiffToasts") private var autoDiffToasts = true
     @AppStorage("autoBuildOnTaskComplete") private var autoBuildOnTaskComplete = true
-    @AppStorage("branchGuardBehavior") private var branchGuardBehavior = "warn"
 
     var body: some View {
         Form {
@@ -46,30 +43,8 @@ private struct GeneralSettingsTab: View {
 
             Spacer().frame(height: 8)
 
-            Toggle("Follow Agent", isOn: $autoFollow)
-            Text("Auto-navigate the file tree and preview pane to files as the agent modifies them. Use ⌘⇧A to toggle.")
-                .settingsDescription()
-
-            Spacer().frame(height: 8)
-
-            Toggle("Show diff toasts", isOn: $autoDiffToasts)
-            Text("Display a floating diff preview in the bottom-right corner whenever the agent writes a file. Click to open in the Changes panel.")
-                .settingsDescription()
-
-            Spacer().frame(height: 8)
-
             Toggle("Auto-build on task complete", isOn: $autoBuildOnTaskComplete)
             Text("Automatically run the project build when the agent goes idle, so the build badge updates without manual action. Disable for projects with slow builds.")
-                .settingsDescription()
-
-            Spacer().frame(height: 8)
-
-            Picker("Branch guard", selection: $branchGuardBehavior) {
-                Text("Warn me").tag("warn")
-                Text("Auto-branch silently").tag("autoBranch")
-                Text("Disabled").tag("disabled")
-            }
-            Text("What to do when the agent modifies files on the default branch (main/master): warn with a prompt to create a feature branch, auto-create one silently, or do nothing.")
                 .settingsDescription()
         }
         .padding(20)
