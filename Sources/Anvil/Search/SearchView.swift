@@ -169,6 +169,7 @@ struct SearchView: View {
 
 struct SearchInputBar: View {
     @ObservedObject var model: SearchModel
+    @State private var showAdvanced = false
 
     var body: some View {
         VStack(spacing: 6) {
@@ -291,22 +292,38 @@ struct SearchInputBar: View {
                 .controlSize(.small)
                 .help("Case Sensitive")
 
-                Toggle(isOn: $model.wholeWord) {
-                    Text("ab")
-                        .font(.system(size: 11, weight: model.wholeWord ? .bold : .regular, design: .monospaced))
-                        .underline()
+                Button {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        showAdvanced.toggle()
+                    }
+                } label: {
+                    Image(systemName: showAdvanced ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(.secondary)
                 }
-                .toggleStyle(.button)
-                .controlSize(.small)
-                .help("Match Whole Word")
+                .buttonStyle(.borderless)
+                .help(showAdvanced ? "Hide advanced options" : "Show advanced options (whole word, regex)")
 
-                Toggle(isOn: $model.useRegex) {
-                    Text(".*")
-                        .font(.system(size: 11, weight: model.useRegex ? .bold : .regular, design: .monospaced))
+                if showAdvanced {
+                    Toggle(isOn: $model.wholeWord) {
+                        Text("ab")
+                            .font(.system(size: 11, weight: model.wholeWord ? .bold : .regular, design: .monospaced))
+                            .underline()
+                    }
+                    .toggleStyle(.button)
+                    .controlSize(.small)
+                    .help("Match Whole Word")
+                    .transition(.opacity)
+
+                    Toggle(isOn: $model.useRegex) {
+                        Text(".*")
+                            .font(.system(size: 11, weight: model.useRegex ? .bold : .regular, design: .monospaced))
+                    }
+                    .toggleStyle(.button)
+                    .controlSize(.small)
+                    .help("Use Regular Expression")
+                    .transition(.opacity)
                 }
-                .toggleStyle(.button)
-                .controlSize(.small)
-                .help("Use Regular Expression")
 
                 Spacer()
             }
