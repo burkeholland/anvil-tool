@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// A popover for quickly switching between recent projects from the toolbar.
+/// A sheet for switching between recent projects, opening other folders, or cloning a repository.
 struct ProjectSwitcherView: View {
     @ObservedObject var recentProjects: RecentProjectsModel
     var currentPath: String?
@@ -100,7 +100,8 @@ struct ProjectSwitcherView: View {
                 .buttonStyle(.plain)
             }
         }
-        .frame(width: 300)
+        .frame(minWidth: 380, idealWidth: 440)
+        .frame(minHeight: 200)
         .onAppear {
             recentProjects.refreshGitInfo()
         }

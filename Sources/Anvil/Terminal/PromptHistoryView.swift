@@ -93,8 +93,8 @@ struct PromptHistoryView: View {
                 }
             }
         }
-        .frame(width: 340)
-        .frame(maxHeight: 420)
+        .frame(minWidth: 400, idealWidth: 480)
+        .frame(minHeight: 300)
     }
 
     private var emptyStateView: some View {
