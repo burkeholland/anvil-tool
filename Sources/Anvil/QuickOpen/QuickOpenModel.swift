@@ -12,6 +12,7 @@ final class QuickOpenModel: ObservableObject {
     private var allFiles: [IndexedFile] = []
     private var rootURL: URL?
     private var indexGeneration: UInt64 = 0
+    private var gitIgnoreFilter: GitIgnoreFilter?
     /// URLs of recently viewed files, most-recent first. Used to boost sorting.
     private var recentURLs: [URL] = []
 
@@ -30,11 +31,14 @@ final class QuickOpenModel: ObservableObject {
             return
         }
         self.rootURL = rootURL
+        let filter = GitIgnoreFilter(rootURL: rootURL)
+        self.gitIgnoreFilter = filter
         indexGeneration &+= 1
         let generation = indexGeneration
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            filter.refresh()
             var files: [IndexedFile] = []
-            Self.indexFiles(at: rootURL, rootURL: rootURL, into: &files)
+            Self.indexFiles(at: rootURL, rootURL: rootURL, filter: filter, into: &files)
             DispatchQueue.main.async {
                 guard let self = self, self.indexGeneration == generation else { return }
                 self.allFiles = files
@@ -159,23 +163,18 @@ final class QuickOpenModel: ObservableObject {
 
     // MARK: - File Indexing
 
-    private static func indexFiles(at directory: URL, rootURL: URL, into results: inout [IndexedFile]) {
+    private static func indexFiles(at directory: URL, rootURL: URL, filter: GitIgnoreFilter?, into results: inout [IndexedFile]) {
+        let options: FileManager.DirectoryEnumerationOptions = filter?.isGitRepo == true ? [] : [.skipsHiddenFiles]
         guard let contents = try? FileManager.default.contentsOfDirectory(
             at: directory,
             includingPropertiesForKeys: [.isDirectoryKey],
-            options: [.skipsHiddenFiles]
+            options: options
         ) else { return }
 
         let rootPath = rootURL.standardizedFileURL.path
-        let excludedNames: Set<String> = [
-            ".git", ".build", ".DS_Store", ".swiftpm", "node_modules",
-            ".Trash", "DerivedData", "xcuserdata"
-        ]
 
         for url in contents {
             let name = url.lastPathComponent
-            if excludedNames.contains(name) { continue }
-
             let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
             let absPath = url.standardizedFileURL.path
             var relPath = absPath
@@ -184,8 +183,18 @@ final class QuickOpenModel: ObservableObject {
                 if relPath.hasPrefix("/") { relPath = String(relPath.dropFirst()) }
             }
 
+            if let filter = filter {
+                guard filter.shouldShow(name: name, relativePath: relPath, isDirectory: isDir) else { continue }
+            } else {
+                let hidden: Set<String> = [
+                    ".git", ".build", ".DS_Store", ".swiftpm", "node_modules",
+                    ".Trash", "DerivedData", "xcuserdata"
+                ]
+                if hidden.contains(name) { continue }
+            }
+
             if isDir {
-                indexFiles(at: url, rootURL: rootURL, into: &results)
+                indexFiles(at: url, rootURL: rootURL, filter: filter, into: &results)
             } else {
                 results.append(IndexedFile(
                     url: url,

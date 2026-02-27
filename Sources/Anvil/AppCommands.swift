@@ -430,4 +430,3 @@ struct HelpCommands: Commands {
         }
     }
 }
-

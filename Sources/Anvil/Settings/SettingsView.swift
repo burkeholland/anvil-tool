@@ -35,6 +35,7 @@ private struct GeneralSettingsTab: View {
     @AppStorage("autoLaunchCopilot") private var autoLaunchCopilot = true
     @AppStorage("autoFollowChanges") private var autoFollow = true
     @AppStorage("autoBuildOnTaskComplete") private var autoBuildOnTaskComplete = true
+    @AppStorage("branchGuardBehavior") private var branchGuardBehavior = "warn"
 
     var body: some View {
         Form {
@@ -52,6 +53,16 @@ private struct GeneralSettingsTab: View {
 
             Toggle("Auto-build on task complete", isOn: $autoBuildOnTaskComplete)
             Text("Automatically run the project build when the agent goes idle, so the build badge updates without manual action. Disable for projects with slow builds.")
+                .settingsDescription()
+
+            Spacer().frame(height: 8)
+
+            Picker("Branch guard", selection: $branchGuardBehavior) {
+                Text("Warn me").tag("warn")
+                Text("Auto-branch silently").tag("autoBranch")
+                Text("Disabled").tag("disabled")
+            }
+            Text("What to do when the agent modifies files on the default branch (main/master): warn with a prompt to create a feature branch, auto-create one silently, or do nothing.")
                 .settingsDescription()
         }
         .padding(20)

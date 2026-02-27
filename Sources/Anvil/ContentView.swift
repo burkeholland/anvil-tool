@@ -54,6 +54,7 @@ struct ContentView: View {
                 }
             }
 
+            // Command Palette overlay (available on all screens)
             if showCommandPalette {
                 Color.black.opacity(0.2)
                     .ignoresSafeArea()
@@ -65,14 +66,17 @@ struct ContentView: View {
                         onDismiss: { dismissCommandPalette() }
                     )
                     .padding(.top, 60)
+
                     Spacer()
                 }
             }
 
+            // Keyboard shortcuts overlay
             if showKeyboardShortcuts {
                 Color.black.opacity(0.2)
                     .ignoresSafeArea()
                     .onTapGesture { showKeyboardShortcuts = false }
+
                 KeyboardShortcutsView(onDismiss: { showKeyboardShortcuts = false })
             }
         }
@@ -85,6 +89,7 @@ struct ContentView: View {
         .background(Color(nsColor: .windowBackgroundColor))
         .navigationTitle(workingDirectory.projectName)
         .background {
+            // ⌘K opens the command palette without a menu item (supplements ⌘⇧P)
             Button("") {
                 buildCommandPalette()
                 showCommandPalette = true
@@ -151,11 +156,13 @@ struct ContentView: View {
                 recentProjects: recentProjects,
                 promptHistoryStore: promptHistoryStore,
                 sessionHealthMonitor: sessionHealthMonitor,
-                showPromptHistory: $showPromptHistory,
-                showProjectSwitcher: $showProjectSwitcher,
+                showSidebar: $showSidebar,
+                autoFollow: $autoFollow,
+                showBranchPicker: $showBranchPicker,
                 showInstructions: $showInstructions,
                 showCopilotActions: $showCopilotActions,
-                showBranchPicker: $showBranchPicker,
+                showPromptHistory: $showPromptHistory,
+                showProjectSwitcher: $showProjectSwitcher,
                 isAgentWaitingForInput: terminalTabs.isAnyTabWaitingForInput,
                 agentMode: terminalTabs.agentMode,
                 agentModel: terminalTabs.agentModel,
@@ -222,7 +229,9 @@ struct ContentView: View {
         }
         .onChange(of: terminalProxy.promptSentCount) { _, _ in
             if showTaskBanner {
-                withAnimation(.easeInOut(duration: 0.25)) { showTaskBanner = false }
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    showTaskBanner = false
+                }
             }
         }
         .onAppear {
@@ -313,10 +322,14 @@ struct ContentView: View {
                 handleAgentWaitingForInput(waiting, for: tab)
             },
             onAgentModeChanged: { mode in
-                if tab.id == terminalTabs.activeTabID { terminalTabs.agentMode = mode }
+                if tab.id == terminalTabs.activeTabID {
+                    terminalTabs.agentMode = mode
+                }
             },
             onAgentModelChanged: { model in
-                if tab.id == terminalTabs.activeTabID { terminalTabs.agentModel = model }
+                if tab.id == terminalTabs.activeTabID {
+                    terminalTabs.agentModel = model
+                }
             },
             markerStore: promptMarkerStore
         )
@@ -341,6 +354,7 @@ struct ContentView: View {
                         ForEach(terminalTabs.tabs) { tab in
                             makeTabTerminalView(for: tab)
                         }
+                    }
 
                     let splitPane = VStack(spacing: 0) {
                         HStack(spacing: 6) {
@@ -398,35 +412,6 @@ struct ContentView: View {
                         VSplitView {
                             primaryPane
                             splitPane
-                        }
-                    } else {
-                        ZStack {
-                            ForEach(terminalTabs.tabs) { tab in
-                                makeTabTerminalView(for: tab)
-                            }
-
-                            if isDroppingFileToTerminal {
-                                VStack(spacing: 6) {
-                                    Image(systemName: "at")
-                                        .font(.system(size: 28, weight: .medium))
-                                    Text("Drop to @mention in terminal")
-                                        .font(.system(size: 13, weight: .medium))
-                                }
-                                .foregroundStyle(Color.accentColor)
-                                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                                .background(Color.accentColor.opacity(0.06))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 8)
-                                        .strokeBorder(Color.accentColor, style: StrokeStyle(lineWidth: 2, dash: [8, 4]))
-                                )
-                                .allowsHitTesting(false)
-                            }
-                        }
-                        .id(workingDirectory.directoryURL)
-                        .dropDestination(for: URL.self) { urls, _ in
-                            handleTerminalFileDrop(urls)
-                        } isTargeted: { targeted in
-                            isDroppingFileToTerminal = targeted
                         }
                     }
                 } else {
@@ -544,10 +529,12 @@ struct ContentView: View {
                         }
                     )
                     .padding(.top, 60)
+
                     Spacer()
                 }
             }
 
+            // Mention file picker overlay (⌘M)
             if showMentionPicker {
                 Color.black.opacity(0.2)
                     .ignoresSafeArea()
@@ -562,10 +549,12 @@ struct ContentView: View {
                         }
                     )
                     .padding(.top, 60)
+
                     Spacer()
                 }
             }
 
+            // Drop overlay
             if isDroppingFolder {
                 RoundedRectangle(cornerRadius: 8)
                     .strokeBorder(Color.accentColor, style: StrokeStyle(lineWidth: 2, dash: [8, 4]))
@@ -597,9 +586,7 @@ struct ContentView: View {
         guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir),
               isDir.boolValue else {
             recentProjects.remove(
-                RecentProjectsModel.RecentProject(path: url.standardizedFileURL.path,
-                                                  name: url.lastPathComponent,
-                                                  lastOpened: Date())
+                RecentProjectsModel.RecentProject(path: url.standardizedFileURL.path, name: url.lastPathComponent, lastOpened: Date())
             )
             return
         }
@@ -635,7 +622,8 @@ struct ContentView: View {
     private func buildCommandPalette() {
         let hasProject = workingDirectory.directoryURL != nil
         commandPalette.register([
-            PaletteCommand(id: "quick-open", title: "Quick Open File\u2026", icon: "doc.text.magnifyingglass", shortcut: "\u2318\u21e7O", category: "Navigation") {
+            // Navigation
+            PaletteCommand(id: "quick-open", title: "Quick Open File…", icon: "doc.text.magnifyingglass", shortcut: "⌘⇧O", category: "Navigation") {
                 hasProject
             } action: { [weak quickOpenModel] in
                 if let url = workingDirectory.directoryURL {
@@ -644,7 +632,7 @@ struct ContentView: View {
                 showMentionPicker = false
                 showQuickOpen = true
             },
-            PaletteCommand(id: "mention-file", title: "Mention File in Terminal\u2026", icon: "at", shortcut: "\u2318\u21e7M", category: "Terminal") {
+            PaletteCommand(id: "mention-file", title: "Mention File in Terminal…", icon: "at", shortcut: "⌘⇧M", category: "Terminal") {
                 hasProject
             } action: { [weak quickOpenModel] in
                 if let url = workingDirectory.directoryURL {
@@ -677,47 +665,54 @@ struct ContentView: View {
             } action: { [weak terminalTabs] in
                 terminalTabs?.addTab()
             },
-            PaletteCommand(id: "new-copilot-tab", title: "New Copilot Tab", icon: "sparkle", shortcut: "\u2318\u21e7T", category: "Terminal") {
+            PaletteCommand(id: "new-copilot-tab", title: "New Copilot Tab", icon: "sparkle", shortcut: "⌘⇧T", category: "Terminal") {
                 hasProject
             } action: { [weak terminalTabs] in
                 terminalTabs?.addCopilotTab()
             },
-            PaletteCommand(id: "split-right", title: "Split Terminal Right", icon: "rectangle.split.2x1", shortcut: nil, category: "Terminal") {
+            PaletteCommand(id: "split-terminal-right", title: "Split Terminal Right", icon: "rectangle.split.2x1", shortcut: "⌘D", category: "Terminal") {
                 hasProject && !terminalTabs.isSplit
             } action: { [weak terminalTabs] in
                 terminalTabs?.splitPane(direction: .horizontal)
             },
-            PaletteCommand(id: "split-down", title: "Split Terminal Down", icon: "rectangle.split.1x2", shortcut: nil, category: "Terminal") {
+            PaletteCommand(id: "split-terminal-down", title: "Split Terminal Down", icon: "rectangle.split.1x2", shortcut: "⌘⇧D", category: "Terminal") {
                 hasProject && !terminalTabs.isSplit
             } action: { [weak terminalTabs] in
                 terminalTabs?.splitPane(direction: .vertical)
             },
-            PaletteCommand(id: "increase-font", title: "Increase Font Size", icon: "plus.magnifyingglass", shortcut: "\u2318+", category: "Terminal") {
+            PaletteCommand(id: "close-split-terminal", title: "Close Split Terminal", icon: "rectangle", shortcut: nil, category: "Terminal") {
+                terminalTabs.isSplit
+            } action: { [weak terminalTabs] in
+                terminalTabs?.closeSplit()
+            },
+            PaletteCommand(id: "increase-font", title: "Increase Font Size", icon: "plus.magnifyingglass", shortcut: "⌘+", category: "Terminal") {
                 true
             } action: {
                 terminalFontSize = min(terminalFontSize + 1, EmbeddedTerminalView.maxFontSize)
             },
-            PaletteCommand(id: "decrease-font", title: "Decrease Font Size", icon: "minus.magnifyingglass", shortcut: "\u2318-", category: "Terminal") {
+            PaletteCommand(id: "decrease-font", title: "Decrease Font Size", icon: "minus.magnifyingglass", shortcut: "⌘-", category: "Terminal") {
                 true
             } action: {
                 terminalFontSize = max(terminalFontSize - 1, EmbeddedTerminalView.minFontSize)
             },
-            PaletteCommand(id: "reset-font", title: "Reset Font Size", icon: "textformat.size", shortcut: "\u23180", category: "Terminal") {
+            PaletteCommand(id: "reset-font", title: "Reset Font Size", icon: "textformat.size", shortcut: "⌘0", category: "Terminal") {
                 true
             } action: {
                 terminalFontSize = EmbeddedTerminalView.defaultFontSize
             },
-            PaletteCommand(id: "open-directory", title: "Open Directory\u2026", icon: "folder.badge.plus", shortcut: "\u2318O", category: "File") {
+
+            // File
+            PaletteCommand(id: "open-directory", title: "Open Directory…", icon: "folder.badge.plus", shortcut: "⌘O", category: "File") {
                 true
             } action: {
                 browseForDirectory()
             },
-            PaletteCommand(id: "switch-project", title: "Switch Project\u2026", icon: "arrow.triangle.swap", shortcut: nil, category: "File") {
+            PaletteCommand(id: "switch-project", title: "Switch Project…", icon: "arrow.triangle.swap", shortcut: nil, category: "File") {
                 true
             } action: {
                 showProjectSwitcher = true
             },
-            PaletteCommand(id: "clone-repo", title: "Clone Repository\u2026", icon: "arrow.down.circle", shortcut: nil, category: "File") {
+            PaletteCommand(id: "clone-repo", title: "Clone Repository…", icon: "arrow.down.circle", shortcut: nil, category: "File") {
                 true
             } action: {
                 showCloneSheet = true
@@ -740,11 +735,13 @@ struct ContentView: View {
             } action: { [weak workingDirectory] in
                 workingDirectory?.push()
             },
+
             PaletteCommand(id: "git-pull", title: "Pull", icon: "arrow.down", shortcut: nil, category: "Git") {
                 hasProject && workingDirectory.hasUpstream && !workingDirectory.isPulling
             } action: { [weak workingDirectory] in
                 workingDirectory?.pull()
             },
+
             PaletteCommand(id: "git-fetch", title: "Fetch", icon: "arrow.clockwise", shortcut: nil, category: "Git") {
                 hasProject && workingDirectory.hasRemotes
             } action: { [weak workingDirectory] in
@@ -762,12 +759,14 @@ struct ContentView: View {
             } action: {
                 showInstructions = true
             },
-            PaletteCommand(id: "copilot-actions", title: "Copilot Actions\u2026", icon: "terminal", shortcut: nil, category: "Copilot") {
+
+            // Copilot CLI
+            PaletteCommand(id: "copilot-actions", title: "Copilot Actions…", icon: "terminal", shortcut: nil, category: "Copilot") {
                 hasProject
             } action: {
                 showCopilotActions = true
             },
-            PaletteCommand(id: "prompt-history", title: "Prompt History\u2026", icon: "clock.arrow.circlepath", shortcut: "\u2318Y", category: "Copilot") {
+            PaletteCommand(id: "prompt-history", title: "Prompt History…", icon: "clock.arrow.circlepath", shortcut: "⌘Y", category: "Copilot") {
                 hasProject
             } action: {
                 showPromptHistory = true
@@ -864,6 +863,7 @@ struct ContentView: View {
         ] + buildQuickActionCommands())
     }
 
+    /// Builds PaletteCommand entries for auto-detected and custom quick actions.
     private func buildQuickActionCommands() -> [PaletteCommand] {
         guard let rootURL = workingDirectory.directoryURL else { return [] }
         let actions = QuickActionsProvider.load(rootURL: rootURL)
@@ -910,6 +910,7 @@ struct ContentView: View {
         }
         let rootPath = rootURL.standardizedFileURL.path
         let rootPrefix = rootPath.hasSuffix("/") ? rootPath : rootPath + "/"
+
         var mentioned = false
         for url in urls {
             let filePath = url.standardizedFileURL.path
@@ -921,6 +922,7 @@ struct ContentView: View {
                 }
             }
         }
+
         if mentioned { return true }
         return handleDrop(urls)
     }
@@ -944,6 +946,11 @@ struct ToolbarView: ToolbarContent {
     @ObservedObject var recentProjects: RecentProjectsModel
     @ObservedObject var promptHistoryStore: PromptHistoryStore
     @ObservedObject var sessionHealthMonitor: SessionHealthMonitor
+    @Binding var showSidebar: Bool
+    @Binding var autoFollow: Bool
+    @Binding var showBranchPicker: Bool
+    @Binding var showInstructions: Bool
+    @Binding var showCopilotActions: Bool
     @Binding var showPromptHistory: Bool
     @Binding var showProjectSwitcher: Bool
     var isAgentWaitingForInput: Bool = false
@@ -976,7 +983,8 @@ struct ToolbarView: ToolbarContent {
                     .truncationMode(.head)
 
                 if let branch = workingDirectory.gitBranch {
-                    Divider().frame(height: 16)
+                    Divider()
+                        .frame(height: 16)
 
                     Button {
                         showBranchPicker.toggle()
@@ -1026,6 +1034,7 @@ struct ToolbarView: ToolbarContent {
 
         ToolbarItem(placement: .primaryAction) {
             ToolbarOverflowMenu(
+                autoFollow: $autoFollow,
                 showCopilotActions: $showCopilotActions,
                 showPromptHistory: $showPromptHistory,
                 showInstructions: $showInstructions,
@@ -1073,7 +1082,11 @@ private struct UnifiedAgentStatusPill: View {
 
     var body: some View {
         Button {
-            if isAgentWaitingForInput { onFocusTerminal() } else { showPopover.toggle() }
+            if isAgentWaitingForInput {
+                onFocusTerminal()
+            } else {
+                showPopover.toggle()
+            }
         } label: {
             HStack(spacing: 6) {
                 Circle()
@@ -1106,7 +1119,8 @@ private struct UnifiedAgentStatusPill: View {
 
                 GeometryReader { geo in
                     ZStack(alignment: .leading) {
-                        RoundedRectangle(cornerRadius: 2).fill(Color.secondary.opacity(0.2))
+                        RoundedRectangle(cornerRadius: 2)
+                            .fill(Color.secondary.opacity(0.2))
                         RoundedRectangle(cornerRadius: 2)
                             .fill(contextBarColor)
                             .frame(width: max(0, geo.size.width * sessionHealthMonitor.contextFillness))
@@ -1117,7 +1131,10 @@ private struct UnifiedAgentStatusPill: View {
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 3)
-            .background(RoundedRectangle(cornerRadius: 4).fill(pillBackground))
+            .background(
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(pillBackground)
+            )
         }
         .buttonStyle(.plain)
         .popover(isPresented: $showPopover, arrowEdge: .bottom) {
@@ -1125,7 +1142,10 @@ private struct UnifiedAgentStatusPill: View {
                 sessionHealthMonitor: sessionHealthMonitor,
                 agentMode: agentMode,
                 agentModel: agentModel,
-                onJumpToTerminal: { showPopover = false; onFocusTerminal() },
+                onJumpToTerminal: {
+                    showPopover = false
+                    onFocusTerminal()
+                },
                 onCompact: onCompact
             )
         }
@@ -1165,10 +1185,13 @@ private struct UnifiedAgentPopover: View {
                             .font(.system(size: 10, weight: .medium))
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
-                            .background(RoundedRectangle(cornerRadius: 3).fill(Color.secondary.opacity(0.1)))
+                            .background(
+                                RoundedRectangle(cornerRadius: 3)
+                                    .fill(Color.secondary.opacity(0.1))
+                            )
                     }
                     .buttonStyle(.plain)
-                    .help("Mode: \(mode.displayName) \u2014 click to cycle")
+                    .help("Mode: \(mode.displayName) — click to cycle")
                 }
                 if let model = agentModel {
                     Text(model)
@@ -1204,13 +1227,15 @@ private struct UnifiedAgentPopover: View {
                 if sessionHealthMonitor.isSaturated {
                     Button(action: onCompact) {
                         HStack(spacing: 3) {
-                            Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 9))
-                            Text("Compact").font(.system(size: 10))
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .font(.system(size: 9))
+                            Text("Compact")
+                                .font(.system(size: 10))
                         }
                         .foregroundStyle(.orange)
                     }
                     .buttonStyle(.plain)
-                    .help("Context may be saturated \u2014 send /compact to the terminal")
+                    .help("Context may be saturated — send /compact to the terminal")
                     .transition(.opacity.combined(with: .scale(scale: 0.85, anchor: .leading)))
                 }
             }
@@ -1221,8 +1246,10 @@ private struct UnifiedAgentPopover: View {
 
             Button(action: onJumpToTerminal) {
                 HStack(spacing: 6) {
-                    Image(systemName: "terminal").font(.system(size: 11))
-                    Text("Jump to Terminal").font(.system(size: 12))
+                    Image(systemName: "terminal")
+                        .font(.system(size: 11))
+                    Text("Jump to Terminal")
+                        .font(.system(size: 12))
                     Spacer()
                 }
                 .padding(.horizontal, 14)
@@ -1240,6 +1267,7 @@ private struct UnifiedAgentPopover: View {
 // MARK: - Toolbar Overflow Menu
 
 private struct ToolbarOverflowMenu: View {
+    @Binding var autoFollow: Bool
     @Binding var showCopilotActions: Bool
     @Binding var showPromptHistory: Bool
     @Binding var showInstructions: Bool
@@ -1255,21 +1283,36 @@ private struct ToolbarOverflowMenu: View {
 
     var body: some View {
         Menu {
-            Button { showCopilotActionsPopover = true } label: {
+            Toggle(isOn: $autoFollow) {
+                Label(autoFollow ? "Follow Agent: On" : "Follow Agent: Off",
+                      systemImage: autoFollow ? "eye" : "eye.slash")
+            }
+            Divider()
+            Button {
+                showCopilotActionsPopover = true
+            } label: {
                 Label("Copilot Actions", systemImage: "terminal")
             }
-            Button { showPromptHistory = true } label: {
+            Button {
+                showPromptHistory = true
+            } label: {
                 Label("Prompt History", systemImage: "clock.arrow.circlepath")
             }
-            Button { showInstructions = true } label: {
+            Button {
+                showInstructions = true
+            } label: {
                 Label("Instructions", systemImage: "doc.text")
             }
             Divider()
-            Button { showProjectSwitcher = true } label: {
+            Button {
+                showProjectSwitcher = true
+            } label: {
                 Label("Switch Project", systemImage: "arrow.triangle.swap")
             }
         } label: {
-            Image(systemName: "ellipsis").frame(width: 24, height: 24).contentShape(Rectangle())
+            Image(systemName: "ellipsis")
+                .frame(width: 24, height: 24)
+                .contentShape(Rectangle())
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
@@ -1283,6 +1326,7 @@ private struct ToolbarOverflowMenu: View {
     }
 }
 
+/// Compact git sync indicators and push/pull buttons shown next to the branch name.
 struct GitSyncControls: View {
     @ObservedObject var workingDirectory: WorkingDirectoryModel
     @State private var showSyncError = false
@@ -1293,16 +1337,20 @@ struct GitSyncControls: View {
                 HStack(spacing: 3) {
                     if workingDirectory.aheadCount > 0 {
                         HStack(spacing: 1) {
-                            Image(systemName: "arrow.up").font(.system(size: 8, weight: .bold))
-                            Text("\(workingDirectory.aheadCount)").font(.system(size: 10, weight: .medium, design: .monospaced))
+                            Image(systemName: "arrow.up")
+                                .font(.system(size: 8, weight: .bold))
+                            Text("\(workingDirectory.aheadCount)")
+                                .font(.system(size: 10, weight: .medium, design: .monospaced))
                         }
                         .foregroundStyle(.orange)
                         .help("\(workingDirectory.aheadCount) commit\(workingDirectory.aheadCount == 1 ? "" : "s") ahead of remote")
                     }
                     if workingDirectory.behindCount > 0 {
                         HStack(spacing: 1) {
-                            Image(systemName: "arrow.down").font(.system(size: 8, weight: .bold))
-                            Text("\(workingDirectory.behindCount)").font(.system(size: 10, weight: .medium, design: .monospaced))
+                            Image(systemName: "arrow.down")
+                                .font(.system(size: 8, weight: .bold))
+                            Text("\(workingDirectory.behindCount)")
+                                .font(.system(size: 10, weight: .medium, design: .monospaced))
                         }
                         .foregroundStyle(.cyan)
                         .help("\(workingDirectory.behindCount) commit\(workingDirectory.behindCount == 1 ? "" : "s") behind remote")
@@ -1311,31 +1359,46 @@ struct GitSyncControls: View {
             }
 
             if workingDirectory.hasRemotes {
-                Divider().frame(height: 14)
+                Divider()
+                    .frame(height: 14)
 
                 HStack(spacing: 2) {
                     if workingDirectory.isSyncing {
-                        ProgressView().controlSize(.mini).frame(width: 16, height: 16)
+                        ProgressView()
+                            .controlSize(.mini)
+                            .frame(width: 16, height: 16)
                     } else {
-                        Button { workingDirectory.push() } label: {
-                            Image(systemName: "arrow.up").font(.system(size: 10, weight: .semibold))
-                                .frame(width: 22, height: 20).contentShape(Rectangle())
+                        Button {
+                            workingDirectory.push()
+                        } label: {
+                            Image(systemName: "arrow.up")
+                                .font(.system(size: 10, weight: .semibold))
+                                .frame(width: 22, height: 20)
+                                .contentShape(Rectangle())
                         }
                         .buttonStyle(.borderless)
                         .disabled(workingDirectory.aheadCount == 0 && workingDirectory.hasUpstream)
                         .help(workingDirectory.hasUpstream ? "Push \(workingDirectory.aheadCount) commit\(workingDirectory.aheadCount == 1 ? "" : "s")" : "Push and set upstream")
 
-                        Button { workingDirectory.pull() } label: {
-                            Image(systemName: "arrow.down").font(.system(size: 10, weight: .semibold))
-                                .frame(width: 22, height: 20).contentShape(Rectangle())
+                        Button {
+                            workingDirectory.pull()
+                        } label: {
+                            Image(systemName: "arrow.down")
+                                .font(.system(size: 10, weight: .semibold))
+                                .frame(width: 22, height: 20)
+                                .contentShape(Rectangle())
                         }
                         .buttonStyle(.borderless)
                         .disabled(!workingDirectory.hasUpstream)
                         .help(workingDirectory.hasUpstream ? "Pull" : "No upstream branch")
 
-                        Button { workingDirectory.fetch() } label: {
-                            Image(systemName: "arrow.triangle.2.circlepath").font(.system(size: 10, weight: .semibold))
-                                .frame(width: 22, height: 20).contentShape(Rectangle())
+                        Button {
+                            workingDirectory.fetch()
+                        } label: {
+                            Image(systemName: "arrow.triangle.2.circlepath")
+                                .font(.system(size: 10, weight: .semibold))
+                                .frame(width: 22, height: 20)
+                                .contentShape(Rectangle())
                         }
                         .buttonStyle(.borderless)
                         .help("Fetch from remote")
@@ -1343,13 +1406,18 @@ struct GitSyncControls: View {
                 }
 
                 if workingDirectory.lastSyncError != nil {
-                    Button { showSyncError.toggle() } label: {
-                        Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 10)).foregroundStyle(.yellow)
+                    Button {
+                        showSyncError.toggle()
+                    } label: {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.yellow)
                     }
                     .buttonStyle(.borderless)
                     .popover(isPresented: $showSyncError, arrowEdge: .bottom) {
                         VStack(alignment: .leading, spacing: 8) {
-                            Text("Sync Error").font(.headline)
+                            Text("Sync Error")
+                                .font(.headline)
                             Text(workingDirectory.lastSyncError ?? "")
                                 .font(.system(.caption, design: .monospaced))
                                 .foregroundStyle(.secondary)
@@ -1379,7 +1447,10 @@ private struct SplitPaneInputBadge: View {
             .fill(Color.orange)
             .frame(width: 6, height: 6)
             .scaleEffect(isPulsing ? 1.4 : 1.0)
-            .animation(.easeInOut(duration: 0.6).repeatForever(autoreverses: true), value: isPulsing)
+            .animation(
+                .easeInOut(duration: 0.6).repeatForever(autoreverses: true),
+                value: isPulsing
+            )
             .help("Agent is waiting for your input")
             .onAppear { isPulsing = true }
     }
