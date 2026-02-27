@@ -3,6 +3,8 @@ import SwiftUI
 /// Sidebar view that lists past Copilot CLI sessions grouped by date.
 struct SessionListView: View {
     @ObservedObject var model: SessionListModel
+    /// IDs of sessions currently open in a terminal tab (highlighted with accent color).
+    var activeSessionIDs: Set<String> = []
 
     var body: some View {
         if model.groups.isEmpty {
@@ -13,7 +15,11 @@ struct SessionListView: View {
                     ForEach(model.groups, id: \.group) { entry in
                         Section {
                             ForEach(entry.items) { item in
-                                SessionRowView(item: item)
+                                SessionRowView(
+                                    item: item,
+                                    isActive: activeSessionIDs.contains(item.id),
+                                    onTap: { model.onOpenSession?(item.id) }
+                                )
                                 Divider()
                                     .padding(.leading, Spacing.md)
                             }
@@ -55,37 +61,53 @@ struct SessionListView: View {
 
 private struct SessionRowView: View {
     let item: SessionItem
+    let isActive: Bool
+    let onTap: () -> Void
     @State private var isHovered = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Spacing.xs) {
-            // Summary line
-            Text(item.summary)
-                .font(.subheadline)
-                .lineLimit(2)
-                .foregroundStyle(.primary)
+        Button(action: onTap) {
+            VStack(alignment: .leading, spacing: Spacing.xs) {
+                // Summary line
+                Text(item.summary)
+                    .font(.subheadline)
+                    .lineLimit(2)
+                    .foregroundStyle(isActive ? Color.accentColor : .primary)
 
-            HStack(spacing: Spacing.xs) {
-                // Relative timestamp
-                Text(relativeTime(item.updatedAt))
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
+                HStack(spacing: Spacing.xs) {
+                    // Relative timestamp
+                    Text(relativeTime(item.updatedAt))
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
 
-                // Branch badge
-                if let branch = item.branch {
-                    Spacer(minLength: 0)
-                    BranchBadge(branch: branch)
+                    // Branch badge
+                    if let branch = item.branch {
+                        Spacer(minLength: 0)
+                        BranchBadge(branch: branch)
+                    }
+
+                    // Active indicator dot
+                    if isActive {
+                        Spacer(minLength: 0)
+                        Circle()
+                            .fill(Color.accentColor)
+                            .frame(width: 6, height: 6)
+                    }
                 }
             }
+            .padding(.horizontal, Spacing.md)
+            .padding(.vertical, Spacing.sm)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                isHovered || isActive
+                    ? Color.primary.opacity(0.05)
+                    : Color.clear
+            )
+            .contentShape(Rectangle())
         }
-        .padding(.horizontal, Spacing.md)
-        .padding(.vertical, Spacing.sm)
-        .background(
-            isHovered
-                ? Color.primary.opacity(0.05)
-                : Color.clear
-        )
+        .buttonStyle(.plain)
         .onHover { isHovered = $0 }
+        .help("Resume session")
     }
 
     private func relativeTime(_ date: Date) -> String {

@@ -16,6 +16,8 @@ struct TerminalTab: Identifiable, Equatable {
     /// A short summary describing the session's purpose, sourced from workspace.yaml.
     /// Shown as the primary label in the tab bar instead of the shell process title.
     var sessionSummary: String? = nil
+    /// When non-nil, this tab was opened to resume a specific Copilot session.
+    var resumeSessionID: String? = nil
 
     static func == (lhs: TerminalTab, rhs: TerminalTab) -> Bool {
         lhs.id == rhs.id
@@ -82,6 +84,28 @@ final class TerminalTabsModel: ObservableObject {
         let tab = TerminalTab(id: UUID(), title: title, launchCopilot: true, defaultTitle: title)
         tabs.append(tab)
         activeTabID = tab.id
+    }
+
+    /// Opens a new Copilot tab that resumes the given session, or switches to that
+    /// tab if it is already open (deduplication).
+    @discardableResult
+    func addResumeSessionTab(sessionID: String) -> TerminalTab {
+        if let existing = tabs.first(where: { $0.resumeSessionID == sessionID }) {
+            activeTabID = existing.id
+            return existing
+        }
+        let copilotCount = tabs.filter(\.launchCopilot).count
+        let title = copilotCount == 0 ? "Copilot" : "Copilot \(copilotCount + 1)"
+        var tab = TerminalTab(id: UUID(), title: title, launchCopilot: true, defaultTitle: title)
+        tab.resumeSessionID = sessionID
+        tabs.append(tab)
+        activeTabID = tab.id
+        return tab
+    }
+
+    /// The set of session IDs currently open in a tab.
+    var activeSessionIDs: Set<String> {
+        Set(tabs.compactMap(\.resumeSessionID))
     }
 
     func closeOtherTabs(_ id: UUID) {

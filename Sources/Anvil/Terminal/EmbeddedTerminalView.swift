@@ -10,6 +10,8 @@ struct EmbeddedTerminalView: View {
     @EnvironmentObject var terminalProxy: TerminalInputProxy
     /// When non-nil, overrides the AppStorage setting for this instance.
     var launchCopilotOverride: Bool?
+    /// When non-nil, launches `copilot --resume <id>` instead of the bare `copilot` command.
+    var resumeSessionID: String? = nil
     /// When true, this tab's terminal is connected to the TerminalInputProxy.
     var isActiveTab: Bool = true
     /// Called when the terminal reports a title change via OSC sequences.
@@ -67,6 +69,7 @@ struct EmbeddedTerminalView: View {
                 workingDirectory: workingDirectory,
                 terminalProxy: isActiveTab ? terminalProxy : nil,
                 autoLaunchCopilot: shouldLaunchCopilot,
+                resumeSessionID: resumeSessionID,
                 fontSize: fontSize,
                 theme: TerminalTheme.theme(forID: themeID),
                 onProcessExit: { code in
@@ -253,6 +256,7 @@ private struct TerminalNSView: NSViewRepresentable {
     @ObservedObject var workingDirectory: WorkingDirectoryModel
     var terminalProxy: TerminalInputProxy?
     var autoLaunchCopilot: Bool
+    var resumeSessionID: String?
     var fontSize: Double
     var theme: TerminalTheme
     var onProcessExit: (Int32?) -> Void
@@ -286,7 +290,7 @@ private struct TerminalNSView: NSViewRepresentable {
         )
 
         if autoLaunchCopilot {
-            context.coordinator.scheduleAutoLaunch(terminalView)
+            context.coordinator.scheduleAutoLaunch(terminalView, resumeSessionID: resumeSessionID)
         }
 
         // Attach ⌘-click file path and URL detector
@@ -375,7 +379,8 @@ private struct TerminalNSView: NSViewRepresentable {
 
         /// Detects whether the Copilot CLI is installed, then sends the launch
         /// command to the terminal after the shell has had time to initialize.
-        func scheduleAutoLaunch(_ terminalView: LocalProcessTerminalView) {
+        /// When `resumeSessionID` is non-nil, runs `copilot --resume <id>` instead.
+        func scheduleAutoLaunch(_ terminalView: LocalProcessTerminalView, resumeSessionID: String? = nil) {
             DispatchQueue.global(qos: .userInitiated).async { [weak self, weak terminalView] in
                 guard CopilotDetector.isAvailable() else {
                     DispatchQueue.main.async { [weak self] in
@@ -383,8 +388,16 @@ private struct TerminalNSView: NSViewRepresentable {
                     }
                     return
                 }
+                let command: String
+                if let sessionID = resumeSessionID {
+                    // Sanitize the session ID to prevent shell metacharacter injection.
+                    let safeID = sessionID.filter { $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }
+                    command = "copilot --resume \(safeID)\n"
+                } else {
+                    command = "copilot\n"
+                }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak terminalView] in
-                    terminalView?.send(txt: "copilot\n")
+                    terminalView?.send(txt: command)
                 }
             }
         }

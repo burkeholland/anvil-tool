@@ -242,6 +242,9 @@ struct ContentView: View {
             sessionTranscriptStore.configure(projectPath: workingDirectory.directoryURL?.standardizedFileURL.path)
             sessionListModel.projectCWD = workingDirectory.directoryURL?.standardizedFileURL.path
             sessionListModel.start()
+            sessionListModel.onOpenSession = { [weak terminalTabs] sessionID in
+                terminalTabs?.addResumeSessionTab(sessionID: sessionID)
+            }
             if let url = workingDirectory.directoryURL {
                 recentProjects.recordOpen(url)
             }
@@ -312,6 +315,7 @@ struct ContentView: View {
         EmbeddedTerminalView(
             workingDirectory: workingDirectory,
             launchCopilotOverride: tab.launchCopilot,
+            resumeSessionID: tab.resumeSessionID,
             isActiveTab: tab.id == terminalTabs.activeTabID,
             onTitleChange: { title in
                 terminalTabs.updateTitle(for: tab.id, to: title)
@@ -505,7 +509,7 @@ struct ContentView: View {
     private var projectView: some View {
         ZStack {
             NavigationSplitView(columnVisibility: $columnVisibility) {
-                SessionListView(model: sessionListModel)
+                SessionListView(model: sessionListModel, activeSessionIDs: terminalTabs.activeSessionIDs)
                     .navigationSplitViewColumnWidth(min: 140, ideal: 240, max: 500)
                     .toolbar(removing: .sidebarToggle)
             } detail: {
