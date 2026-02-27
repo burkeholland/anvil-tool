@@ -20,7 +20,6 @@ struct ContentView: View {
     @AppStorage("autoFollowChanges") private var autoFollow = true
     @AppStorage("autoBuildOnTaskComplete") private var autoBuildOnTaskComplete = true
     @AppStorage("terminalFontSize") private var terminalFontSize: Double = 14
-    @AppStorage("branchGuardBehavior") private var branchGuardBehavior = "warn"
     @AppStorage("agentSoundEnabled") private var agentSoundEnabled = true
     @AppStorage("agentSoundName") private var agentSoundName = "Glass"
     @State private var showQuickOpen = false

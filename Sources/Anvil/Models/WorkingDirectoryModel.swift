@@ -175,16 +175,30 @@ final class WorkingDirectoryModel: ObservableObject {
         }
     }
 
-    /// Asynchronously checks for an open pull request on the current branch via `gh pr view`
+    /// Checks for an open pull request on the current branch via `gh pr view`
     /// and updates `openPRURL` / `openPRTitle`.
     func refreshOpenPR() {
         guard let url = directoryURL else { return }
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let pr = PullRequestProvider.openPR(in: url)
+            let process = Process()
+            let pipe = Pipe()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+            process.arguments = ["gh", "pr", "view", "--json", "url,title", "--jq", ".url,.title"]
+            process.currentDirectoryURL = url
+            process.standardOutput = pipe
+            process.standardError = FileHandle.nullDevice
+            do { try process.run(); process.waitUntilExit() } catch { return }
+            guard process.terminationStatus == 0 else {
+                DispatchQueue.main.async { self?.openPRURL = nil; self?.openPRTitle = nil }
+                return
+            }
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            let lines = (String(data: data, encoding: .utf8) ?? "")
+                .components(separatedBy: "\n").filter { !$0.isEmpty }
             DispatchQueue.main.async {
                 guard self?.directoryURL == url else { return }
-                self?.openPRURL = pr?.url
-                self?.openPRTitle = pr?.title
+                self?.openPRURL = lines.first
+                self?.openPRTitle = lines.dropFirst().first
             }
         }
     }
