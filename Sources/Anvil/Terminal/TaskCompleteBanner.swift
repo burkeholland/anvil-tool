@@ -100,6 +100,7 @@ struct TaskCompleteBanner: View {
                             }
                         }
                         .buttonStyle(.plain)
+                        .accessibilityLabel(showChangedFiles ? "Hide \(changedFileCount) changed file\(changedFileCount == 1 ? "" : "s")" : "Show \(changedFileCount) changed file\(changedFileCount == 1 ? "" : "s")")
                     } else {
                         Text("\(changedFileCount) file\(changedFileCount == 1 ? "" : "s") changed")
                             .font(.system(size: 12))
@@ -234,6 +235,7 @@ struct TaskCompleteBanner: View {
                         .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.borderless)
+                .accessibilityLabel("Dismiss banner")
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
@@ -315,6 +317,7 @@ struct TaskCompleteBanner: View {
                                                     .background(Color.red.opacity(0.85), in: Capsule())
                                                 }
                                                 .buttonStyle(.plain)
+                                                .accessibilityLabel("Fix test \(testName) with agent")
                                             }
                                         }
                                         .padding(.horizontal, 10)
@@ -345,6 +348,7 @@ struct TaskCompleteBanner: View {
                                 .controlSize(.small)
                                 .padding(.horizontal, 10)
                                 .padding(.vertical, 6)
+                                .accessibilityLabel("Fix test failures with agent")
                             }
                             .background(Color(nsColor: .textBackgroundColor).opacity(0.6))
                         }
@@ -477,6 +481,7 @@ struct TaskCompleteBanner: View {
                     .background(Color.red.opacity(0.1), in: RoundedRectangle(cornerRadius: 4))
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel(showBuildOutput ? "Build failed. Hide build output." : "Build failed. Show build output.")
             } else {
                 HStack(spacing: 4) {
                     Image(systemName: "xmark.circle.fill")
@@ -555,6 +560,7 @@ struct TaskCompleteBanner: View {
                     .background(Color.red.opacity(0.1), in: RoundedRectangle(cornerRadius: 4))
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel(showTestOutput ? "Tests failed. Hide test output." : "Tests failed. Show test output.")
             } else {
                 HStack(spacing: 4) {
                     Image(systemName: "xmark.circle.fill")
@@ -615,6 +621,7 @@ private struct DiagnosticRow: View {
             }
             .buttonStyle(.plain)
             .help("Click to open file at \(locationLabel)")
+            .accessibilityLabel("Open file at \(locationLabel): \(diagnostic.message)")
 
             if isHovering, let fix = onFix {
                 Button(action: fix) {
@@ -631,6 +638,7 @@ private struct DiagnosticRow: View {
                 }
                 .buttonStyle(.plain)
                 .padding(.trailing, 8)
+                .accessibilityLabel("Fix diagnostic: \(diagnostic.message)")
                 .transition(.opacity)
             }
         }
@@ -717,6 +725,7 @@ private struct BannerFileRow: View {
         .buttonStyle(.plain)
         .onHover { isHovering = $0 }
         .help("Click to view diff for \(file.fileName)")
+        .accessibilityLabel("View diff for \(file.relativePath). Status: \(statusLabel).")
     }
 
     private var statusLabel: String {
@@ -761,6 +770,7 @@ private struct BannerPillButton: View {
         }
         .buttonStyle(.plain)
         .onHover { isHovering = $0 }
+        .accessibilityLabel(label)
     }
 
     private var backgroundColor: Color {

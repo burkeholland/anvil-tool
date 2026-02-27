@@ -75,6 +75,7 @@ struct TerminalTabBar: View {
             .menuStyle(.borderlessButton)
             .frame(width: 28)
             .help("New Terminal Tab")
+            .accessibilityLabel("New Terminal Tab")
             .padding(.trailing, 6)
         }
         .frame(height: 36)
@@ -133,6 +134,7 @@ private struct TerminalTabItem: View {
                 }
                 .buttonStyle(.plain)
                 .opacity(isHovering || isActive ? 1 : 0)
+                .accessibilityLabel("Close \(tab.title)")
             }
         }
         .padding(.horizontal, 10)
@@ -152,6 +154,9 @@ private struct TerminalTabItem: View {
         .contentShape(Rectangle())
         .onTapGesture { onSelect() }
         .onHover { isHovering = $0 }
+        .accessibilityLabel(tab.title
+            + (isActive ? ", active" : "")
+            + (isWaitingForInput ? ", waiting for input" : ""))
         .contextMenu {
             Button("Close") { onClose() }
                 .disabled(isOnly)

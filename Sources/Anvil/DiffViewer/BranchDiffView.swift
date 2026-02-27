@@ -150,6 +150,7 @@ struct BranchDiffView: View {
                     }
                     .buttonStyle(.borderless)
                     .help(contextExpanded ? "Collapse context lines" : "Expand all context lines")
+                    .accessibilityLabel(contextExpanded ? "Collapse context lines" : "Expand all context lines")
 
                     Button {
                         if collapsedFiles.count == filesWithDiffs.count {
@@ -165,6 +166,7 @@ struct BranchDiffView: View {
                     }
                     .buttonStyle(.borderless)
                     .help(collapsedFiles.count == filesWithDiffs.count ? "Expand All" : "Collapse All")
+                    .accessibilityLabel(collapsedFiles.count == filesWithDiffs.count ? "Expand all files" : "Collapse all files")
                 }
 
                 if let onDismiss {
@@ -177,6 +179,7 @@ struct BranchDiffView: View {
                     }
                     .buttonStyle(.borderless)
                     .help("Close Branch Diff")
+                    .accessibilityLabel("Close branch diff")
                 }
             }
             .padding(.horizontal, 12)
@@ -294,6 +297,7 @@ struct BranchDiffView: View {
                     }
                     .buttonStyle(.borderless)
                     .help("Open in Preview")
+                    .accessibilityLabel("Open \(file.path) in preview")
                 }
 
                 // Request Fix button for this file
@@ -306,6 +310,7 @@ struct BranchDiffView: View {
                 }
                 .buttonStyle(.borderless)
                 .help("Request Fix for this file")
+                .accessibilityLabel("Request fix for \(file.path)")
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 6)

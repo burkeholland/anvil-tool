@@ -230,6 +230,7 @@ struct DiffSummaryView: View {
                         }
                         .buttonStyle(.borderless)
                         .help("View \(annotationStore.annotations.count) inline annotation\(annotationStore.annotations.count == 1 ? "" : "s")")
+                        .accessibilityLabel("View \(annotationStore.annotations.count) inline annotation\(annotationStore.annotations.count == 1 ? "" : "s")")
                         .sheet(isPresented: $showAnnotationsList) {
                             AnnotationsListView(
                                 annotationStore: annotationStore,
@@ -255,6 +256,7 @@ struct DiffSummaryView: View {
                     }
                     .buttonStyle(.borderless)
                     .help(collapsedFiles.count == filesWithDiffs.count ? "Expand All" : "Collapse All")
+                    .accessibilityLabel(collapsedFiles.count == filesWithDiffs.count ? "Expand all files" : "Collapse all files")
                 }
 
                 if let onDismiss {
@@ -267,6 +269,7 @@ struct DiffSummaryView: View {
                     }
                     .buttonStyle(.borderless)
                     .help("Close Review")
+                    .accessibilityLabel("Close review")
                 }
             }
             .padding(.horizontal, 12)
@@ -287,6 +290,7 @@ struct DiffSummaryView: View {
                 .buttonStyle(.bordered)
                 .controlSize(.small)
                 .disabled(changesModel.unstagedFiles.isEmpty)
+                .accessibilityLabel("Stage all files")
 
                 Button {
                     withAnimation(.easeInOut(duration: 0.2)) {
@@ -303,6 +307,7 @@ struct DiffSummaryView: View {
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
                 .disabled(changesModel.changedFiles.isEmpty)
+                .accessibilityLabel(showCommitForm ? "Hide commit form" : "Open commit form")
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
@@ -335,6 +340,7 @@ struct DiffSummaryView: View {
                 }
                 .buttonStyle(.borderless)
                 .help(isStaged ? "Unstage file" : "Stage file")
+                .accessibilityLabel(isStaged ? "Unstage \(file.relativePath)" : "Stage \(file.relativePath)")
 
                 Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
                     .font(.system(size: 9, weight: .semibold))
@@ -387,6 +393,7 @@ struct DiffSummaryView: View {
                 }
                 .buttonStyle(.borderless)
                 .help("Open in Preview")
+                .accessibilityLabel("Open \(file.relativePath) in preview")
 
                 // Request Fix button for this file
                 Button {
@@ -398,6 +405,7 @@ struct DiffSummaryView: View {
                 }
                 .buttonStyle(.borderless)
                 .help("Request Fix for this file")
+                .accessibilityLabel("Request fix for \(file.relativePath)")
 
                 // Review toggle — cycles: unreviewed → reviewed ✓ → needs work ✗ → unreviewed
                 Button {
@@ -419,6 +427,7 @@ struct DiffSummaryView: View {
                 }
                 .buttonStyle(.borderless)
                 .help(changesModel.isReviewed(file) ? "Needs work (R)" : changesModel.isNeedsWork(file) ? "Clear review (R)" : "Mark as reviewed (R)")
+                .accessibilityLabel(changesModel.isReviewed(file) ? "Mark \(file.relativePath) as needs work" : changesModel.isNeedsWork(file) ? "Clear review for \(file.relativePath)" : "Mark \(file.relativePath) as reviewed")
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 6)

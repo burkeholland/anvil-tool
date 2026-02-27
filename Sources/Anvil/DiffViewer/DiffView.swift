@@ -153,6 +153,7 @@ struct DiffStatsBar: View {
             }
             .buttonStyle(.borderless)
             .help(contextExpanded ? "Collapse context lines" : "Expand all context lines")
+            .accessibilityLabel(contextExpanded ? "Collapse context lines" : "Expand all context lines")
 
             Picker("", selection: $mode) {
                 ForEach(DiffViewMode.allCases, id: \.rawValue) { m in
@@ -386,6 +387,7 @@ struct DiffHunkView: View {
                 }
                 .buttonStyle(.borderless)
                 .help("Stage this hunk")
+                .accessibilityLabel("Stage this hunk")
             }
             if let onUnstage {
                 Button { onUnstage() } label: {
@@ -395,6 +397,7 @@ struct DiffHunkView: View {
                 }
                 .buttonStyle(.borderless)
                 .help("Unstage this hunk")
+                .accessibilityLabel("Unstage this hunk")
             }
             if let onDiscard {
                 Button { onDiscard() } label: {
@@ -404,6 +407,7 @@ struct DiffHunkView: View {
                 }
                 .buttonStyle(.borderless)
                 .help("Discard this hunk")
+                .accessibilityLabel("Discard this hunk")
             }
             if let onRequestFix {
                 Button { showFixPopover = true } label: {
@@ -413,6 +417,7 @@ struct DiffHunkView: View {
                 }
                 .buttonStyle(.borderless)
                 .help("Fix this hunk")
+                .accessibilityLabel("Fix this hunk")
                 .popover(isPresented: $showFixPopover, arrowEdge: .trailing) {
                     HunkFixPopoverView(
                         filePath: filePath,
@@ -434,6 +439,7 @@ struct DiffHunkView: View {
                 }
                 .buttonStyle(.borderless)
                 .help("Show in Preview")
+                .accessibilityLabel("Show in preview")
             }
         }
         .padding(.horizontal, 6)
@@ -520,6 +526,7 @@ struct CollapsedContextSeparator: View {
         }
         .buttonStyle(.borderless)
         .help("Click to expand \(hiddenCount) hidden line\(hiddenCount == 1 ? "" : "s")")
+        .accessibilityLabel("Expand \(hiddenCount) hidden line\(hiddenCount == 1 ? "" : "s")")
     }
 }
 

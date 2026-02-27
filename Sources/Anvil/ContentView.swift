@@ -734,6 +734,7 @@ struct ContentView: View {
                                     }
                                     .buttonStyle(.plain)
                                     .help("Close Split")
+                                    .accessibilityLabel("Close split pane")
                                     .padding(.trailing, 6)
                                 }
                                 .padding(.leading, 10)
@@ -1742,6 +1743,7 @@ struct ToolbarView: View {
             }
             .buttonStyle(.borderless)
             .help("Toggle Sidebar (⌘B)")
+            .accessibilityLabel("Toggle Sidebar")
 
             Divider()
                 .frame(height: 16)
@@ -1775,6 +1777,7 @@ struct ToolbarView: View {
                 }
                 .buttonStyle(.plain)
                 .help("Switch Branch")
+                .accessibilityLabel("Current branch: \(branch). Tap to switch branch.")
                 .popover(isPresented: $showBranchPicker, arrowEdge: .bottom) {
                     if let rootURL = workingDirectory.directoryURL {
                         BranchPickerView(
@@ -1971,6 +1974,7 @@ private struct UnifiedAgentStatusPill: View {
         }
         .buttonStyle(.plain)
         .help(helpText)
+        .accessibilityLabel(helpText)
         .popover(isPresented: $showPopover, arrowEdge: .bottom) {
             UnifiedAgentPopover(
                 activityModel: activityModel,
@@ -2032,6 +2036,7 @@ private struct UnifiedAgentPopover: View {
                     }
                     .buttonStyle(.plain)
                     .help("Mode: \(mode.displayName) — click to cycle")
+                    .accessibilityLabel("Agent mode: \(mode.displayName). Tap to cycle mode.")
                 }
                 if let model = agentModel {
                     Text(model)
@@ -2077,6 +2082,7 @@ private struct UnifiedAgentPopover: View {
                     }
                     .buttonStyle(.plain)
                     .help("Context may be saturated — send /compact to the terminal")
+                    .accessibilityLabel("Compact session. Context may be saturated.")
                     .transition(.opacity.combined(with: .scale(scale: 0.85, anchor: .leading)))
                 }
             }
@@ -2155,6 +2161,7 @@ private struct UnifiedAgentPopover: View {
             }
             .buttonStyle(.plain)
             .foregroundStyle(.secondary)
+            .accessibilityLabel("Jump to Terminal")
         }
         .frame(width: 300)
         .animation(.easeInOut(duration: 0.3), value: sessionHealthMonitor.isSaturated)
@@ -2299,6 +2306,7 @@ struct GitSyncControls: View {
                         }
                         .foregroundStyle(.orange)
                         .help("\(workingDirectory.aheadCount) commit\(workingDirectory.aheadCount == 1 ? "" : "s") ahead of remote")
+                        .accessibilityLabel("\(workingDirectory.aheadCount) commit\(workingDirectory.aheadCount == 1 ? "" : "s") ahead of remote")
                     }
                     if workingDirectory.behindCount > 0 {
                         HStack(spacing: 1) {
@@ -2309,6 +2317,7 @@ struct GitSyncControls: View {
                         }
                         .foregroundStyle(.cyan)
                         .help("\(workingDirectory.behindCount) commit\(workingDirectory.behindCount == 1 ? "" : "s") behind remote")
+                        .accessibilityLabel("\(workingDirectory.behindCount) commit\(workingDirectory.behindCount == 1 ? "" : "s") behind remote")
                     }
                 }
             }
@@ -2335,6 +2344,7 @@ struct GitSyncControls: View {
                         .buttonStyle(.borderless)
                         .disabled(workingDirectory.aheadCount == 0 && workingDirectory.hasUpstream)
                         .help(workingDirectory.hasUpstream ? "Push \(workingDirectory.aheadCount) commit\(workingDirectory.aheadCount == 1 ? "" : "s")" : "Push and set upstream")
+                        .accessibilityLabel(workingDirectory.hasUpstream ? "Push \(workingDirectory.aheadCount) commit\(workingDirectory.aheadCount == 1 ? "" : "s")" : "Push and set upstream")
 
                         Button {
                             workingDirectory.pull()
@@ -2347,6 +2357,7 @@ struct GitSyncControls: View {
                         .buttonStyle(.borderless)
                         .disabled(!workingDirectory.hasUpstream)
                         .help(workingDirectory.hasUpstream ? "Pull" : "No upstream branch")
+                        .accessibilityLabel(workingDirectory.hasUpstream ? "Pull from remote" : "No upstream branch")
 
                         Button {
                             workingDirectory.fetch()
@@ -2358,6 +2369,7 @@ struct GitSyncControls: View {
                         }
                         .buttonStyle(.borderless)
                         .help("Fetch from remote")
+                        .accessibilityLabel("Fetch from remote")
                     }
                 }
 
@@ -2371,6 +2383,7 @@ struct GitSyncControls: View {
                             .foregroundStyle(.yellow)
                     }
                     .buttonStyle(.borderless)
+                    .accessibilityLabel("Sync error. Tap to view details.")
                     .popover(isPresented: $showSyncError, arrowEdge: .bottom) {
                         VStack(alignment: .leading, spacing: 8) {
                             Text("Sync Error")
@@ -2580,6 +2593,7 @@ struct SidebarTabButton: View {
         }
         .buttonStyle(.plain)
         .help(title)
+        .accessibilityLabel(badge.map { "\(title), \($0) item\($0 == 1 ? "" : "s")" } ?? title)
         .onHover { isHovering = $0 }
     }
 }
@@ -2826,6 +2840,7 @@ struct ChangesNavigationBar: View {
             }
             .buttonStyle(.borderless)
             .help("Previous Changed File (⌃⌘↑)")
+            .accessibilityLabel("Previous changed file")
 
             Button {
                 onNext()
@@ -2837,6 +2852,7 @@ struct ChangesNavigationBar: View {
             }
             .buttonStyle(.borderless)
             .help("Next Changed File (⌃⌘↓)")
+            .accessibilityLabel("Next changed file")
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 5)
@@ -3080,7 +3096,6 @@ struct AgentStatusPopover: View {
 
             Divider()
 
-            // Jump to terminal
             Button(action: onJumpToTerminal) {
                 HStack(spacing: 6) {
                     Image(systemName: "terminal")
@@ -3095,6 +3110,7 @@ struct AgentStatusPopover: View {
             }
             .buttonStyle(.plain)
             .foregroundStyle(.secondary)
+            .accessibilityLabel("Jump to Terminal")
         }
         .frame(width: 260)
     }
@@ -3137,6 +3153,8 @@ private struct AgentModePill: View {
             .buttonStyle(.plain)
             .help(mode.map { "Mode: \($0.displayName) — click to cycle" }
                 ?? "Agent mode unknown — click to set Interactive")
+            .accessibilityLabel(mode.map { "Agent mode: \($0.displayName). Tap to cycle." }
+                ?? "Agent mode unknown. Tap to set Interactive.")
 
             Divider()
                 .frame(height: 12)
@@ -3155,6 +3173,8 @@ private struct AgentModePill: View {
             .buttonStyle(.plain)
             .help(model.map { "Model: \($0) — click to switch" }
                 ?? "Model unknown — click to select")
+            .accessibilityLabel(model.map { "Model: \($0). Tap to switch model." }
+                ?? "Model unknown. Tap to select.")
             .popover(isPresented: $showModelPicker, arrowEdge: .bottom) {
                 modelPickerPopover
             }
@@ -3247,6 +3267,7 @@ private struct AgentInputIndicator: View {
         }
         .buttonStyle(.plain)
         .help("Agent is waiting for your input — click to focus terminal")
+        .accessibilityLabel("Agent needs input. Tap to focus terminal.")
         .onAppear { isPulsing = true }
     }
 }

@@ -532,6 +532,7 @@ struct ChangesListView: View {
             }
             .buttonStyle(.plain)
             .help("Discard all uncommitted changes (stashes first for recovery)")
+            .accessibilityLabel("Discard all uncommitted changes")
             Button { model.stageAll() } label: {
                 Text("Stage All")
                     .font(.system(size: 10))
@@ -596,6 +597,7 @@ struct ChangesListView: View {
                         }
                         .buttonStyle(.plain)
                         .help("Stash all uncommitted changes")
+                        .accessibilityLabel("Stash all uncommitted changes")
                     }
                 }
             }
@@ -1447,6 +1449,7 @@ struct CommitFormView: View {
                 }
                 .buttonStyle(.borderless)
                 .help("Auto-generate commit message from changes")
+                .accessibilityLabel("Auto-generate commit message")
                 .padding(.trailing, 4)
             }
 
@@ -2187,6 +2190,7 @@ struct ChangedFileRow: View {
                 }
                 .buttonStyle(.plain)
                 .help("Imported by \(dependentPaths.count) other file\(dependentPaths.count == 1 ? "" : "s") — click to see them")
+                .accessibilityLabel("\(dependentPaths.count) dependent file\(dependentPaths.count == 1 ? "" : "s"). Tap to view.")
                 .popover(isPresented: $showDependentsPopover, arrowEdge: .trailing) {
                     DependentsPopover(paths: dependentPaths)
                 }
@@ -2232,6 +2236,7 @@ struct ChangedFileRow: View {
                 }
                 .buttonStyle(.borderless)
                 .help(isReviewed ? "Needs work (R)" : isNeedsWork ? "Clear review (R)" : "Mark as reviewed (R)")
+                .accessibilityLabel(isReviewed ? "Mark \(file.fileName) as needs work" : isNeedsWork ? "Clear review for \(file.fileName)" : "Mark \(file.fileName) as reviewed")
             }
 
             // Discard button (trash icon, shown on hover)
@@ -2245,6 +2250,7 @@ struct ChangedFileRow: View {
                 }
                 .buttonStyle(.borderless)
                 .help("Discard Changes…")
+                .accessibilityLabel("Discard changes to \(file.fileName)")
             }
 
             // Redo button (arrow.uturn.right, shown on hover)
@@ -2258,6 +2264,7 @@ struct ChangedFileRow: View {
                 }
                 .buttonStyle(.borderless)
                 .help("Redo with Feedback…")
+                .accessibilityLabel("Redo changes to \(file.fileName) with feedback")
             }
 
             // Staging indicator
@@ -2298,6 +2305,9 @@ struct ChangedFileRow: View {
             }
         }
         .onDisappear { dismissTask?.cancel() }
+        .accessibilityLabel(file.fileName
+            + ", \(file.status.label)"
+            + (isReviewed ? ", reviewed" : isNeedsWork ? ", needs work" : ""))
         .popover(isPresented: Binding(
             get: { isHovering && file.diff != nil && !showDependentsPopover },
             set: { if !$0 { isHovering = false } }

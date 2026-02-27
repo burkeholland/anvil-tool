@@ -36,6 +36,7 @@ struct FileTreeView: View {
                             .foregroundStyle(.tertiary)
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel("Clear search")
                 }
                 Button {
                     model.showChangedOnly.toggle()
@@ -52,6 +53,7 @@ struct FileTreeView: View {
                 }
                 .buttonStyle(.plain)
                 .help(model.showChangedOnly ? "Show All Files" : "Show Changed Files Only")
+                .accessibilityLabel(model.showChangedOnly ? "Show all files" : "Show changed files only")
                 Button {
                     model.showAgentTouchedOnly.toggle()
                 } label: {
@@ -67,6 +69,7 @@ struct FileTreeView: View {
                 }
                 .buttonStyle(.plain)
                 .help(model.showAgentTouchedOnly ? "Show All Files" : "Show Agent-Referenced Files Only")
+                .accessibilityLabel(model.showAgentTouchedOnly ? "Show all files" : "Show agent-referenced files only")
                 Menu {
                     Button {
                         operationTargetURL = rootURL
@@ -91,6 +94,7 @@ struct FileTreeView: View {
                 .menuIndicator(.hidden)
                 .frame(width: 16)
                 .help("New File or Folder")
+                .accessibilityLabel("New file or folder")
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
@@ -593,6 +597,9 @@ struct FileRowView: View {
         .contentShape(Rectangle())
         .onTapGesture { onToggle() }
         .onHover { isHovering = $0 }
+        .accessibilityLabel(entry.name
+            + (gitStatus.map { ", \($0.label)" } ?? "")
+            + (entry.isDirectory ? (isExpanded ? ", expanded" : ", collapsed") : ""))
         .onChange(of: pulseToken) { _, token in
             if token != nil {
                 withAnimation(.linear(duration: 0)) { pulseOpacity = 1.0 }
