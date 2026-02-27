@@ -19,6 +19,10 @@ final class SessionListModel: ObservableObject {
     var projectRepository: String? {
         didSet { if oldValue != projectRepository { applyFilter() } }
     }
+    /// Text query typed by the user to search sessions by summary, branch, or cwd.
+    @Published var filterQuery: String = "" {
+        didSet { if oldValue != filterQuery { applyFilter() } }
+    }
 
     /// Called when the user taps a session row to resume it in a terminal tab.
     var onOpenSession: ((String) -> Void)?
@@ -129,8 +133,9 @@ final class SessionListModel: ObservableObject {
     private func applyFilter() {
         let cwd = projectCWD
         let repo = projectRepository
+        let query = filterQuery.trimmingCharacters(in: .whitespaces)
 
-        let filtered: [SessionItem]
+        var filtered: [SessionItem]
         if cwd == nil && repo == nil {
             filtered = allSessions
         } else {
@@ -138,6 +143,15 @@ final class SessionListModel: ObservableObject {
                 if let cwd = cwd, item.cwd == cwd { return true }
                 if let repo = repo, let itemRepo = item.repository, itemRepo == repo { return true }
                 return false
+            }
+        }
+
+        if !query.isEmpty {
+            let lower = query.lowercased()
+            filtered = filtered.filter { item in
+                item.summary.lowercased().contains(lower)
+                    || item.cwd.lowercased().contains(lower)
+                    || (item.branch?.lowercased().contains(lower) == true)
             }
         }
 

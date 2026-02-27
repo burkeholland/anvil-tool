@@ -7,30 +7,33 @@ struct SessionListView: View {
     var activeSessionIDs: Set<String> = []
 
     var body: some View {
-        if model.groups.isEmpty {
-            emptyState
-        } else {
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(model.groups, id: \.group) { entry in
-                        Section {
-                            ForEach(entry.items) { item in
-                                SessionRowView(
-                                    item: item,
-                                    isActive: activeSessionIDs.contains(item.id),
-                                    onTap: { model.onOpenSession?(item.id) }
-                                )
-                                Divider()
-                                    .padding(.leading, Spacing.md)
+        VStack(spacing: 0) {
+            searchField
+            if model.groups.isEmpty {
+                emptyState
+            } else {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(model.groups, id: \.group) { entry in
+                            Section {
+                                ForEach(entry.items) { item in
+                                    SessionRowView(
+                                        item: item,
+                                        isActive: activeSessionIDs.contains(item.id),
+                                        onTap: { model.onOpenSession?(item.id) }
+                                    )
+                                    Divider()
+                                        .padding(.leading, Spacing.md)
+                                }
+                            } header: {
+                                Text(entry.group.rawValue)
+                                    .font(.caption)
+                                    .fontWeight(.semibold)
+                                    .foregroundStyle(.secondary)
+                                    .padding(.horizontal, Spacing.md)
+                                    .padding(.top, Spacing.md)
+                                    .padding(.bottom, Spacing.xs)
                             }
-                        } header: {
-                            Text(entry.group.rawValue)
-                                .font(.caption)
-                                .fontWeight(.semibold)
-                                .foregroundStyle(.secondary)
-                                .padding(.horizontal, Spacing.md)
-                                .padding(.top, Spacing.md)
-                                .padding(.bottom, Spacing.xs)
                         }
                     }
                 }
@@ -38,19 +41,57 @@ struct SessionListView: View {
         }
     }
 
+    private var searchField: some View {
+        HStack(spacing: Spacing.xs) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.secondary)
+                .font(.system(size: 12))
+            TextField("Search sessions", text: $model.filterQuery)
+                .textFieldStyle(.plain)
+                .font(.subheadline)
+            if !model.filterQuery.isEmpty {
+                Button {
+                    model.filterQuery = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.secondary)
+                        .font(.system(size: 12))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, Spacing.sm)
+        .padding(.vertical, Spacing.xs)
+        .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 6))
+        .padding(.horizontal, Spacing.md)
+        .padding(.vertical, Spacing.sm)
+    }
+
     private var emptyState: some View {
         VStack(spacing: Spacing.md) {
             Spacer()
-            Image(systemName: "clock.badge")
-                .font(.system(size: 32))
-                .foregroundStyle(.tertiary)
-            Text("No sessions yet")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-            Text("Copilot CLI sessions for this\nproject will appear here")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
-                .multilineTextAlignment(.center)
+            if model.filterQuery.isEmpty {
+                Image(systemName: "clock.badge")
+                    .font(.system(size: 32))
+                    .foregroundStyle(.tertiary)
+                Text("No sessions yet")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                Text("Copilot CLI sessions for this\nproject will appear here")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                    .multilineTextAlignment(.center)
+            } else {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 32))
+                    .foregroundStyle(.tertiary)
+                Text("No matching sessions")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                Text("Try a different search term")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
             Spacer()
         }
         .frame(maxWidth: .infinity)

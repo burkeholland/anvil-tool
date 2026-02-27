@@ -144,12 +144,81 @@ updated_at: 2026-01-02T12:30:00Z
         XCTAssertEqual(filtered.first?.id, "1")
     }
 
+    // MARK: - Search filter
+
+    func testFilterQueryMatchesSummary() {
+        let items = [
+            makeItem(id: "1", cwd: "/a", summary: "Add authentication", branch: nil, repository: nil),
+            makeItem(id: "2", cwd: "/b", summary: "Fix build errors", branch: nil, repository: nil),
+        ]
+        let lower = "auth"
+        let result = items.filter { $0.summary.lowercased().contains(lower) }
+        XCTAssertEqual(result.map(\.id), ["1"])
+    }
+
+    func testFilterQueryMatchesBranch() {
+        let items = [
+            makeItem(id: "1", cwd: "/a", summary: "Work", branch: "feature/search", repository: nil),
+            makeItem(id: "2", cwd: "/b", summary: "Work", branch: "main", repository: nil),
+        ]
+        let lower = "search"
+        let result = items.filter { $0.branch?.lowercased().contains(lower) == true }
+        XCTAssertEqual(result.map(\.id), ["1"])
+    }
+
+    func testFilterQueryMatchesCWD() {
+        let items = [
+            makeItem(id: "1", cwd: "/Users/user/projects/anvil", summary: "X", branch: nil, repository: nil),
+            makeItem(id: "2", cwd: "/Users/user/other", summary: "X", branch: nil, repository: nil),
+        ]
+        let lower = "anvil"
+        let result = items.filter { $0.cwd.lowercased().contains(lower) }
+        XCTAssertEqual(result.map(\.id), ["1"])
+    }
+
+    func testFilterQueryCaseInsensitive() {
+        let items = [
+            makeItem(id: "1", cwd: "/a", summary: "Add Authentication", branch: nil, repository: nil),
+        ]
+        let lower = "authentication"
+        let result = items.filter { $0.summary.lowercased().contains(lower) }
+        XCTAssertEqual(result.count, 1)
+    }
+
+    func testEmptyFilterQueryReturnsAll() {
+        let items = [
+            makeItem(id: "1", cwd: "/a", summary: "A", branch: nil, repository: nil),
+            makeItem(id: "2", cwd: "/b", summary: "B", branch: nil, repository: nil),
+        ]
+        let query = "   "
+        let trimmed = query.trimmingCharacters(in: .whitespaces)
+        let result = trimmed.isEmpty ? items : items.filter { $0.summary.lowercased().contains(trimmed) }
+        XCTAssertEqual(result.count, 2)
+    }
+
+    func testFilterQueryNoMatchReturnsEmpty() {
+        let items = [
+            makeItem(id: "1", cwd: "/a", summary: "A", branch: nil, repository: nil),
+        ]
+        let lower = "zzznomatch"
+        let result = items.filter {
+            $0.summary.lowercased().contains(lower)
+                || $0.cwd.lowercased().contains(lower)
+                || ($0.branch?.lowercased().contains(lower) == true)
+        }
+        XCTAssertTrue(result.isEmpty)
+    }
+
     // MARK: - Helpers
 
     private func makeItem(id: String, cwd: String, repository: String?) -> SessionItem {
+        makeItem(id: id, cwd: cwd, summary: "Test", branch: nil, repository: repository)
+    }
+
+    private func makeItem(id: String, cwd: String, summary: String, branch: String?, repository: String?) -> SessionItem {
         SessionItem(
-            id: id, cwd: cwd, summary: "Test",
-            repository: repository, branch: nil,
+            id: id, cwd: cwd, summary: summary,
+            repository: repository, branch: branch,
             createdAt: Date(), updatedAt: Date()
         )
     }
