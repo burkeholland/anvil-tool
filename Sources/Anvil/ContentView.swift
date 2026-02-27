@@ -247,7 +247,7 @@ struct ContentView: View {
             }
         }
         .onAppear {
-            notificationManager.connect(to: nil)
+            notificationManager.connect()
             terminalProxy.historyStore = promptHistoryStore
             terminalProxy.sessionMonitor = sessionHealthMonitor
             terminalProxy.markerStore = promptMarkerStore
@@ -510,7 +510,6 @@ struct ContentView: View {
                 VStack {
                     QuickOpenView(
                         model: quickOpenModel,
-                        filePreview: nil,
                         onDismiss: { dismissQuickOpen() },
                         onSwitchToCommands: { query in
                             buildCommandPalette()
@@ -531,7 +530,6 @@ struct ContentView: View {
                 VStack {
                     QuickOpenView(
                         model: quickOpenModel,
-                        filePreview: nil,
                         onDismiss: { dismissMentionPicker() },
                         onMentionSelect: { result in
                             terminalProxy.mentionFile(relativePath: result.relativePath)

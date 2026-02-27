@@ -23,7 +23,7 @@ final class AgentNotificationManager {
 
     // MARK: - Setup
 
-    func connect(to activityModel: Any?) {
+    func connect() {
         cancellables.removeAll()
 
         // Clear pending state when the user brings Anvil to the foreground

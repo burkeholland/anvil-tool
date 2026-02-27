@@ -6,8 +6,6 @@ import AppKit
 /// file mention picker (⌘M) that inserts @path into the terminal instead.
 struct QuickOpenView: View {
     @ObservedObject var model: QuickOpenModel
-    /// Unused - kept for backwards compatibility. Pass nil.
-    var filePreview: AnyObject? = nil
     var onDismiss: () -> Void
     /// When set, the picker is in "mention" mode: selecting a file calls this
     /// closure with the result instead of opening it in the preview.
